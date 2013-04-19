@@ -1,0 +1,92 @@
+Guida per compilare il kernel
+
+!!!WORK IN PROGRESS!!!
+
+NB: le mie cartelle possono differire dalle tue
+
+
+$ export USE_CCACHE=1
+$ export CCACHE_DIR=~/toolchain/ccache
+$ export ARCH=arm
+$ export CROSS_COMPILE=~/toolchain/prebuilt/linux-x86/toolchain/arm-linux-androideabi-4.4.x/bin/arm-linux-androideabi-
+$ export PATH=~/toolchain/prebuilt/linux-x86/toolchain/arm-linux-androideabi-4.4.x/bin/:$PATH
+
+$ make  hisi_k3v2oem1_defconfig
+$ make  zImage
+
+final stage:
+
+$ cp arch/arm/boot/zImage ~/toolchain/output/
+$ find . -name "*.ko" -exec cp {} ~/toolchain/output \;
+
+
+How to Clean:
+$ make  distclean
+
+
+Lavorare con ramdisk e zImage
+
+gunzip -c initramfs.cpio.gz | cpio -i
+
+find . | cpio -o -H newc | gzip > initramfs.cpio.gz
+
+
+
+./mkbootimg --kernel zImage --ramdisk initrd.img  --base 0x00008000 --pagesize 2048 --ramdiskaddr 0x01000000  --cmdline 'console=ttyS0 vmalloc=384M k3v2_pmem=1 mmcparts=mmcblk0:p1(xloader),p3(nvme),p4(misc),p5(splash),p6(oeminfo),p7(reserved1),p8(reserved2),p9(recovery2),p10(recovery),p11(boot),p12(modemimage),p13(modemnvm1),p14(modemnvm2),p15(system),p16(cache),p17(cust),p18(userdata);mmcblk1:p1(ext_sdcard)' -o boot.img
+
+
+flash_image /dev/block/mmcblk0p11 new_boot.img  
+
+
+console=ttyAMA4,115200 k3v2_pmem=1 root=/dev/mmcblk0p2 rootfstype=ext2 rw init=/init	
+
+console=ttyAMA0,115200 k3v2_pmem=1 root=/dev/mmcblk0p2 rootfstype=ext2 rw init=/init
+
+
+
+
+Android Boot Image Info:
+
+* file name = boot.img 
+
+* image size = 4874240 bytes (4.65 MB)
+  page size  = 2048 bytes
+
+* Boot Name = ""
+
+* kernel size       = 4688492 bytes (4.47 MB)
+  ramdisk size      = 180469 bytes (0.17 MB)
+
+* load addresses:
+  kernel:       0x00008000
+  ramdisk:      0x01000000
+  tags:         0x00000100
+page size  = 2048 bytes
+
+* cmdline = console=ttyS0 vmalloc=384M k3v2_pmem=1 mmcparts=mmcblk0:p1(xloader),p3(nvme),p4(misc),p5(splash),p6(oeminfo),p7(reserved1),p8(reserved2),p9(recovery2),p10(recovery),p11(boot),p12(modemimage),p13(modemnvm1),p14(modemnvm2),p15(system),p16(cache),p17(cust),p18(userdata);mmcblk1:p1(ext_sdcard)
+
+* id = 0xa9288c90 0x887633bd 0xeff56fb9 0x01698b84 0xc557b8ad 0x00000000 0x00000000 0x00000000 
+
+
+
+Android Boot Image Info:
+
+* file name = /home/marco/toolchain/icsdump/bootICS.img 
+
+* image size = 8388608 bytes (8.00 MB)
+  page size  = 2048 bytes
+
+* Boot Name = ""
+
+* kernel size       = 4554980 bytes (4.34 MB)
+  ramdisk size      = 178353 bytes (0.17 MB)
+
+* load addresses:
+  kernel:       0x00008000
+  ramdisk:      0x01000000
+  tags:         0x00000100
+
+* cmdline = console=ttyS0 vmalloc=384M k3v2_pmem=1 mmcparts=mmcblk0:p1(xloader),p3(nvme),p4(misc),p5(splash),p6(oeminfo),p7(reserved1),p8(reserved2),p9(recovery2),p10(recovery),p11(boot),p12(modemimage),p13(modemnvm1),p14(modemnvm2),p15(system),p16(cache),p17(cust),p18(userdata);mmcblk1:p1(ext_sdcard)
+
+* id = 0x5662bc8a 0x4619393d 0x45826ffa 0x2eed8662 0x66969fd3 0x00000000 0x00000000 0x00000000 
+
