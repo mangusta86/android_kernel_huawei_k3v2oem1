@@ -100,12 +100,125 @@
 #define V4L2_CID_GET_SENSOR_VTS		(V4L2_CID_PRIVACY + 81)
 #define V4L2_CID_GET_FOCUS_RECT		(V4L2_CID_PRIVACY + 82)
 
+#define V4L2_CID_GET_CURRENT_CCM_RGAIN	(V4L2_CID_PRIVACY + 83)
+#define V4L2_CID_GET_CURRENT_CCM_BGAIN	(V4L2_CID_PRIVACY + 84)
+
+#define V4L2_CID_GET_APERTURE			(V4L2_CID_PRIVACY + 120)
+#define V4L2_CID_GET_EQUIV_FOCUS		(V4L2_CID_PRIVACY + 121)
+
 #define MAX_BRACKET_COUNT	3
 /* FIXME: now we only support 1 area focus and metering */
 #define MAX_METERING_RECT		1
 #define MAX_FOCUS_RECT		1
 
 #define CAMERA_SENSOR_NUM_MAX 10
+
+/* capbility definition */
+#define THIS_AUTO_WHITE_BALANCE (1 << CAMERA_WHITEBALANCE_AUTO)
+#define THIS_WHITE_BALANCE ( \
+				(1 << CAMERA_WHITEBALANCE_INCANDESCENT)	| \
+				(1 << CAMERA_WHITEBALANCE_FLUORESCENT)	| \
+				(1 << CAMERA_WHITEBALANCE_DAYLIGHT)	| \
+				(1 << CAMERA_WHITEBALANCE_CLOUDY_DAYLIGHT) \
+			   )
+#define THIS_BRIGHTNESS (\
+				(1 << CAMERA_BRIGHTNESS_L2) | \
+				(1 << CAMERA_BRIGHTNESS_L1) | \
+				(1 << CAMERA_BRIGHTNESS_H0) | \
+				(1 << CAMERA_BRIGHTNESS_H1) | \
+				(1 << CAMERA_BRIGHTNESS_H2)   \
+			)
+#define THIS_CONTRAST (\
+				(1 << CAMERA_CONTRAST_L2) | \
+				(1 << CAMERA_CONTRAST_L1) | \
+				(1 << CAMERA_CONTRAST_H0) | \
+				(1 << CAMERA_CONTRAST_H1) | \
+				(1 << CAMERA_CONTRAST_H2)   \
+			)
+#define THIS_SATURATION	(\
+				(1 << CAMERA_SATURATION_L2) | \
+				(1 << CAMERA_SATURATION_L1) | \
+				(1 << CAMERA_SATURATION_H0) | \
+				(1 << CAMERA_SATURATION_H1) | \
+				(1 << CAMERA_SATURATION_H2)   \
+			)
+#define THIS_ISO	(\
+				(1 << CAMERA_ISO_AUTO) | \
+				(1 << CAMERA_ISO_100) | \
+				(1 << CAMERA_ISO_200) | \
+				(1 << CAMERA_ISO_400) | \
+				(1 << CAMERA_ISO_800)   \
+			)
+#define THIS_EFFECT	(\
+				(1 << CAMERA_EFFECT_NONE)      | \
+				(1 << CAMERA_EFFECT_MONO)      | \
+				(1 << CAMERA_EFFECT_NEGATIVE)  | \
+				(1 << CAMERA_EFFECT_SEPIA)   \
+			)
+#define THIS_EXPOSURE    (CAMERA_EXPOSURE_MAX)
+#define THIS_EXPOSURE_STEP (CAMERA_EXPOSURE_STEP)
+#define THIS_SHARPNESS	(\
+				(1 << CAMERA_SHARPNESS_AUTO)   | \
+				(1 << CAMERA_SHARPNESS_1)      | \
+				(1 << CAMERA_SHARPNESS_2)      | \
+				(1 << CAMERA_SHARPNESS_3)      | \
+				(1 << CAMERA_SHARPNESS_4)      | \
+				(1 << CAMERA_SHARPNESS_5)        \
+			)
+#define THIS_METERING	(\
+				(1 << CAMERA_METERING_SPOT)   | \
+				(1 << CAMERA_METERING_CWA)   | \
+				(1 << CAMERA_METERING_AVERAGE)  \
+			)
+
+
+#define THIS_HFLIP	(1 << CAMERA_H_FLIP)
+#define THIS_VFLIP	(\
+				(1 << CAMERA_NO_FLIP) | \
+				(1 << CAMERA_H_FLIP)  | \
+				(1 << CAMERA_V_FLIP)  | \
+					(1 << CAMERA_HV_FLIP)   \
+				)
+
+#define THIS_HDR	(\
+				(1 << CAMERA_HDR_ON) | \
+				(1 << CAMERA_HDR_OFF) \
+			)
+
+#define THIS_ANTI_BANDING (\
+				(1 << V4L2_CID_POWER_LINE_FREQUENCY_50HZ) | \
+				(1 << V4L2_CID_POWER_LINE_FREQUENCY_60HZ) \
+			)
+
+#define THIS_SCENE	(\
+				(1 << CAMERA_SCENE_AUTO) | \
+				(1 << CAMERA_SCENE_ACTION) | \
+				(1 << CAMERA_SCENE_PORTRAIT) | \
+				(1 << CAMERA_SCENE_LANDSPACE) | \
+				(1 << CAMERA_SCENE_NIGHT) | \
+				(1 << CAMERA_SCENE_NIGHT_PORTRAIT) | \
+				(1 << CAMERA_SCENE_THEATRE) | \
+				(1 << CAMERA_SCENE_BEACH) | \
+				(1 << CAMERA_SCENE_SNOW) | \
+				(1 << CAMERA_SCENE_FIREWORKS) | \
+				(1 << CAMERA_SCENE_CANDLELIGHT)\
+			)
+
+#define THIS_FOCUS_MODE	(\
+				(1 << CAMERA_FOCUS_AUTO) | \
+				(1 << CAMERA_FOCUS_INFINITY) | \
+				(1 << CAMERA_FOCUS_MACRO) | \
+				(1 << CAMERA_FOCUS_CONTINUOUS_VIDEO) | \
+				(1 << CAMERA_FOCUS_CONTINUOUS_PICTURE)   \
+			)
+
+#define THIS_FLASH	(\
+				(1 << CAMERA_FLASH_ON)   | \
+				(1 << CAMERA_FLASH_TORCH)| \
+				(1 << CAMERA_FLASH_OFF)  | \
+				(1 << CAMERA_FLASH_AUTO)   \
+			)
+
 
 typedef enum {
 	ISP_CAPTURE_ONLINE = 0,
@@ -135,14 +248,6 @@ typedef enum {
 	STATE_IPP,
 	STATE_MAX,
 } camera_state;
-
-typedef enum {
-	STATE_EXT_PREVIEW_BINNING = 0,
-	STATE_EXT_PREVIEW_NOBINNING,
-	STATE_EXT_CAPTURE_BINNING,
-	STATE_EXT_CAPTURE_NOBINNING,
-	STATE_EXT_MAX,
-} camera_state_ext;
 
 typedef enum {
 	BUFFERTYPE_PREVIEW = 0,

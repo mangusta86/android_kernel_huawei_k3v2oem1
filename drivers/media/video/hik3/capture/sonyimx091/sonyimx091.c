@@ -70,6 +70,11 @@
 #define SONYIMX091_VTS_REG_H		0x0340
 #define SONYIMX091_VTS_REG_L		0x0341
 
+static camera_capability sonyimx091_cap[] = {
+	{V4L2_CID_FLASH_MODE, THIS_FLASH},
+	{V4L2_CID_FOCUS_MODE, THIS_FOCUS_MODE},
+};
+
 const struct isp_reg_t isp_init_regs_sonyimx091[] = {
 	//{0x65006, 0x01},//y36721 delete, not needed now.
 
@@ -720,6 +725,18 @@ static int sonyimx091_init_reg(void)
 	return 0;
 }
 
+static int sonyimx091_get_capability(u32 id, u32 *value)
+{
+	int i;
+	for (i = 0; i < sizeof(sonyimx091_cap) / sizeof(sonyimx091_cap[0]); ++i) {
+		if (id == sonyimx091_cap[i].id) {
+			*value = sonyimx091_cap[i].value;
+			break;
+		}
+	}
+	return 0;
+}
+
 static int sonyimx091_set_hflip(int flip)
 {
 	print_debug("enter %s flip=%d", __func__, flip);
@@ -1024,10 +1041,8 @@ static void sonyimx091_shut_down(void)
 */
 static void sonyimx091_set_default(void)
 {
-	/* add by c00215412 for CS_CHIP/ES_CHIP begin */
 	unsigned int chip_id;
 	int i;
-	/* add by c00215412 for CS_CHIP/ES_CHIP end */
 	sonyimx091_sensor.init = sonyimx091_init;
 	sonyimx091_sensor.exit = sonyimx091_exit;
 	sonyimx091_sensor.shut_down = sonyimx091_shut_down;
@@ -1052,7 +1067,7 @@ static void sonyimx091_set_default(void)
 	sonyimx091_sensor.set_frame_intervals = NULL;
 	sonyimx091_sensor.get_frame_intervals = NULL;
 
-	sonyimx091_sensor.get_capability = NULL;
+	sonyimx091_sensor.get_capability = sonyimx091_get_capability;
 
 	sonyimx091_sensor.set_hflip = sonyimx091_set_hflip;
 	sonyimx091_sensor.get_hflip = sonyimx091_get_hflip;
@@ -1102,6 +1117,9 @@ static void sonyimx091_set_default(void)
 	sonyimx091_sensor.isp_location = CAMERA_USE_K3ISP;
 	sonyimx091_sensor.sensor_tune_ops = NULL;
 
+	sonyimx091_sensor.get_sensor_aperture = NULL;
+	sonyimx091_sensor.get_equivalent_focus = NULL;
+
 	sonyimx091_sensor.af_enable = 1;
 	sonyimx091_sensor.vcm = &vcm_ad5823;
 
@@ -1125,7 +1143,6 @@ static void sonyimx091_set_default(void)
 	sonyimx091_sensor.vflip = 0;
 	sonyimx091_sensor.old_flip = 0;
 
-	/* add by y00215412 for CS_CHIP/DI_CHIP begin */
 	chip_id = get_chipid();
 
 	if (chip_id == DI_CHIP_ID) {
@@ -1133,12 +1150,10 @@ static void sonyimx091_set_default(void)
 			sonyimx091_framesizes[i].fps = sonyimx091_framesizes[i].fps_es;
 		}
 
-		/* full size, add by y36721 */
 		i = ARRAY_SIZE(sonyimx091_framesizes) - 1;
 		sonyimx091_framesizes[i].sensor_setting.setting = sonyimx091_framesize_full_es;
 		sonyimx091_framesizes[i].sensor_setting.seq_size = ARRAY_SIZE(sonyimx091_framesize_full_es);
 	}
-	/* add by y00215412 for CS_CHIP/ES_CHIP end */
 }
 
 /*

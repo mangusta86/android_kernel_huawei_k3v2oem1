@@ -57,7 +57,7 @@ static struct wake_lock wlock;
 /*
  * Management functions
  */
- #define  MAX_ADC_PROX_VALUE  1023
+ #define  MAX_ADC_PROX_VALUE  1022
  #define  PS_FIRST_VALUE      550
 
 static int apds990x_gpio_init(enum pull_updown new_mode, char *pin_name);
@@ -67,7 +67,7 @@ static int min_proximity_value;
 static int apds_990x_pwindows_value = 300;
 static int apds_990x_pwave_value = 150;
 static int ps_h, ps_l = 0;
-
+static int als_polling_count;
 static int apds990x_set_command(struct i2c_client *client, int command)
 {
 	struct apds990x_data *data = i2c_get_clientdata(client);
@@ -490,7 +490,14 @@ static void apds990x_als_polling_work_handler(struct work_struct *work)
 
 		dev_dbg(&client->dev, "apds_990x_proximity_handler = FAR\n");
 	}
-
+	if( als_polling_count <5 )
+	{
+		if(luxValue == 10000)
+			luxValue = luxValue - als_polling_count%2;
+		else
+			luxValue = luxValue + als_polling_count%2;
+		als_polling_count++;
+	}
     input_report_abs(data->input_dev_als, ABS_MISC, luxValue); /* report the lux level */
     input_sync(data->input_dev_als);
 
@@ -630,12 +637,13 @@ static ssize_t apds990x_store_enable_ps_sensor(struct device *dev,
 			apds990x_set_atime(client, 0xfa); /* 27.2ms */
 			apds990x_set_ptime(client, 0xff); /* 2.72ms */
 
-			 apds990x_set_ppcount(client, 5);
+			 apds990x_set_ppcount(client, 2);
                      //apds990x_set_control(client, 0x20); /* 100mA, IR-diode, 1X PGAIN, 1X AGAIN */
                      apds990x_set_control(client, 0x20); /* 100mA, IR-diode, 1X PGAIN, 1X AGAIN */
 
 			apds990x_set_pilt(client, 0);
 			apds990x_set_piht(client, PS_FIRST_VALUE);
+			min_proximity_value = MAX_ADC_PROX_VALUE - apds_990x_pwindows_value; //reset min_proximity_value when enable ps
 
 			apds990x_set_ailt( client, 0);
 			apds990x_set_aiht( client, 0xffff);
@@ -734,6 +742,7 @@ static ssize_t apds990x_store_enable_als_sensor(struct device *dev,
 	if (val == 1) {
 		/* turn on light sensor */
 		if (data->enable_als_sensor == 0) {
+			als_polling_count = 0;
 
 			data->enable_als_sensor = 1;
 			apds990x_set_enable(client, 0); /* Power Off */
@@ -750,7 +759,7 @@ static ssize_t apds990x_store_enable_als_sensor(struct device *dev,
 				apds990x_set_ptime(client, 0xff); /* 2.72ms */
 
 			/*	apds990x_set_ppcount(client, 8);*/ /* 8-pulse */
-				apds990x_set_ppcount(client, 5); /* 5-pulse */
+				apds990x_set_ppcount(client, 2); /* 5-pulse */
 
 				/* if prox sensor was activated previously */
 				apds990x_set_enable(client, 0x27);
@@ -782,7 +791,7 @@ static ssize_t apds990x_store_enable_als_sensor(struct device *dev,
 			apds990x_set_atime(client, 0xfa);  /* 27.2ms */
 			apds990x_set_ptime(client, 0xff); /* 2.72ms */
 			/*apds990x_set_ppcount(client, 8);*/ /* 8-pulse */
-			apds990x_set_ppcount(client, 5); /* 5-pulse */
+			apds990x_set_ppcount(client, 2); /* 5-pulse */
 			/* modify */
 			/* apds990x_set_control(client, 0x20); */ /* 100mA, IR-diode, 1X PGAIN, 1X AGAIN */
 
@@ -916,11 +925,22 @@ static ssize_t apds990x_store_ps_enable(struct device *dev,
 
 static DEVICE_ATTR(ps_enable, 0664,
 				   apds990x_show_ps_enable, apds990x_store_ps_enable);
+static ssize_t apds990x_show_pdata_value(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+	struct apds990x_data *data = i2c_get_clientdata(client);
+	data->ps_data = i2c_smbus_read_word_data(client, CMD_WORD|APDS990x_PDATAL_REG);
+	return sprintf(buf, "%d\n", data->ps_data);
+}
+static DEVICE_ATTR(pdata_value, 0664,
+				   apds990x_show_pdata_value, NULL);
 static struct attribute *apds990x_attributes[] = {
 	&dev_attr_enable_ps_sensor.attr,
 	&dev_attr_enable_als_sensor.attr,
 	&dev_attr_als_poll_delay.attr,
 	&dev_attr_ps_enable.attr,
+	&dev_attr_pdata_value.attr,
 	NULL
 };
 
@@ -961,7 +981,7 @@ static int apds990x_init_client(struct i2c_client *client)
 	apds990x_set_ptime(client, 0xFF);	/* 2.72ms Prox integration time*/
 	apds990x_set_wtime(client, 0xFF);	/* 2.72ms Wait time*/
 
-    apds990x_set_ppcount(client, 0x05);	/* 5-Pulse for proximity*/
+    apds990x_set_ppcount(client, 0x02);	/* 5-Pulse for proximity*/
 
 	apds990x_set_config(client, 0);		/* no long wait */
 
@@ -1013,8 +1033,8 @@ static int __devinit apds990x_probe(struct i2c_client *client,
 {
 	struct apds990x_data *data;
 	int err = 0;
-        apds_990x_pwindows_value = 200;
-        apds_990x_pwave_value = 250;
+        apds_990x_pwindows_value = 180;
+        apds_990x_pwave_value = 230;
     min_proximity_value = MAX_ADC_PROX_VALUE - apds_990x_pwindows_value;
 
 	if (!i2c_check_functionality(client->adapter,
@@ -1138,6 +1158,10 @@ static int __devinit apds990x_probe(struct i2c_client *client,
 	}
 
 #ifdef CONFIG_HUAWEI_SENSORS_INPUT_INFO
+           err = set_sensor_chip_info(ALS, "AVAGO APDS9900 ");
+	    if (err) {
+		    dev_err(&client->dev, "set_sensor_chip_info error\n");
+	    }
 	err = set_sensor_input(ALS, data->input_dev_als->dev.kobj.name);
 	if (err) {
 		sysfs_remove_group(&client->dev.kobj, &apds990x_attr_group);
@@ -1145,7 +1169,10 @@ static int __devinit apds990x_probe(struct i2c_client *client,
 		       __func__, data->input_dev_als->name);
 		goto exit_unregister_dev_ps;
 	}
-
+       err = set_sensor_chip_info(PS, "AVAGO APDS9900 ");
+	    if (err) {
+		    dev_err(&client->dev, "set_sensor_chip_info error\n");
+	    }
 	err = set_sensor_input(PS, data->input_dev_ps->dev.kobj.name);
 	if (err) {
 		sysfs_remove_group(&client->dev.kobj, &apds990x_attr_group);

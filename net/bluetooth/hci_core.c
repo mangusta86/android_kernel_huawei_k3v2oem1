@@ -1906,11 +1906,9 @@ static int hci_send_frame(struct sk_buff *skb)
 	/* Get rid of skb owner, prior to sending to the driver. */
 	skb_orphan(skb);
 
-/*Begin:Added by g00124340 2011/09/03  for bluetooth low power */
 
 	hci_notify(hdev, HCI_DEV_WRITE);
 
-/*End:Added by g00124340 2011/09/03 */
 	return hdev->send(skb);
 }
 

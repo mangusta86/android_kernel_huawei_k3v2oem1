@@ -4,6 +4,8 @@
 #define	BATTERY_CAPACITY_FULL			(100)
 #define	BATTERY_MONITOR_INTERVAL		(20)
 #define	BATTERY_LOW_CAPACITY			(15)
+#define POWEROFF_CAPACITY_2               (2)
+#define POWEROFF_VOLTAGE_3450           (3450)
 
 #define	LOW_VOL_IRQ_NUM					(13)
 #define	LOW_BAT_VOL_MASK_1				(0x3B)

@@ -67,7 +67,6 @@
 #include <hsad/config_debugfs.h>
 #include <hsad/config_interface.h>
 #ifdef CONFIG_LEDS_K3_6421
-/* skf57909 2011/11/8  add begin */
 #include <linux/led/k3-leds.h>
 #endif
 
@@ -79,7 +78,6 @@
 #include <linux/debugfs.h>
 #endif
 
-/*Begin:Added by g00124340 2011/09/19  for for bluetooth */
 #define	GPIO_BT_EN					(GPIO_21_1)
 #define	GPIO_BT_RST					(GPIO_21_0)
 #define	GPIO_HOST_WAKEUP			(GPIO_20_6)
@@ -87,12 +85,11 @@
 
 #define	REGULATOR_DEV_BLUETOOTH_NAME	"bt-io"
 
-/*End:Added	by g00124340 2011/09/19	*/
-/* skf57909 2011/11/8  add end */
 #define GPIO_LCD_RESET  (003)
 #define GPIO_LCD_POWER  (171)
 #define GPIO_LCD_ID0	(135)
 #define GPIO_LCD_ID1	(136)
+#define GPIO_LCD_TE (072)
 #define GPIO_PWM0   (149)
 #define GPIO_PWM1   (150)
 
@@ -100,6 +97,7 @@
 #define GPIO_LCD_RESET_NAME "gpio_lcd_reset"
 #define GPIO_LCD_ID0_NAME "gpio_lcd_id0"
 #define GPIO_LCD_ID1_NAME "gpio_lcd_id1"
+#define GPIO_LCD_TE_NAME "gpio_lcd_te"
 #define GPIO_PWM0_NAME   "gpio_pwm0"
 #define GPIO_PWM1_NAME   "gpio_pwm1"
 #define REG_BASE_PWM0_NAME  "reg_base_pwm0"
@@ -117,22 +115,18 @@
 #define PLATFORM_DEVICE_LCD_NAME "mipi_toshiba_MDW70_V001"
 #elif  defined(CONFIG_LCD_PANASONIC_VVX10F002A00)
 #define PLATFORM_DEVICE_LCD_NAME "mipi_panasonic_VVX10F002A00"
+#elif defined(CONFIG_LCD_CMI_OTM1280A)
+#define PLATFORM_DEVICE_LCD_NAME "mipi_cmi_OTM1280A"
 #endif
 
-/* Begin: Added by d59977 for BCM GPS */
 #define GPIO_GPS_BCM_EN    (GPIO_18_7)
 #define GPIO_GPS_BCM_RET   (GPIO_19_0)
-/* End: Added by d59977 for BCM GPS */
 
-/* Begin: Added by d59977 for BCM GPS */
 #define GPIO_GPS_BCM_EN_NAME    "gpio_gps_bcm_enable"
 #define GPIO_GPS_BCM_RET_NAME   "gpio_gps_bcm_rest"
-/* End: Added by d59977 for BCM GPS */
 
-/* Begin: Added for agps e911 */
 #define GPIO_GPS_BCM_REFCLK (GPIO_19_1)     /*GPIO_153*/
 #define GPIO_GPS_BCM_REFCLK_NAME   "gpio_gps_bcm_refclk"
-/* End: Added for agps e911 */
 
 
 #define SECRAM_RESET_ADDR	IO_ADDRESS(REG_BASE_PMUSPI + (0x87 << 2))
@@ -168,7 +162,7 @@ static struct adc_data hi6421_adc_table[] = {
 	},
 	{
 		.ch = ADC_ADCIN3,
-		.vol = ADC_VOLTAGE_MOD1,
+		.vol = ADC_VOLTAGE_MOD3,
 		.clock = HKADC_CK_SEL_TWO,
 		.buffer = HKADC_BUFF_SEL_YES,
 		.parameter = ADC_PARAMETER1,
@@ -253,7 +247,6 @@ static struct platform_device hisik3_device_hwmon = {
 };
 
 #ifdef CONFIG_LEDS_K3_6421
-/* skf57909 2011/11/8 led add begin */
 /*k3_led begin*/
 static struct k3_led_platform_data hi6421_leds = {
 	.leds_size = K3_LEDS_MAX,
@@ -328,10 +321,8 @@ static struct platform_device hi6421_led_device = {
 /*k3_led end*/
 #endif
 
-/* skf57909 2011/11/8 led add end */
 
 #ifdef CONFIG_ANDROID_K3_VIBRATOR
-/* skf57909 2011/11/8 vibrator add begin */
 static struct k3_vibrator_platform_data hi6421_vibrator = {
 	.low_freq  = PERIOD,
 	.low_power = ISET_POWER,
@@ -360,7 +351,6 @@ static struct platform_device hi6421_vibrator_device = {
 #endif
 
 /*vibrator end*/
-/* skf57909 2011/11/8 vibrator add end */
 
 static struct resource hi6421_irq_resources[] = {
 	{
@@ -426,6 +416,12 @@ static struct resource k3_lcd_resources[] = {
 		.end = REG_BASE_PWM0 + REG_PWM0_IOSIZE-1,
 		.flags = IORESOURCE_MEM,
 	},  
+	[7] = {
+		.name = GPIO_LCD_TE_NAME,
+		.start = GPIO_LCD_TE,
+		.end = GPIO_LCD_TE,
+		.flags = IORESOURCE_IO,
+	},
 };
 
 static struct platform_device k3_lcd_device = {
@@ -444,6 +440,8 @@ static struct platform_device k3_lcd_device = {
 
 #define USB_SWITCH_CONTROL_GPIO     144
 #define USB_SWITCH_EN_GPIO          174
+#define USB_SWITCH_CONTROL_GPIO_U9508       53
+#define USB_SWITCH_EN_GPIO_U9508            52
 #define USB_SWITCH_INTERRUPT_GPIO   99
 
 static struct usb_switch_platform_data usw_plat_data = {
@@ -462,8 +460,22 @@ static struct platform_device usb_switch_device = {
 	},
 };
 
+static struct usb_switch_platform_data usw_plat_data_u9508 = {
+        .name           = "usbsw",
+        .usw_ctrl_gpio  = USB_SWITCH_CONTROL_GPIO_U9508,
+        .usw_en_gpio    = USB_SWITCH_EN_GPIO_U9508,
+        .usw_int_gpio   = USB_SWITCH_INTERRUPT_GPIO,
+        .irq_flags      = IRQ_TYPE_EDGE_RISING,
+};
 
-/* Begin: Added by d59977 for BCM GPS */
+static struct platform_device usb_switch_device_u9508 = {
+    .name   = "switch-usb",
+    .dev    = {
+        .init_name = "switch-usb",
+        .platform_data = &usw_plat_data_u9508,
+    },
+};
+
 static struct resource k3_gps_bcm_resources[] = {
 	[0] = {
 	.name  = GPIO_GPS_BCM_EN_NAME,
@@ -477,14 +489,12 @@ static struct resource k3_gps_bcm_resources[] = {
 	.end   = GPIO_GPS_BCM_RET,
 	.flags = IORESOURCE_IO,
 	},
-	/* Begin: Added for agps e911 */
 	[2] = {
 	.name  = GPIO_GPS_BCM_REFCLK_NAME,
 	.start = GPIO_GPS_BCM_REFCLK,
 	.end   = GPIO_GPS_BCM_REFCLK,
 	.flags = IORESOURCE_IO,
 	},
-	/* end: Added for agps e911 */
 };
 
 static struct platform_device k3_gps_bcm_device = {
@@ -496,9 +506,7 @@ static struct platform_device k3_gps_bcm_device = {
 	.num_resources = ARRAY_SIZE(k3_gps_bcm_resources),
 	.resource = k3_gps_bcm_resources,
 };
-/* End: Added by d59977 for BCM GPS */
 
-/*Begin:Added by g00124340 2011/09/19  for for bluetooth */
 
 static struct resource bluepower_resources[] = {
 	{
@@ -548,7 +556,6 @@ static struct platform_device bcm_bluesleep_device = {
 	.num_resources	= ARRAY_SIZE(bluesleep_resources),
 	.resource	= bluesleep_resources,
 };
-/*End:Added	by g00124340 2011/09/19	*/
 /*  camera resources */
 static struct resource hisik3_camera_resources[] = {
 	{
@@ -744,7 +751,6 @@ static struct platform_device hisik3_power_key_device = {
 	.resource = hisik3_power_key_resources,
 };
 
-/*watchdog added by s00212129*/
 static struct resource  hisik3_watchdog_resources[] = {
 	[0] = {
 		.start = REG_BASE_WD,
@@ -999,7 +1005,7 @@ static struct atmel_i2c_platform_data atmel_tp_platform_data = {
 		36,33,33,33,33,
 		33,33,33,0,0,
 		0,0,0,1,0,
-		1,1,10,4,0,
+		1,2,10,4,0,
 		0,0,0,0,0,
 		0,0
 	},
@@ -1268,10 +1274,35 @@ static struct i2c_board_info hisik3_i2c_bus1_devs[]= {
 };
 
 /* please add platform device in the struct.*/
+static struct platform_device *k3v2oem1_public_dev_u9508[] __initdata = {
+    &hisik3_hi6421_irq_device,
+    &hisik3_adc_device,
+#ifdef CONFIG_LEDS_K3_6421
+    &hi6421_led_device,
+#endif
+
+#ifdef CONFIG_ANDROID_K3_VIBRATOR
+    &hi6421_vibrator_device,
+#endif
+    &hisik3_camera_device,
+    &hisik3_fake_camera_device,
+    &hisik3_device_hwmon,
+    &hisik3_keypad_device,
+    &hisik3_keypad_backlight_device,
+    &k3_lcd_device,
+    &k3_gps_bcm_device,
+    &hisik3_battery_monitor,
+    &btbcm_device,
+    &bcm_bluesleep_device,
+    &hisik3_power_key_device,
+    &tpa6132_device,
+    &usb_switch_device_u9508,
+    &boardid_dev,
+    &hisik3_watchdog_device,
+};
 static struct platform_device *k3v2oem1_public_dev[] __initdata = {
 	&hisik3_hi6421_irq_device,
 	&hisik3_adc_device,
-/* skf57909 2011/11/8  add begin */
 #ifdef CONFIG_LEDS_K3_6421	
 	&hi6421_led_device,
 #endif
@@ -1279,7 +1310,6 @@ static struct platform_device *k3v2oem1_public_dev[] __initdata = {
 #ifdef CONFIG_ANDROID_K3_VIBRATOR	
 	&hi6421_vibrator_device,
 #endif
-/* skf57909 2011/11/8  add end */
 	&hisik3_camera_device,
 	&hisik3_fake_camera_device,
 	&hisik3_device_hwmon,
@@ -1288,15 +1318,12 @@ static struct platform_device *k3v2oem1_public_dev[] __initdata = {
 	&k3_lcd_device, 
 	&k3_gps_bcm_device, 
 	&hisik3_battery_monitor,
-/*Begin:Added by g00124340 2011/09/19  for for bluetooth */
 	&btbcm_device,
 	&bcm_bluesleep_device,
-/*End:Added	by g00124340 2011/09/19	*/
 	&hisik3_power_key_device,
 	&tpa6132_device,
 	&usb_switch_device,
 	&boardid_dev,
-/*added by s00212129 for watchdog 2012/2/29 */
 	&hisik3_watchdog_device,
 };
 
@@ -1406,13 +1433,16 @@ static void __init k3v2oem1_init(void)
 	 */
 	board_type = get_board_type();
 	switch (board_type) {
-	case E_BOARD_TYPE_U9508:
+	case E_BOARD_TYPE_U9510:
 #ifdef CONFIG_LEDS_K3_6421
 		hi6421_led_device.dev.platform_data = &hi6421_leds_phone;
 #endif
 		for( index =0; index <  ARRAY_SIZE(k3v2oem1_public_dev); index++ ) {
 			if ( (struct platform_device *)(&hisik3_keypad_device) == (struct platform_device *)(k3v2oem1_public_dev[index]) ) {
-				k3v2oem1_public_dev[index] = &hisik3_gpio_keypad_device;
+				if (E_BOARD_TYPE_U9508 == board_type)
+				    k3v2oem1_public_dev_u9508[index] = &hisik3_gpio_keypad_device;
+				else
+				    k3v2oem1_public_dev[index] = &hisik3_gpio_keypad_device;
 				break;
 			}
 		}
@@ -1422,8 +1452,11 @@ static void __init k3v2oem1_init(void)
 	default:
 		break;
 	}
-	platform_add_devices(k3v2oem1_public_dev, ARRAY_SIZE(k3v2oem1_public_dev));
-
+    if (E_BOARD_TYPE_U9508 == board_type){
+        platform_add_devices(k3v2oem1_public_dev_u9508, ARRAY_SIZE(k3v2oem1_public_dev_u9508));
+    }else{
+    	platform_add_devices(k3v2oem1_public_dev, ARRAY_SIZE(k3v2oem1_public_dev));
+    }
 	k3v2_i2c_devices_init();
 	synaptics_virtual_keys_init();
 
@@ -1517,7 +1550,6 @@ static void __init k3v2_map_io(void)
 	k3v2_map_common_io();
 }
 
-/* Begin: change ro.hardware to huawei */
 MACHINE_START(K3V2OEM1, "huawei")
 	.boot_params	= PLAT_PHYS_OFFSET + 0x00000100,
 	.init_irq       = k3v2_gic_init_irq,
@@ -1526,4 +1558,3 @@ MACHINE_START(K3V2OEM1, "huawei")
 	.timer          = &k3v2_timer,
 	.init_early 	= k3v2_early_init,
 MACHINE_END
-/* End: change ro.hardware to huawei */

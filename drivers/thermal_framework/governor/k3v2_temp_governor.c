@@ -41,6 +41,7 @@
 #include <linux/temperature_sensor.h>
 #include <linux/pm_qos_params.h>
 #include <linux/ipps.h>
+#include <hsad/config_mgr.h>
 #ifdef CONFIG_DEBUG_FS
 #include <linux/debugfs.h>
 #include <linux/seq_file.h>
@@ -77,17 +78,23 @@ struct k3v2_die_governor {
 	struct delayed_work average_cpu_sensor_work;
 	int hot_temp_num;
 	int cold_temp_num;
+	int comfort_threshold_hot;
+	int comfort_threshold_cold;
 	bool k3v2_freq_is_lock;
 	int exceed_temperature_time;
 	struct work_struct regulator_otmp_wk;
 	struct workqueue_struct *regulator_otmp_wq;
 };
 static int g_temp_bypass;
-
 #ifdef CONFIG_IPPS_SUPPORT
 static struct ipps_client ipps_client;
 #endif
-
+static int thermal_sensor_type = 0;
+static enum sensor_type{
+        APSENSOR,
+        SIMSENSOR,
+        UNKONWN
+    };
 #ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
 /* pm_qos interface global val*/
 struct pm_qos_lst {
@@ -130,10 +137,10 @@ void k3v2_temperature_pm_qos_remove(void)
 #endif
 static int k3v2_cpu_thermal_manager(int temp)
 {
-	if (temp > COMFORT_THRESHOLD_HOT) {
+	if (temp > k3v2_gov->comfort_threshold_hot) {
 		k3v2_gov->hot_temp_num++;
 		k3v2_gov->cold_temp_num = 0;
-	} else if (temp < COMFORT_THRESHOLD_COLD) {
+	} else if (temp < k3v2_gov->comfort_threshold_cold) {
 		k3v2_gov->cold_temp_num++;
 		k3v2_gov->hot_temp_num = 0;
 	} else {
@@ -141,7 +148,7 @@ static int k3v2_cpu_thermal_manager(int temp)
 		k3v2_gov->cold_temp_num = 0;
 	}
 #ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
-	if ((temp > COMFORT_THRESHOLD_HOT) && (READ_TEMPERATURE_HOT_TIME <= k3v2_gov->hot_temp_num)) {
+	if ((temp > k3v2_gov->comfort_threshold_hot) && (READ_TEMPERATURE_HOT_TIME <= k3v2_gov->hot_temp_num)) {
 
 		k3v2_gov->exceed_temperature_time++;
 		if (3 <= k3v2_gov->exceed_temperature_time) {
@@ -164,7 +171,7 @@ static int k3v2_cpu_thermal_manager(int temp)
 			k3v2_gov->k3v2_freq_is_lock = true;
 			pr_info("COMFORT_THRESHOLD_HOT limit \n\r");
 		}
-	} else if ((temp < COMFORT_THRESHOLD_COLD) && (READ_TEMPERATURE_TIME <= k3v2_gov->cold_temp_num)) {
+	} else if ((temp < k3v2_gov->comfort_threshold_cold) && (READ_TEMPERATURE_TIME <= k3v2_gov->cold_temp_num)) {
 		k3v2_gov->exceed_temperature_time = 0;
 		if (k3v2_gov->k3v2_freq_is_lock == true) {
 			pm_qos_update_request(&g_cpumaxlimits, PM_QOS_CPU_MAXPROFILE_DEFAULT_VALUE);
@@ -212,8 +219,13 @@ static int average_on_die_temperature(void)
 
 		temp = (k3v2_gov->sim_temp + k3v2_gov->ap_temp + k3v2_gov->k3v2_temp) / 3;
 	}
-#elif defined(CONFIG_K3V2_SIM_SENSOR)
-	if (sim_sensor) {
+#elif defined(CONFIG_K3V2_AP_SENSOR) && defined(CONFIG_K3V2_SIM_SENSOR)
+	if ((ap_sensor) && (APSENSOR == thermal_sensor_type )) {
+		k3v2_gov->ap_temp = thermal_request_temp(ap_sensor);
+		temp = k3v2_gov->ap_temp;/*judgement base on ap temp */
+//		pr_info("[brand] %s,ap_temp[%d]\n\r", __func__,k3v2_gov->ap_temp);
+	}
+	else if ((sim_sensor) && (SIMSENSOR == thermal_sensor_type)) {
 		k3v2_gov->sim_temp = thermal_request_temp(sim_sensor);
 		temp = k3v2_gov->sim_temp;/*judgement base on SIM temp */
 	}
@@ -282,7 +294,35 @@ static int k3v2_process_cpu_temp(struct thermal_dev *temp_sensor, int temp)
 	}
 	return 0;
 }
-
+static int get_firmware_thermal_temp(void)
+{
+    char product_flag[15];
+	bool ret =0;
+	int temp = 0;
+    if ( get_hw_config_int("thermal_temp/hot_temp", &temp, NULL))
+		k3v2_gov->comfort_threshold_hot = temp;
+	else
+	    pr_info("[brand] %s,comfort_threshold_hot_get error\n\r", __func__);
+	if (get_hw_config_int("thermal_temp/cold_temp", &temp, NULL))
+		k3v2_gov->comfort_threshold_cold = temp;
+	else
+	    pr_info("[brand] %s,comfort_threshold_cold_get error\n\r", __func__);
+	ret = get_hw_config_string("thermal_temp/sensor_type",product_flag,15,NULL);
+	if(ret)
+	{
+		if(strstr(product_flag,"apsensor"))
+		{
+			printk("sensor is near ap\r\n");
+			return APSENSOR;
+		}else{
+		    printk("sensor is near sim card\r\n");
+			return SIMSENSOR;
+		}
+	}else{
+	   printk("sensor_type is error!\r\n"); 
+	   return UNKONWN;
+	}		
+}
 static struct thermal_dev_ops k3v2_gov_ops = {
 	.process_temp = k3v2_process_cpu_temp,
 };
@@ -441,6 +481,9 @@ static int __init k3v2_die_governor_init(void)
 	k3v2_gov->exceed_temperature_time = 0;
 	k3v2_gov->k3v2_freq_is_lock = false;
 	g_temp_bypass = 0;
+	k3v2_gov->comfort_threshold_hot = 0;
+	k3v2_gov->comfort_threshold_cold = 0;
+	thermal_sensor_type = get_firmware_thermal_temp();
 	k3v2_temperature_pm_qos_add();
 	/* Init delayed work to average on-die temperature */
 	INIT_DELAYED_WORK(&k3v2_gov->average_cpu_sensor_work,

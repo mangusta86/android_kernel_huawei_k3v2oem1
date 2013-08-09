@@ -72,6 +72,11 @@
 #define SONYIMX105_VTS_REG_H		0x0340
 #define SONYIMX105_VTS_REG_L		0x0341
 
+static camera_capability sonyimx105_cap[] = {
+	{V4L2_CID_FLASH_MODE, THIS_FLASH},
+	{V4L2_CID_FOCUS_MODE, THIS_FOCUS_MODE},
+};
+
 const struct isp_reg_t isp_init_regs_sonyimx105[] = {
 #ifndef OVISP_DEBUG_MODE
 /* BLC */
@@ -326,7 +331,6 @@ const struct isp_reg_t isp_init_regs_sonyimx105[] = {
 	{0x65214, 0x28},
 	{0x65216, 0x20},
 
-/* OVISP LENC setting for DAY light Long Exposure (HDR/3D 80 h00206029 average 20120531 */
 	{0x1c264, 0x06},
 	{0x1c265, 0x04},
 	{0x1c266, 0x04},
@@ -477,7 +481,6 @@ const struct isp_reg_t isp_init_regs_sonyimx105[] = {
 	{0x1c1c3, 0x20},
 
 
-	/* OVISP CTAWB setting for Long Exposure (HDR/3D)  h00206029 20120529 */
 	{0x66206, 0x0c},
 	{0x66207, 0x0e},
 	{0x66208, 0x0f},
@@ -717,6 +720,18 @@ static int sonyimx105_get_format(struct v4l2_fmtdesc *fmt)
 		fmt->pixelformat = sonyimx105_sensor.fmt[STATE_PREVIEW];
 	} else {
 		fmt->pixelformat = sonyimx105_sensor.fmt[STATE_CAPTURE];
+	}
+	return 0;
+}
+
+static int sonyimx105_get_capability(u32 id, u32 *value)
+{
+	int i;
+	for (i = 0; i < sizeof(sonyimx105_cap) / sizeof(sonyimx105_cap[0]); ++i) {
+		if (id == sonyimx105_cap[i].id) {
+			*value = sonyimx105_cap[i].value;
+			break;
+		}
 	}
 	return 0;
 }
@@ -1251,7 +1266,7 @@ static void sonyimx105_set_default(void)
 	sonyimx105_sensor.set_frame_intervals = NULL;
 	sonyimx105_sensor.get_frame_intervals = NULL;
 
-	sonyimx105_sensor.get_capability = NULL;
+	sonyimx105_sensor.get_capability = sonyimx105_get_capability;
 
 	sonyimx105_sensor.set_hflip = sonyimx105_set_hflip;
 	sonyimx105_sensor.get_hflip = sonyimx105_get_hflip;
@@ -1297,6 +1312,9 @@ static void sonyimx105_set_default(void)
 
 	sonyimx105_sensor.sensor_gain_to_iso = sonyimx105_gain_to_iso;
 	sonyimx105_sensor.sensor_iso_to_gain = sonyimx105_iso_to_gain;
+
+	sonyimx105_sensor.get_sensor_aperture = NULL;
+	sonyimx105_sensor.get_equivalent_focus = NULL;
 
 	sonyimx105_sensor.set_effect = NULL;
 

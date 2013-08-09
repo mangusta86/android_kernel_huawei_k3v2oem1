@@ -52,10 +52,15 @@
 #include <asm/bug.h>
 #include <linux/device.h>
 #include <../isp/cam_util.h>
+#include <hsad/config_interface.h>
 
 #define LOG_TAG "OV8830"
 /* #define DEBUG_DEBUG 1 */
 #include "../isp/cam_log.h"
+
+#define OV8830_SUNNY_FACTORY_ID	0x00
+#define OV8830_FOXCONN_FACTORY_ID	0x01
+#define OV8830_SAMSUNG_FACTORY_ID	0x02
 
 #define OV8830_SLAVE_ADDRESS_20 0x20
 #define OV8830_SLAVE_ADDRESS_6C 0x6c
@@ -77,7 +82,16 @@
 #define OV8830_VTS_REG_H		0x380e
 #define OV8830_VTS_REG_L		0x380f
 
-const struct isp_reg_t isp_init_regs_ov8830[] = {
+#define OV8830_APERTURE_FACTOR		240 // F2.4
+#define OV8830_EQUIVALENT_FOCUS		35  // 35mm
+
+static camera_capability ov8830_cap[] = {
+	{V4L2_CID_FLASH_MODE, THIS_FLASH},
+	{V4L2_CID_FOCUS_MODE, THIS_FOCUS_MODE},
+};
+
+const struct isp_reg_t isp_init_regs_ov8830_foxconn[] = {
+
 /* BLC */
 	{0x1c58b, 0x40}, //avoid false contour Richard@0323
 	{0x1c58c, 0x40}, //avoid false contour Richard@0323
@@ -90,7 +104,7 @@ const struct isp_reg_t isp_init_regs_ov8830[] = {
 	{0x1c14e, 0x08},//slow step//08
 	{0x1c140, 0x01},//banding
 	{0x1c13e, 0x02},//real gain mode for OV8830
-	
+
 	{0x66401, 0x00},//window weight
 	{0x66402, 0x20},//StatWin_Left
 	{0x66403, 0x00},
@@ -151,11 +165,11 @@ const struct isp_reg_t isp_init_regs_ov8830[] = {
 	{0x1c5a7, 0x08},//stretch slow range
 	{0x1c5a8, 0x02},//stretch slow step
 	{0x1c1b8, 0x10},//ratio scale
-	
+
 	//{0x1c5a0, 0x4c},//AE target high, should close
 	{0x1c5a2, 0x04},//target stable range
 	{0x1c5a3, 0x06},//stretch target slow range
-	
+
 /* De-noise */
 	{0x65604, 0x00},//Richard for new curve 0314
 	{0x65605, 0x00},//Richard for new curve 0314
@@ -163,37 +177,37 @@ const struct isp_reg_t isp_init_regs_ov8830[] = {
 	{0x65607, 0x00},//Richard for new curve 0314
 
 	{0x65510, 0x0f},//G dns slope change from 0x4 to 0xf Richard 0320
-	{0x6551a, 0x04},//Raw G Dns improve white pixel 20120728
-	{0x6551b, 0x08},//
-	{0x6551c, 0x0b},//
-	{0x6551d, 0x16},//
-	{0x6551e, 0x16},//
+	{0x6551a, 0x00},//Raw G Dns improve white pixel 20120728
+	{0x6551b, 0x00},//
+	{0x6551c, 0x04},//
+	{0x6551d, 0x05},//
+	{0x6551e, 0x05},//
 	{0x6551f, 0x16},//
 	{0x65520, 0x16},//
+
 	{0x65522, 0x00},//RAW BR De-noise
-	{0x65523, 0x04},
+	{0x65523, 0x02},
 	{0x65524, 0x00},
-	{0x65525, 0x08},
+	{0x65525, 0x04},
 	{0x65526, 0x00},
-	{0x65527, 0x10},
+	{0x65527, 0x08},
 	{0x65528, 0x00},
-	{0x65529, 0x20},
+	{0x65529, 0x10},
 	{0x6552a, 0x00},
 	{0x6552b, 0x20},
 	{0x6552c, 0x00},
 	{0x6552d, 0x20},
 	{0x6552e, 0x00},
 	{0x6552f, 0x20},
-	
+
 	{0x65c00, 0x03},//UV De-noise
 	{0x65c01, 0x05},
 	{0x65c02, 0x08},
 	{0x65c03, 0x1f},
 	{0x65c04, 0x1f},
 	{0x65c05, 0x1f},
-	
 
-/* sharpeness */   
+/* sharpeness */
 	{0x65600, 0x00},
 	{0x65601, 0x10},//0319
 	{0x65602, 0x00},
@@ -208,15 +222,14 @@ const struct isp_reg_t isp_init_regs_ov8830[] = {
 	{0x65611, 0x60},//MaxSharpenTm
 	{0x65613, 0x10},//SharpenAlpha, 20120809 y00215412
 	{0x65615, 0x08},//HFreq_thre
-	{0x65617, 0x06},//HFreq_coef	
+	{0x65617, 0x06},//HFreq_coef
 
 /* auto uv saturation */
 	{0x1c4e8, 0x01},//Enable
 	{0x1c4e9, 0x40},
 	{0x1c4ea, 0x78},
-	//{0x1c4eb, 0x80}, //keep back for new cmx 0310
-	{0x1c4ec, 0x70}, //keep back for new cmx 0310
-
+	//{0x1c4eb, 0x80},
+	{0x1c4ec, 0x68}, //ori is 0x70, yangyang for awb
 
 /* Global Gamma */
 	{0x1c49b, 0x01},
@@ -228,7 +241,6 @@ const struct isp_reg_t isp_init_regs_ov8830[] = {
 	{0x1c4a1, 0x18},
 	{0x1c4a2, 0x00},
 	{0x1c4a3, 0x88}, //gamma 2.0 0310 //avoid false contour Richard@0323
-
 
 /* Tone Mapping */
 	//contrast curve change for skin over exposure 20120728
@@ -259,7 +271,7 @@ const struct isp_reg_t isp_init_regs_ov8830[] = {
 
 	//curve gain control
 	{0x1c1b3, 0x30}, //Gain thre1
-	{0x1c1b4, 0x70}, //Gain thre2 
+	{0x1c1b4, 0x70}, //Gain thre2
 	{0x1c1b5, 0x01}, //EDR gain control
 	{0x1c1b6, 0x01}, //Curve Gain control
 	{0x1c1b7, 0x40}, //after gamma cut ratio
@@ -324,6 +336,7 @@ const struct isp_reg_t isp_init_regs_ov8830[] = {
 	{0x1d93d, 0x08}, //new shading params added 20120816
 	{0x1d93e, 0x00},
 	{0x1d93f, 0x40},
+
 	{0x1d940, 0xfc}, // add for shading 20120905
 	{0x1d942, 0x04},
 	{0x1d941, 0xfc},
@@ -333,7 +346,6 @@ const struct isp_reg_t isp_init_regs_ov8830[] = {
 	{0x1d946, 0x00},
 	{0x1d945, 0xfc},
 	{0x1d947, 0x04},
-
 
 /* OVISP LENC setting for DAY light Long Exposure (HDR/3D) */
 	//Y channel re-back to old version(do not plus 8) 20120821 by y00215412
@@ -373,7 +385,7 @@ const struct isp_reg_t isp_init_regs_ov8830[] = {
 	{0x1c285, 0x05},
 	{0x1c286, 0x05},
 	{0x1c287, 0x0a},
-	
+
 	{0x1c288, 0x21},
 	{0x1c289, 0x20},
 	{0x1c28a, 0x1f},
@@ -399,7 +411,7 @@ const struct isp_reg_t isp_init_regs_ov8830[] = {
 	{0x1c29e, 0x1f},
 	{0x1c29f, 0x20},
 	{0x1c2a0, 0x20},
-	
+
 	{0x1c2a1, 0x22},
 	{0x1c2a2, 0x23},
 	{0x1c2a3, 0x23},
@@ -430,12 +442,12 @@ const struct isp_reg_t isp_init_regs_ov8830[] = {
 	{0x66201, 0x52},
 	{0x66203, 0x14},//crop window
 	{0x66211, 0xe8},//awb top limit
-	{0x66212, 0x04},//awb bottom limit	
+	{0x66212, 0x04},//awb bottom limit
 
 	//{0x1c17c, 0x01},//CT mode, should close
 	{0x1c182, 0x04},
 	{0x1c183, 0x00},//MinNum
-	{0x1c184, 0x04},//AWB Step		
+	{0x1c184, 0x04},//AWB Step
 	{0x1c58d, 0x00},//LimitAWBAtD65Enable
 
 	{0x1c1be, 0x00},//AWB offset
@@ -443,7 +455,7 @@ const struct isp_reg_t isp_init_regs_ov8830[] = {
 	{0x1c1c0, 0x00},
 	{0x1c1c1, 0x00},
 
-	{0x1c1aa, 0x00},//avgAllEnable	
+	{0x1c1aa, 0x00},//avgAllEnable
 	{0x1c1ad, 0x02},//weight of A
 	{0x1c1ae, 0x08},//weight of D65
 	{0x1c1af, 0x04},//weight of CWF
@@ -459,7 +471,7 @@ const struct isp_reg_t isp_init_regs_ov8830[] = {
 	{0x1c5b9, 0x10},//R gain for C outdoor
 	{0x1ccd1, 0x00},
 	{0x1ccd2, 0x10},//R gain for C indoor
-	{0x1ccd3, 0xf8}, //B gain for D indoor, y00215412
+	{0x1ccd3, 0xf8},//B gain for D indoor, y00215412
 	{0x1ccd4, 0x08},//R gain for D indoor
 	{0x1cccc, 0xf8},//B gain for D outdoor
 	{0x1cccd, 0x08},//R gain for D outdoor
@@ -482,8 +494,8 @@ const struct isp_reg_t isp_init_regs_ov8830[] = {
 	{0x1c5d3, 0x00},
 	{0x1c5d4, 0x40},//
 	{0x1c5d5, 0xa0},//
-	{0x1c5d6, 0xb0},//
-	{0x1c5d7, 0xe8},//
+	{0x1c5d6, 0xac},
+	{0x1c5d7, 0xe4},
 	{0x1c5d8, 0x40},//
 	{0x1c1c2, 0x00},
 	{0x1c1c3, 0x20},
@@ -494,7 +506,7 @@ const struct isp_reg_t isp_init_regs_ov8830[] = {
 	{0x66208, 0x1c},
 	{0x66209, 0x78},
 	{0x6620a, 0x68},
-	{0x6620b, 0xce},
+	{0x6620b, 0xd0}, //ori is 0xce, yangyang for awb
 	{0x6620c, 0xb0},
 	{0x6620d, 0x40},
 	{0x6620e, 0x32},
@@ -517,9 +529,8 @@ const struct isp_reg_t isp_init_regs_ov8830[] = {
 	{0x1c25a, 0x01},
 	{0x1c25b, 0x9a},
 
-
 /* Color matrix */
-	{0x1C1d8, 0x02},//center matrix, for color accuracy 20120728 
+	{0x1C1d8, 0x02},//center matrix, for color accuracy 20120728
 	{0x1C1d9, 0x52},
 	{0x1C1da, 0xfe},
 	{0x1C1db, 0xae},
@@ -536,7 +547,7 @@ const struct isp_reg_t isp_init_regs_ov8830[] = {
 	{0x1C1e6, 0xfe},
 	{0x1C1e7, 0xde},
 	{0x1C1e8, 0x02},
-	{0x1C1e9, 0x10},		
+	{0x1C1e9, 0x10},
 
 	{0x1C1FC, 0xff},//cmx left delta
 	{0x1C1FD, 0xcf},
@@ -553,9 +564,9 @@ const struct isp_reg_t isp_init_regs_ov8830[] = {
 	{0x1C208, 0xff},
 	{0x1C209, 0xef},
 	{0x1C20A, 0x00},
-	{0x1C20B, 0x49},
+	{0x1C20B, 0x7f},//0x49->0x7f change for red skin in outdoor d light
 	{0x1C20C, 0xff},
-	{0x1C20D, 0xc8},
+	{0x1C20D, 0x92},//0xc8->0x92 change for red skin in outdoor d light
 
 	{0x1C220, 0x00},//cmx right delta
 	{0x1C221, 0xae},
@@ -603,6 +614,7 @@ const struct isp_reg_t isp_init_regs_ov8830[] = {
 	{0x1d96f, 0xB0},
 	{0x1d970, 0xC5},
 	{0x1d971, 0xDF},
+
 	{0x1d8fe, 0x01}, //UV cut gain control
 	{0x1d8ff, 0x50}, //low gain thres
 	{0x1d900, 0x70}, //high gain thres
@@ -659,8 +671,8 @@ const struct isp_reg_t isp_init_regs_ov8830[] = {
 
 	//dynamic CT AWB, huiyan 20120810 add for new firmware AWB
 	{0x1d924, 0x01}, //enable
-    {0x1d950, 0x00}, //Br thres
-	{0x1d951, 0x20}, //Br thres	
+	{0x1d950, 0x00}, //Br thres
+	{0x1d951, 0x20}, //Br thres
 	{0x1d952, 0x30}, //Br Ratio
 	{0x1d8dc, 0x00}, //Br thres0
 	{0x1d8dd, 0xf0},
@@ -670,42 +682,682 @@ const struct isp_reg_t isp_init_regs_ov8830[] = {
 	{0x1d8db, 0x06}, //Br Ratio1
 	{0x1d949, 0x0c}, //super highlight cwf thres //66206
 	{0x1d925, 0x0c}, //highlight cwf thres //66206
-	{0x1d926, 0x13},//middlelight cwf thres
+	{0x1d926, 0x13}, //middlelight cwf thres
 	{0x1d927, 0x15}, //lowlight cwf thres
 	{0x1d94a, 0x11}, //super highlight A thres //66207
 	{0x1d928, 0x11}, //highlight A thres //66207
-	{0x1d929, 0x18}, //middlelight A thres
-	{0x1d92a, 0x1d}, //lowlight A thres	
+	{0x1d929, 0x20}, //middlelight A thres//ori is 0x18, yangyang for awb
+	{0x1d92a, 0x1d}, //lowlight A thres
 	{0x1d94b, 0x14}, //super highlight D thres //66208
 	{0x1d92b, 0x14}, //highlight D thres //66208
 	{0x1d92c, 0x14}, //middlelight D thres
-	{0x1d92d, 0x1d}, //lowlight D thres	
+	{0x1d92d, 0x1d}, //lowlight D thres
 	{0x1d94c, 0x55}, //super highlight D limit //6620d
 	{0x1d92e, 0x4a}, //highlight D limit //6620d
 	{0x1d92f, 0x48}, //middlelight D limit
-	{0x1d930, 0x40}, //lowlight D limit		
+	{0x1d930, 0x40}, //lowlight D limit
 	{0x1d94d, 0x48}, //super highlight A limit //6620e
 	{0x1d931, 0x48}, //highlight A limit //6620e
+	{0x1d932, 0x33}, //middlelight A limit//ori is 0x36, yangyang for awb
+	{0x1d933, 0x30}, //lowlight A limit//ori is 0x32, yangyang for awb
+	{0x1d94e, 0x6e}, //super highlight D split //6620f
+	{0x1d934, 0x6e}, //highlight D split //6620f
+	{0x1d935, 0x6e}, //middlelight D split
+	{0x1d936, 0x6e}, //lowlight D split
+	{0x1d94f, 0x60}, //super highlight A split //66210
+	{0x1d937, 0x60}, //highlight A split //66210
+	{0x1d938, 0x60}, //middlelight A split
+	{0x1d939, 0x60}, //lowlight A split
 
-	{0x1d932, 0x32}, //middlelight A limit
+};
+
+const struct isp_reg_t isp_init_regs_ov8830_samsung[] = {
+/* BLC */
+	{0x1c58b, 0x40}, //avoid false contour Richard@0323
+	{0x1c58c, 0x40}, //avoid false contour Richard@0323
+
+/* AEC */
+	{0x1c146, 0x2c},// low AE target,should close
+	{0x1c14a, 0x03},
+	{0x1c14b, 0x0a},
+	{0x1c14c, 0x0a},//aec fast step
+	{0x1c14e, 0x08},//slow step
+	{0x1c140, 0x01},//banding
+	{0x1c13e, 0x02},//real gain mode for OV8830
+
+	{0x66401, 0x00},//window weight
+	{0x66402, 0x20},//StatWin_Left
+	{0x66403, 0x00},
+	{0x66404, 0x20},//StatWin_Top
+	{0x66405, 0x00},
+	{0x66406, 0x20},//StatWin_Right
+	{0x66407, 0x00},
+	{0x66408, 0x28},//StatWin_Bottom
+	{0x66409, 0x00},//definiton ofthe center 3x3 window
+	{0x6640a, 0xc8},//nWin_Left
+	{0x6640d, 0x00},
+	{0x6640e, 0x96},//nWin_Top
+	{0x66411, 0x04},
+	{0x66412, 0xb0},//nWin_Width
+	{0x66415, 0x03},
+	{0x66416, 0x84},//nWin_Height
+	{0x6642e, 0x01},//nWin_Weight_0 weight pass
+	{0x6642f, 0x01},//nWin_Weight_1
+	{0x66430, 0x01},//nWin_Weight_2
+	{0x66431, 0x01},//nWin_Weight_3
+	{0x66432, 0x02},//nWin_Weight_4
+	{0x66433, 0x02},//nWin_Weight_5
+	{0x66434, 0x02},//nWin_Weight_6
+	{0x66435, 0x02},//nWin_Weight_7
+	{0x66436, 0x04},//nWin_Weight_8
+	{0x66437, 0x02},//nWin_Weight_9
+	{0x66438, 0x02},//nWin_Weight_10
+	{0x66439, 0x02},//nWin_Weight_11
+	{0x6643a, 0x02},//nWin_Weight_12
+	{0x6644e, 0x03},//nWin_Weight_Shift
+	{0x6644f, 0x04},//black level
+	{0x66450, 0xf8},//saturate level
+	{0x6645b, 0x1a},//black weight1
+	{0x6645d, 0x1a},//black weight2
+	{0x66460, 0x04},//saturate per1
+	{0x66464, 0x0a},//saturate per2
+	{0x66467, 0x14},//saturate weight1
+	{0x66469, 0x14},//saturate weight2
+	//auto AE control
+
+/* Raw Stretch */
+	{0x65020, 0x01},//RAW Stretch Target
+	{0x66500, 0x28},
+	{0x66501, 0x00},
+	{0x66502, 0xff},
+	{0x66503, 0x0f},
+	{0x1c1b0, 0xff},
+	{0x1c1b1, 0xff},
+	{0x1c1b2, 0x01},
+	{0x65905, 0x08},
+	{0x66301, 0x02},//high level step
+	{0x66302, 0xd0},//ref bin
+	{0x66303, 0x0a},//PsPer0
+	{0x66304, 0x10},//PsPer1
+	{0x1c5a4, 0x01},//use new high stretch
+	{0x1c5a5, 0x20},//stretch low step
+	{0x1c5a6, 0x20},//stretch high step
+	{0x1c5a7, 0x08},//stretch slow range
+	{0x1c5a8, 0x02},//stretch slow step
+	{0x1c1b8, 0x10},//ratio scale
+
+	{0x1c5a0, 0x4c},//AE target high, should close
+	{0x1c5a2, 0x04},//target stable range
+	{0x1c5a3, 0x06},//stretch target slow range
+
+/* De-noise */
+	{0x65604, 0x00},//Richard for new curve 0314
+	{0x65605, 0x00},//Richard for new curve 0314
+	{0x65606, 0x00},//Richard for new curve 0314
+	{0x65607, 0x00},//Richard for new curve 0314
+
+	{0x65510, 0x0f},//G dns slope change from 0x4 to 0xf Richard 0320
+	{0x6551a, 0x02},//Raw G De-noise improve white pixel: gain 1X
+	{0x6551b, 0x02},//gain  2X
+	{0x6551c, 0x04},//gain  4X
+	{0x6551d, 0x08},//gain  8X
+	{0x6551e, 0x10},//gain 16X
+	{0x6551f, 0x16},//gain 32X
+	{0x65520, 0x16},//gain 64X
+	{0x65522, 0x00},//RAW BR De-noise
+	{0x65523, 0x02},//gain 1X
+	{0x65524, 0x00},
+	{0x65525, 0x04},//gain 2X
+	{0x65526, 0x00},
+	{0x65527, 0x08},//gain 4X
+	{0x65528, 0x00},
+	{0x65529, 0x10},//gain 8X
+	{0x6552a, 0x00},
+	{0x6552b, 0x20},//gain 16X
+	{0x6552c, 0x00},
+	{0x6552d, 0x20},//gain 32X
+	{0x6552e, 0x00},
+	{0x6552f, 0x20},//gain 64X
+
+	{0x65c00, 0x03},//UV De-noise: gain 1X
+	{0x65c01, 0x05},//gain 2X
+	{0x65c02, 0x08},//gain 4X
+	{0x65c03, 0x1f},//gain 8X
+	{0x65c04, 0x1f},//gain 16X
+	{0x65c05, 0x1f},//gain 32X
+
+/* sharpeness */
+	{0x65600, 0x00},
+	{0x65601, 0x10},//0319
+	{0x65602, 0x00},
+	{0x65603, 0x60},//y00215412 change sharpness high gain threshod 0x40->0x60 20120814
+	{0x65608, 0x06},
+	{0x65609, 0x20},
+	{0x6560c, 0x00},//high gain sharpness
+	{0x6560d, 0x30},//low gain sharpness, 20120814 0x20->0x30
+	{0x6560e, 0x10},//MinSharpenTp
+	{0x6560f, 0x60},//MaxSharpenTp
+	{0x65610, 0x10},//MinSharpenTm
+	{0x65611, 0x60},//MaxSharpenTm
+	{0x65613, 0x10},//SharpenAlpha, 20120809 y00215412
+	{0x65615, 0x08},//HFreq_thre
+	{0x65617, 0x06},//HFreq_coef
+
+/* auto uv saturation */
+	{0x1c4e8, 0x00},//Enable
+	{0x1c4e9, 0x40},
+	{0x1c4ea, 0x78},
+	//{0x1c4eb, 0x80}, //keep back for new cmx 0310
+	{0x1c4ec, 0x70}, //keep back for new cmx 0310
+
+
+/* Global Gamma */
+	{0x1c49b, 0x01}, //gamma enable
+	{0x1c49c, 0x02},
+	{0x1c49d, 0x01}, //gamma 2.0 0310
+	{0x1c49e, 0x02},
+	{0x1c49f, 0x01}, //gamma 2.0 0310
+	{0x1c4a0, 0x00},
+	{0x1c4a1, 0x18},
+	{0x1c4a2, 0x00},
+	{0x1c4a3, 0x88}, //gamma 2.0 0310 //avoid false contour Richard@0323
+
+/* Tone Mapping(Y-Curve) */
+	//contrast curve change for skin over exposure;used for low gain
+	{0x1C4C0, 0x1c},
+	{0x1C4C1, 0x2c},
+	{0x1C4C2, 0x38},
+	{0x1C4C3, 0x43},
+	{0x1C4C4, 0x4d},
+	{0x1C4C5, 0x56},
+	{0x1C4C6, 0x60},
+	{0x1C4C7, 0x6b},
+	{0x1C4C8, 0x78},
+	{0x1C4C9, 0x87},
+	{0x1C4CA, 0x96},
+	{0x1C4CB, 0xa6},
+	{0x1C4CC, 0xb8},
+	{0x1C4CD, 0xcc},
+	{0x1C4CE, 0xe4},
+
+	{0x1c4d4, 0x20},//EDR scale
+	{0x1c4d5, 0x20},//EDR scale
+	{0x1c4cf, 0x80},
+	{0x65a00, 0x1b},
+	{0x65a01, 0xc0}, //huiyan 0801
+
+	//dark boost
+	{0x1c4b0, 0x02},
+	{0x1c4b1, 0x80},
+
+	//curve gain control
+	{0x1c1b3, 0x10}, //Gain thre1
+	{0x1c1b4, 0x30}, //Gain thre2
+	{0x1c1b5, 0x01}, //EDR gain control
+	{0x1c1b6, 0x01}, //Curve Gain control
+	{0x1c1b7, 0x40}, //after gamma cut ratio
+
+	//Manual UV curve will be disabled when dynamic UV curve is enabled
+	{0x1C998, 0x01},
+	{0x1C999, 0x00},
+	{0x1C99A, 0x01},
+	{0x1C99B, 0x00},
+	{0x1C99C, 0x01},
+	{0x1C99D, 0x00},
+	{0x1C99E, 0x01},
+	{0x1C99F, 0x00},
+	{0x1C9A0, 0x01},
+	{0x1C9A1, 0x00},
+	{0x1C9A2, 0x01},
+	{0x1C9A3, 0x00},
+	{0x1C9A4, 0x01},
+	{0x1C9A5, 0x00},
+	{0x1C9A6, 0x01},
+	{0x1C9A7, 0x00},
+	{0x1C9A8, 0x01},
+	{0x1C9A9, 0x00},
+	{0x1C9AA, 0x01},
+	{0x1C9AB, 0x00},
+	{0x1C9AC, 0x01},
+	{0x1C9AD, 0x00},
+	{0x1C9AE, 0x01},
+	{0x1C9AF, 0x00},
+	{0x1C9B0, 0x01},
+	{0x1C9B1, 0x00},
+	{0x1C9B2, 0x01},
+	{0x1C9B3, 0x00},
+	{0x1C9B4, 0x01},
+	{0x1C9B5, 0x00},
+	{0x1C9B6, 0x01},
+	{0x1C9B7, 0x00},
+
+/* LENC */
+	{0x1c247, 0x00},//one profile
+	{0x1c24c, 0x00},
+	{0x1c24d, 0x40},
+	{0x1c24e, 0x00},
+	{0x1c24f, 0x80},
+	{0x1c248, 0x40},
+	{0x1c24a, 0x20},
+	{0x1c574, 0x00},
+	{0x1c575, 0x20},
+	{0x1c576, 0x00},
+	{0x1c577, 0xf0},
+	{0x1c578, 0x40},
+
+	{0x65200, 0x0d},
+	{0x65206, 0x3c},
+	{0x65207, 0x04},
+	{0x65208, 0x3c}, //new shading params revised 20120816
+	{0x65209, 0x04},
+	{0x6520a, 0x33},
+	{0x6520b, 0x0c},
+	{0x65214, 0x28},
+	{0x65216, 0x20},
+
+	{0x1d93d, 0x08}, //new shading params added 20120816
+	{0x1d93e, 0x00},
+	{0x1d93f, 0x40},
+
+	{0x1d940, 0xfc},
+	{0x1d942, 0x04},
+	{0x1d941, 0xfc},
+	{0x1d943, 0x04},
+
+	{0x1d944, 0x00},
+	{0x1d946, 0x00},
+	{0x1d945, 0xfc},
+	{0x1d947, 0x04},
+
+/* OVISP LENC setting for DAY light Long Exposure (HDR/3D) */
+	//Y
+	{0x1c264,0x0B},
+	{0x1c265,0x0a},
+	{0x1c266,0x09},
+	{0x1c267,0x09},
+	{0x1c268,0x0a},
+	{0x1c269,0x0B},
+	{0x1c26a,0x09},
+	{0x1c26b,0x07},
+	{0x1c26c,0x06},
+	{0x1c26d,0x07},
+	{0x1c26e,0x07},
+	{0x1c26f,0x0a},
+	{0x1c270,0x07},
+	{0x1c271,0x05},
+	{0x1c272,0x04},
+	{0x1c273,0x04},
+	{0x1c274,0x05},
+	{0x1c275,0x07},
+	{0x1c276,0x07},
+	{0x1c277,0x05},
+	{0x1c278,0x04},
+	{0x1c279,0x04},
+	{0x1c27a,0x05},
+	{0x1c27b,0x07},
+	{0x1c27c,0x09},
+	{0x1c27d,0x07},
+	{0x1c27e,0x06},
+	{0x1c27f,0x06},
+	{0x1c280,0x07},
+	{0x1c281,0x09},
+	{0x1c282,0x0B},
+	{0x1c283,0x0a},
+	{0x1c284,0x08},
+	{0x1c285,0x08},
+	{0x1c286,0x0a},
+	{0x1c287,0x0B},
+	//Cb
+	{0x1c288,0x20},//edge of left
+	{0x1c289,0x21},
+	{0x1c28a,0x21},
+	{0x1c28b,0x21},
+	{0x1c28c,0x20},
+	{0x1c28d,0x20},//nearside
+	{0x1c28e,0x20},
+	{0x1c28f,0x20},
+	{0x1c290,0x20},
+	{0x1c291,0x20},
+	{0x1c292,0x20},//center
+	{0x1c293,0x20},
+	{0x1c294,0x20},
+	{0x1c295,0x20},
+	{0x1c296,0x1f},
+	{0x1c297,0x20},//starboard
+	{0x1c298,0x20},
+	{0x1c299,0x20},
+	{0x1c29a,0x20},
+	{0x1c29b,0x20},
+	{0x1c29c,0x20},//edge of right
+	{0x1c29d,0x20},
+	{0x1c29e,0x21},
+	{0x1c29f,0x20},
+	{0x1c2a0,0x20},
+	//Cr
+	{0x1c2a1,0x1e},//edge of left
+	{0x1c2a2,0x20},
+	{0x1c2a3,0x21},
+	{0x1c2a4,0x20},
+	{0x1c2a5,0x1f},
+	{0x1c2a6,0x20},//nearside
+	{0x1c2a7,0x20},
+	{0x1c2a8,0x20},
+	{0x1c2a9,0x20},
+	{0x1c2aa,0x1f},
+	{0x1c2ab,0x1f},//center
+	{0x1c2ac,0x20},
+	{0x1c2ad,0x20},
+	{0x1c2ae,0x20},
+	{0x1c2af,0x1e},
+	{0x1c2b0,0x1f},//starboard
+	{0x1c2b1,0x20},
+	{0x1c2b2,0x20},
+	{0x1c2b3,0x20},
+	{0x1c2b4,0x1f},
+	{0x1c2b5,0x1f},//edge of right
+	{0x1c2b6,0x1f},
+	{0x1c2b7,0x20},
+	{0x1c2b8,0x1f},
+	{0x1c2b9,0x1f},
+
+/* AWB */
+	{0x66201, 0x52},
+	{0x66203, 0x14},//crop window
+	{0x66211, 0xe8},//awb top limit
+	{0x66212, 0x04},//awb bottom limit
+
+	//{0x1c17c, 0x01},//CT mode, should close
+	{0x1c182, 0x04},
+	{0x1c183, 0x00},//MinNum
+	{0x1c184, 0x04},//AWB Step:awb adjust every 2 FPS
+	{0x1c58d, 0x00},//LimitAWBAtD65Enable
+
+	{0x1c1be, 0x00},//AWB offset
+	{0x1c1bf, 0x00},
+	{0x1c1c0, 0x00},
+	{0x1c1c1, 0x00},
+
+	{0x1c1aa, 0x00},//avgAllEnable
+	{0x1c1ad, 0x02},//weight of A
+	{0x1c1ae, 0x0c},//weight of D65
+	{0x1c1af, 0x04},//weight of CWF
+
+	{0x1c5ac, 0x80},//pre-bgain,after awb and apply on CCM
+	{0x1c5ad, 0x80},//pre-ggain
+	{0x1c5ae, 0x80},//pre-rgain
+
+	{0x1ccce, 0x02},//awb shift mode.2 means enable;0 means diable.
+	{0x1cccf, 0x10},//B gain for A
+	{0x1ccd0, 0x10},//R gain for A
+	{0x1c5b8, 0x00},//B gain for C outdoor
+	{0x1c5b9, 0x00},//R gain for C outdoor
+	{0x1ccd1, 0x20},//B gain for C indoor; C lightbox testing; outdoor grasslot
+	{0x1ccd2, 0x16},//R gain for C indoor; C lightbox testing; outdoor grasslot
+	{0x1ccd3, 0x00},//B gain for D indoor: upper than 2*gain
+	{0x1ccd4, 0x00},//R gain for D indoor: upper than 2*gain
+	{0x1cccc, 0x0c},//B gain for D outdoor; D lightbox testing
+	{0x1cccd, 0x00},//R gain for D outdoor; D lightbox testing
+
+	{0x1c5b4, 0x02},//C indoor/outdoor switch lum 1: expo_line*gain/0x10 compare with (((0x1c5b4 << 8) | 0x1c5b5)>>6).
+	{0x1c5b5, 0xff},//C indoor/outdoor switch lum 1: now is 127 expo_lines.
+	{0x1c5b6, 0x04},//C indoor/outdoor switch lum 2: expo_line*gain/0x10 compare with (((0x1c5b4 << 8) | 0x1c5b5)>>6).
+	{0x1c5b7, 0xff},//C indoor/outdoor switch lum 2: now is 213 expo_line. suggestion: C lightbox testing expo_line is 292(calc value is 0x06d8)
+
+	{0x1ccd5, 0x3b},//CT_A: R-gain/B-gain*0x80
+	{0x1ccd6, 0x63},//CT_C: R-gain/B-gain*0x80
+	{0x1ccd7, 0xa9},//CT_D: R-gain/B-gain*0x80
+
+	{0x1c5cd, 0x01},//high light awb shift, modified by Jiangtao to avoid blurish when high CT 0310
+	{0x1c5ce, 0x00},//HL_point1//calculation: expo_line*gain(1X)
+	{0x1c5cf, 0xc8},//HL_point1
+	{0x1c5d0, 0x01},//HL_point2
+	{0x1c5d1, 0x80},//HL_point2//now is 384;lightbox testting value is 395
+	{0x1c5d2, 0x03},
+	{0x1c5d3, 0x00},
+	{0x1c5d4, 0x50},//HL_Th_1
+	{0x1c5d5, 0x94},//HL_Th_2
+	{0x1c5d6, 0xb0},//HL_T_B
+	{0x1c5d7, 0xe8},//HL_T_R
+	{0x1c5d8, 0x40},
+	{0x1c1c2, 0x00},
+	{0x1c1c3, 0x20},
+
+/* OVISP CTAWB setting for Long Exposure (HDR/3D) */
+	{0x66206, 0x14},
+	{0x66207, 0x19},
+	{0x66208, 0x15},
+	{0x66209, 0x77},//horizontal coordinate of cwf center point
+	{0x6620a, 0x65},//vertical coordinate of cwf center point
+	{0x6620b, 0xc0},//slope of A light
+	{0x6620c, 0xc0},//slope of D light
+	{0x6620d, 0x48},
+	{0x6620e, 0x34},
+	{0x6620f, 0x70},
+	{0x66210, 0x56},
+	{0x66201, 0x52},
+
+	{0x1c1c8, 0x01},
+	{0x1c1c9, 0x4a},//cwf light CCM demarcation: 0x8000/CT_C
+	{0x1c1cc, 0x00},
+	{0x1c1cd, 0xc1},//d65 ight CCM demarcation: 0x8000/CT_D
+	{0x1c1d0, 0x02},
+	{0x1c1d1, 0x2b},//a light CCM demarcation: 0x8000/CT_A
+	{0x1c254, 0x00},
+	{0x1c255, 0xca},
+	{0x1c256, 0x00},
+	{0x1c257, 0xe4},
+	{0x1c258, 0x01},
+	{0x1c259, 0x62},
+	{0x1c25a, 0x01},
+	{0x1c25b, 0xc4},
+
+/* Color matrix */
+	{0x1C1d8, 0x02},//center matrix, cwf light
+	{0x1C1d9, 0x1a},
+	{0x1C1da, 0xfe},
+	{0x1C1db, 0xd3},
+	{0x1C1dc, 0x00},
+	{0x1C1dd, 0x13},
+
+	{0x1C1de, 0x00},
+	{0x1C1df, 0x01},
+	{0x1C1e0, 0x01},
+	{0x1C1e1, 0x43},
+	{0x1C1e2, 0xff},
+	{0x1C1e3, 0xbc},
+
+	{0x1C1e4, 0x00},
+	{0x1C1e5, 0x22},
+	{0x1C1e6, 0xff},
+	{0x1C1e7, 0x05},
+	{0x1C1e8, 0x01},
+	{0x1C1e9, 0xd9},
+
+	{0x1C1FC, 0xff},//cmx left delt, D65 light
+	{0x1C1FD, 0xdb},
+	{0x1C1FE, 0x00},
+	{0x1C1FF, 0x2d},
+	{0x1C200, 0xff},
+	{0x1C201, 0xf8},
+
+	{0x1C202, 0xff},
+	{0x1C203, 0xa8},
+	{0x1C204, 0x00},
+	{0x1C205, 0x2d},
+	{0x1C206, 0x00},
+	{0x1C207, 0x2b},
+
+	{0x1C208, 0xff},
+	{0x1C209, 0xd2},
+	{0x1C20A, 0x00},
+	{0x1C20B, 0x44},
+	{0x1C20C, 0xff},
+	{0x1C20D, 0xea},
+
+	{0x1C220, 0x00},//cmx right delta, A light
+	{0x1C221, 0x6a},
+	{0x1C222, 0xff},
+	{0x1C223, 0xb4},
+	{0x1C224, 0xff},
+	{0x1C225, 0xe2},
+
+	{0x1C226, 0xff},
+	{0x1C227, 0xed},
+	{0x1C228, 0x00},
+	{0x1C229, 0x14},
+	{0x1C22A, 0xff},
+	{0x1C22B, 0xff},
+
+	{0x1C22C, 0xff},
+	{0x1C22D, 0xd7},
+	{0x1C22E, 0x00},
+	{0x1C22F, 0xc7},
+	{0x1C230, 0xff},
+	{0x1C231, 0x62},
+
+/* dpc */
+	{0x65409, 0x04},
+	{0x6540a, 0x02},
+	{0x6540b, 0x01},
+	{0x6540c, 0x01},
+	{0x6540d, 0x04},
+	{0x6540e, 0x02},
+	{0x6540f, 0x01},
+	{0x65410, 0x01},
+	{0x65408, 0x0b},
+
+	//high gain curve for dark color change 20120728
+	{0x1d963, 0x1c},
+	{0x1d964, 0x2f},
+	{0x1d965, 0x3e},
+	{0x1d966, 0x4a},
+	{0x1d967, 0x54},
+	{0x1d968, 0x5d},
+	{0x1d969, 0x66},
+	{0x1d96a, 0x70},
+	{0x1d96b, 0x7a},
+	{0x1d96c, 0x85},
+	{0x1d96d, 0x91},
+	{0x1d96e, 0xa0},
+	{0x1d96f, 0xb0},
+	{0x1d970, 0xc5},
+	{0x1d971, 0xdf},
+
+	{0x1d8fe, 0x01}, //UV cut gain control
+	{0x1d8ff, 0x50}, //low gain thres
+	{0x1d900, 0x70}, //high gain thres
+	{0x1d97f, 0x14}, //UV cut low bright thres
+	{0x1d973, 0x20}, //UV cut high bright thres
+
+	{0x1d972, 0x01}, //adaptive gamma enable
+	{0x1d974, 0x01}, //low gain gamma
+	{0x1d975, 0xe6},
+	{0x1d976, 0x01}, //high gain gamma
+	{0x1d977, 0xc0},
+	{0x1d978, 0x01}, //dark image gamma
+	{0x1d979, 0xb3},
+	{0x1d97a, 0x88}, //low gain slope
+	{0x1d97b, 0x50}, //high gain slope
+	{0x1d97c, 0x38}, //dark image slope
+	{0x1d97d, 0x14}, //low bright thres
+	{0x1d97e, 0x20}, //high bright thres
+
+	{0x1d99e, 0x01}, //dynamic UV curve
+	//low gain UV curve 1/2
+	{0x1d904, 0x93},//about 1.15 times
+	{0x1d905, 0x9d},
+	{0x1d906, 0xa0},//about 1.25 times
+	{0x1d907, 0xa0},
+	{0x1d908, 0xa0},
+	{0x1d909, 0xa0},
+	{0x1d90a, 0xa0},
+	{0x1d90b, 0xa0},
+	{0x1d90c, 0xa0},
+	{0x1d90d, 0xa0},
+	{0x1d90e, 0xa0},
+	{0x1d90f, 0x9f},
+	{0x1d910, 0x98},
+	{0x1d911, 0x89},
+	{0x1d912, 0x73},
+	{0x1d913, 0x55},//about 0.65 times
+	//high gain UV curve 1/2
+	{0x1d914, 0x46},//about 0.6 times
+	{0x1d915, 0x70},
+	{0x1d916, 0x89},
+	{0x1d917, 0x98},
+	{0x1d918, 0x9f},
+	{0x1d919, 0xa0},//about 01.25 times
+	{0x1d91a, 0xa0},
+	{0x1d91b, 0xa0},
+	{0x1d91c, 0xa0},
+	{0x1d91d, 0xa0},
+	{0x1d91e, 0xa0},
+	{0x1d91f, 0x9f},
+	{0x1d920, 0x98},
+	{0x1d921, 0x89},
+	{0x1d922, 0x73},
+	{0x1d923, 0x55},//about 0.65 times
+
+	//dynamic CT AWB, add for new firmware AWB
+	/* super highlight mode judgement is (expo_line * gain>>8) lower than brightness threshold */
+	/* highlight mode judgement is (expo_line * gain>>8) higher than brightness threshold and (expo_line * gain(1X)>>8) lower than brightness threshold0 */
+	/* middlelight mode judgement is (expo_line * gain>>8) higher than brightness threshold0 and (expo_line * gain(1X)>>8) lower than brightness threshold1 */
+	/* lowlight mode judgement is (expo_line * gain>>8) higher  than brightness threshold1 */
+	{0x1d924, 0x01}, //enable
+	{0x1d950, 0x00}, //Br thres
+	{0x1d951, 0x20}, //Br thres
+	{0x1d952, 0x30}, //Br Ratio
+
+	{0x1d8dc, 0x00}, //Br thres0
+	{0x1d8dd, 0xf0}, //Br thres0
+	{0x1d8da, 0x10}, //Br Ratio0
+
+	{0x1d8de, 0x44}, //Br thres1
+	{0x1d8df, 0x34}, //Br thres1
+	{0x1d8db, 0x06}, //Br Ratio1
+
+	{0x1d949, 0x11}, //super highlight cwf thres //66206
+	{0x1d94a, 0x11}, //super highlight A thres //66207
+	{0x1d94b, 0x13}, //super highlight D thres //66208
+	{0x1d94c, 0x5c}, //super highlight D limit //6620d
+	{0x1d94d, 0x44}, //super highlight A limit //6620e
+	{0x1d94e, 0x70}, //super highlight D split //6620f
+	{0x1d94f, 0x56}, //super highlight A split //66210
+
+	{0x1d925, 0x11}, //highlight cwf thres //66206
+	{0x1d928, 0x11}, //highlight A thres //66207
+	{0x1d92b, 0x18}, //highlight D thres //66208
+	{0x1d92e, 0x56}, //highlight D limit //6620d
+	{0x1d931, 0x40}, //highlight A limit //6620e
+	{0x1d934, 0x70}, //highlight D split //6620f
+	{0x1d937, 0x56}, //highlight A split //66210
+
+	{0x1d926, 0x13}, //middlelight cwf thres
+	{0x1d929, 0x1c}, //middlelight A thres
+	{0x1d92c, 0x20}, //middlelight D thres
+	{0x1d92f, 0x48}, //middlelight D limit
+	{0x1d932, 0x35}, //middlelight A limit
+	{0x1d935, 0x70}, //middlelight D split
+	{0x1d938, 0x56}, //middlelight A split
+
+	{0x1d927, 0x16}, //lowlight cwf thres
+	{0x1d92a, 0x1c}, //lowlight A thres
+	{0x1d92d, 0x20}, //lowlight D thres
+	{0x1d930, 0x48}, //lowlight D limit
 	{0x1d933, 0x32}, //lowlight A limit
-	{0x1d934, 0x61}, //highlight D split //6620f
-	{0x1d935, 0x61}, //middlelight D split
-	{0x1d936, 0x65}, //lowlight D split
-	{0x1d937, 0x59}, //highlight A split //66210
-	{0x1d938, 0x59}, //middlelight A split
-	{0x1d939, 0x5d}, //lowlight A split
-
+	{0x1d936, 0x70}, //lowlight D split
+	{0x1d939, 0x56}, //lowlight A split
 };
 
 static u16 ov8830_vcm_start = 0;
 static u16 ov8830_vcm_end = 0;
 static int ov8830_otp_index = -1;
+static u8 factory_id = 0;
 
 static framesize_s ov8830_framesizes[] = {
+	#ifndef READ_BACK_RAW
 	/* 1600x1200, just close with quarter size */
-	//{0, 0, 1600, 1200, 3608, 1956, 25, 21, 0x1e5, 0x195, 0x100, VIEW_FULL, RESOLUTION_4_3, {ov8830_framesize_1600x1200, ARRAY_SIZE(ov8830_framesize_1600x1200)} },	
-	{0, 0, 1600, 1200, 3608, 1956, 30, 25, 0x246, 0x1e5, 0x100, VIEW_FULL, RESOLUTION_4_3, true, {ov8830_framesize_1600x1200, ARRAY_SIZE(ov8830_framesize_1600x1200)} },	
+	{0, 0, 1600, 1200, 3608, 1956, 30, 25, 0x246, 0x1e5, 0x100, VIEW_FULL, RESOLUTION_4_3, true, {ov8830_framesize_1600x1200, ARRAY_SIZE(ov8830_framesize_1600x1200)} },
 
 	/* 1080P, 1920*1088 y36721 0221 change to 24fps */
 	{0, 0, 1920, 1088, 3608, 2456, 25, 21, 0x261, 0x1fc, 0x218, VIEW_FULL, RESOLUTION_16_9, false, {ov8830_framesize_1080p, ARRAY_SIZE(ov8830_framesize_1080p)} },
@@ -718,7 +1370,7 @@ static framesize_s ov8830_framesizes[] = {
 
 	/* 3264x1836 */
 	{0, 0, 3264, 1840, 3788, 2083, 19, 16, 0x18b, 0x149, 0x15c, VIEW_FULL, RESOLUTION_16_9, false, {ov8830_framesize_3264x1840, ARRAY_SIZE(ov8830_framesize_3264x1840)} },
-
+	#endif
 	/* 8M */
 	{0, 0, 3264, 2448, 3788, 2637, 15, 13, 0x18b, 0x149, 0x15c, VIEW_FULL, RESOLUTION_4_3, false, {ov8830_framesize_full_15fps, ARRAY_SIZE(ov8830_framesize_full_15fps)} },
 };
@@ -1123,6 +1775,18 @@ static int ov8830_init_reg(void)
 	return 0;
 }
 
+static int ov8830_get_capability(u32 id, u32 *value)
+{
+	int i;
+	for (i = 0; i < sizeof(ov8830_cap) / sizeof(ov8830_cap[0]); ++i) {
+		if (id == ov8830_cap[i].id) {
+			*value = ov8830_cap[i].value;
+			break;
+		}
+	}
+	return 0;
+}
+
 static int ov8830_set_hflip(int flip)
 {
 	print_debug("enter %s flip=%d", __func__, flip);
@@ -1235,12 +1899,146 @@ static u16 ov8830_i2c_addr[] = {
 	OV8830_SLAVE_ADDRESS_6C,
 };
 
-static awb_gain_t ov8830_ccm_pregain[STATE_EXT_MAX] = {
-	{0x85, 0x80, 0x80, 0x85}, /* STATE_EXT_PREVIEW_BINNING */
-	{0x80, 0x80, 0x80, 0x80}, /* STATE_EXT_PREVIEW_NOBINNING */
-	{0x85, 0x80, 0x80, 0x85}, /* STATE_EXT_CAPTURE_BINNING */
-	{0x80, 0x80, 0x80, 0x80}, /* STATE_EXT_CAPTURE_NOBINNING */
+
+static awb_gain_t ov8830_flash_awb[FLASH_PLATFORM_MAX][OV8830_MODULE_MAX] = {
+	/* u9510 */
+	{
+		{0xd7, 0x80, 0x80, 0xfc}, /* SAMSUNG ori is {0xcd, 0x80, 0x80, 0xf5}*/
+		{0xc8, 0x80, 0x80, 0x104}, /* FOXCONN and others */
+	},
+
+	/* 9510E: U9510E/T9510E */
+	{
+		{0xe7, 0x80, 0x80, 0xfc}, /* SAMSUNG ori is {0xdc, 0x80, 0x80, 0xf5}, 5100K */
+		{0xd6, 0x80, 0x80, 0x104}, /* FOXCONN and others, flash awb fix mode */
+		//{0xb6, 0x104, 0xd6, 0x104}, /* FOXCONN and others, flash awb free go mode test option */
+	},
+
+	/* s10 */
+	{
+		{0xd7, 0x80, 0x80, 0x100}, /* SAMSUNG ori is {0xd5, 0x80, 0x80, 0xf6}*/
+		{0xd0, 0x80, 0x80, 0x100}, /* FOXCONN and others */
+	},
+	
+	/* u9508 */
+	{
+		{0xbe, 0xe6, 0xe7, 0xfc}, /* SAMSUNG */
+		{0xb8, 0xef, 0xd0, 0x108}, /* FOXCONN and others */
+	}
 };
+
+static void ov8830_get_flash_awb(flash_platform_t type, awb_gain_t *flash_awb)
+{
+	if (factory_id == OV8830_SAMSUNG_FACTORY_ID) {
+		*flash_awb = ov8830_flash_awb[type][OV8830_MODULE_SAMSUNG];
+	} else {
+		*flash_awb = ov8830_flash_awb[type][OV8830_MODULE_FOXCONN];
+	}
+	print_info("ov8830_flash_awb: type 0x%x,factory_id 0x%x", type, factory_id);
+}
+
+static ccm_gain_t cap_gain[FRAMESIZE_BINNING_MAX] = {{0x80, 0x80, 0x80}, {0x85, 0x80, 0x85}};
+static ccm_gain_t preview_gain ={0x80, 0x80, 0x80};
+
+#define OV8830_AE_TH_HIGH	481120 /* 496640 1940 * 0x80 *2, max AE_value in 720P@30fps, binning should x2 */
+#define OV8830_AE_TH_LOW	62000 /* 62000 is 4band(1vts)@0x10 gain, binning should x2. */
+
+#define CCM_GAIN_ORI 	0x80
+#define R_GAIN_SHIFT	0x85
+#define B_GAIN_SHIFT	0x85
+
+#define R_GAIN_MAX	0xb0
+#define B_GAIN_MIN	0x60
+
+static void ov8830_awb_dynamic_ccm_gain(u32 frame_index, u32 ae, awb_gain_t  *awb_gain, ccm_gain_t *ccm_gain)
+{
+	u32 gain_delta;
+
+	u32 ae_value = ae;
+	u32 current_rbratio = 0x100;
+	bool binning;
+
+	u32 a_light_rbratio = 0x50;
+	u32 h_light_rbratio =0x30;
+
+	u32 r_gain_base = CCM_GAIN_ORI;
+	u32 b_gain_base = CCM_GAIN_ORI;
+
+	if (frame_index >= ARRAY_SIZE(ov8830_framesizes)) {
+		print_error("Unsupport sensor setting index: %d", frame_index);
+		return;
+	}
+
+	binning = ov8830_framesizes[frame_index].binning;
+
+	if ((awb_gain->b_gain != 0) && (awb_gain->r_gain != 0)) {
+		current_rbratio = 0x8000 / (awb_gain->b_gain * 0x100 / awb_gain->r_gain);
+	}
+
+	if (binning == true) {
+		ae_value *= 2;
+		r_gain_base = R_GAIN_SHIFT;
+		b_gain_base = B_GAIN_SHIFT;
+	}
+
+	/* adjust current ae value */
+	ae_value = (ae_value > OV8830_AE_TH_HIGH) ? OV8830_AE_TH_HIGH : ae_value;
+
+	if ((current_rbratio >= a_light_rbratio) || (ae_value < OV8830_AE_TH_LOW)) {
+	/* (1) R/B larger than A' light or expo_line*GAIN lower than TH_LOW */
+			ccm_gain->r_gain = r_gain_base;
+			ccm_gain->b_gain = b_gain_base;
+	} else if ((current_rbratio < h_light_rbratio) && (ae_value >= OV8830_AE_TH_LOW)) {
+	/* (2)R/B lower than H light and expo_line*GAIN larger than TH_LOW*/
+		gain_delta = (ae_value -OV8830_AE_TH_LOW) * (R_GAIN_MAX - r_gain_base) / (OV8830_AE_TH_HIGH - OV8830_AE_TH_LOW);
+		ccm_gain->r_gain = gain_delta + r_gain_base;
+
+		gain_delta = (ae_value -OV8830_AE_TH_LOW) * (b_gain_base - B_GAIN_MIN) / (OV8830_AE_TH_HIGH - OV8830_AE_TH_LOW);
+		ccm_gain->b_gain = b_gain_base - gain_delta;
+ 	} else if ((current_rbratio <= a_light_rbratio) && (current_rbratio >= h_light_rbratio)) {
+	/* (3)R/B is between A' light and H light*/
+		gain_delta = (a_light_rbratio - current_rbratio) * (R_GAIN_MAX -r_gain_base) /(a_light_rbratio -h_light_rbratio);
+		ccm_gain->r_gain = gain_delta * (ae_value -OV8830_AE_TH_LOW) / (OV8830_AE_TH_HIGH - OV8830_AE_TH_LOW) + r_gain_base;
+
+		gain_delta = (a_light_rbratio - current_rbratio) * (b_gain_base - B_GAIN_MIN) /(a_light_rbratio -h_light_rbratio);
+		ccm_gain->b_gain = b_gain_base - gain_delta * (ae_value -OV8830_AE_TH_LOW) / (OV8830_AE_TH_HIGH - OV8830_AE_TH_LOW);
+	} else {
+		print_info("NO COVERRING SCENE.\n");
+		return;
+	}
+
+	//for preview
+	preview_gain.r_gain = ccm_gain->r_gain;
+	preview_gain.b_gain = ccm_gain->b_gain;
+
+	print_debug("CURRENT SCENE : r_gain = 0x%x, b_gain = 0x%x, current_value = %d\n\n",
+		ccm_gain->r_gain, ccm_gain->b_gain, ae_value);
+
+	//for capture
+	if (current_rbratio >= a_light_rbratio) {
+		cap_gain[FRAMESIZE_NOBINNING].r_gain = CCM_GAIN_ORI;
+		cap_gain[FRAMESIZE_NOBINNING].b_gain = CCM_GAIN_ORI;
+		cap_gain[FRAMESIZE_BINNING].r_gain = R_GAIN_SHIFT;
+		cap_gain[FRAMESIZE_BINNING].b_gain = B_GAIN_SHIFT;
+	} else {
+		/* check preview size is binning or not. */
+		if (binning == true) {
+			cap_gain[FRAMESIZE_NOBINNING].r_gain = ccm_gain->r_gain - (R_GAIN_SHIFT - CCM_GAIN_ORI);
+			cap_gain[FRAMESIZE_NOBINNING].b_gain = ccm_gain->b_gain - (B_GAIN_SHIFT - CCM_GAIN_ORI);
+			cap_gain[FRAMESIZE_BINNING].r_gain = ccm_gain->r_gain;
+			cap_gain[FRAMESIZE_BINNING].b_gain = ccm_gain->b_gain;
+		} else {
+			cap_gain[FRAMESIZE_NOBINNING].r_gain = ccm_gain->r_gain;
+			cap_gain[FRAMESIZE_NOBINNING].b_gain = ccm_gain->b_gain;
+			cap_gain[FRAMESIZE_BINNING].r_gain = ccm_gain->r_gain + (R_GAIN_SHIFT - CCM_GAIN_ORI);
+			cap_gain[FRAMESIZE_BINNING].b_gain = ccm_gain->b_gain + (B_GAIN_SHIFT - CCM_GAIN_ORI);
+		}
+	}
+
+	print_debug("cap_gain[NOBINNING] = 0x%x, 0x%x; cap_gain[BINNING] = 0x%x, 0x%x\n",
+		cap_gain[FRAMESIZE_NOBINNING].r_gain, cap_gain[FRAMESIZE_NOBINNING].b_gain,
+		cap_gain[FRAMESIZE_BINNING].r_gain, cap_gain[FRAMESIZE_BINNING].b_gain);
+}
 
 static void ov8830_get_ccm_pregain(camera_state state, u32 frame_index, u8 *bgain, u8 *rgain)
 {
@@ -1256,20 +2054,20 @@ static void ov8830_get_ccm_pregain(camera_state state, u32 frame_index, u8 *bgai
 
 	binning = ov8830_framesizes[frame_index].binning;
 
-	if ((state == STATE_PREVIEW) && (binning == true)) {
-		*bgain = ov8830_ccm_pregain[STATE_EXT_PREVIEW_BINNING].b_gain;
-		*rgain = ov8830_ccm_pregain[STATE_EXT_PREVIEW_BINNING].r_gain;
-	} else if ((state == STATE_PREVIEW) && (binning == false)) {
-		*bgain = ov8830_ccm_pregain[STATE_EXT_PREVIEW_NOBINNING].b_gain;
-		*rgain = ov8830_ccm_pregain[STATE_EXT_PREVIEW_NOBINNING].r_gain;
-	} else if ((state == STATE_CAPTURE) && (binning == true)) {
-		*bgain = ov8830_ccm_pregain[STATE_EXT_CAPTURE_BINNING].b_gain;
-		*rgain = ov8830_ccm_pregain[STATE_EXT_CAPTURE_BINNING].r_gain;
-	} else if ((state == STATE_CAPTURE) && (binning == false)) {
-		*bgain = ov8830_ccm_pregain[STATE_EXT_CAPTURE_NOBINNING].b_gain;
-		*rgain = ov8830_ccm_pregain[STATE_EXT_CAPTURE_NOBINNING].r_gain;
+	if (state == STATE_PREVIEW) {
+		*bgain = preview_gain.b_gain;
+		*rgain = preview_gain.r_gain;
+	} else if (state == STATE_CAPTURE) {
+		/* check capture size is binning or not. */
+		if (binning == true) {
+			*bgain = cap_gain[FRAMESIZE_BINNING].b_gain;
+			*rgain = cap_gain[FRAMESIZE_BINNING].r_gain;
+		} else {
+			*bgain = cap_gain[FRAMESIZE_NOBINNING].b_gain;
+			*rgain = cap_gain[FRAMESIZE_NOBINNING].r_gain;
+		}
 	} else
-		print_error("line %d, unknow format", __LINE__);	
+		return;
 }
 
 /*  **************************************************************************
@@ -1285,7 +2083,6 @@ static int ov8830_check_sensor(void)
 	u8 regl = 0;
 	u8 regh = 0;
 	u16 id = 0;
-	u8 factory_id = 0;
 	int size;
 	int i;
 
@@ -1318,18 +2115,22 @@ static int ov8830_check_sensor(void)
 	factory_id = (regh & 0x4) | ((regh & 0x8) >> 2) | ((regl & 0x8) >> 3);
 	ov8830_sensor.vcm = &ov8830_vcm;
 
-	if (factory_id == 0x00) {
+	if (factory_id == OV8830_SUNNY_FACTORY_ID) {
 		print_info("vendor GPIO id:0x%x, it is Sunny", factory_id);
 		memcpy(ov8830_sensor.vcm, &vcm_dw9714, sizeof(vcm_info_s));
-	} else if (factory_id == 0x01) {
+	} else if (factory_id == OV8830_FOXCONN_FACTORY_ID) {
 		print_info("Vendor GPIO id:0x%x, it is Foxconn", factory_id);
 		memcpy(ov8830_sensor.vcm, &vcm_ad5823, sizeof(vcm_info_s));
+	} else  if (factory_id == OV8830_SAMSUNG_FACTORY_ID) {
+		print_error("Vendor GPIO id:0x%x, it is Samsung", factory_id);
+		memcpy(ov8830_sensor.vcm, &vcm_dw9714, sizeof(vcm_info_s));
 	} else {
 		print_error("Vendor GPIO id:0x%x, not supported yet, use default Sunny", factory_id);
 		memcpy(ov8830_sensor.vcm, &vcm_dw9714, sizeof(vcm_info_s));
 	}
 
 	ov8830_sensor.vcm->get_vcm_otp = ov8830_get_vcm_otp;
+
 	/* h00206029_20120320 check otp available*/
 	ov8830_otp_index = -1;
 	for (i = 2; i >=0; i--) {
@@ -1346,8 +2147,17 @@ static int ov8830_check_sensor(void)
 	ov8830_write_reg(0x0100, 0x00, 0x00);
 
 #ifndef OVISP_DEBUG_MODE
-	size = ARRAY_SIZE(isp_init_regs_ov8830);
-	ov8830_write_isp_seq(isp_init_regs_ov8830, size);
+	//camera modules swich from factory_id
+	if (factory_id == OV8830_FOXCONN_FACTORY_ID) {
+		size = ARRAY_SIZE(isp_init_regs_ov8830_foxconn);
+		ov8830_write_isp_seq(isp_init_regs_ov8830_foxconn, size);
+	} else if (factory_id == OV8830_SAMSUNG_FACTORY_ID) {
+		size = ARRAY_SIZE(isp_init_regs_ov8830_samsung);
+		ov8830_write_isp_seq(isp_init_regs_ov8830_samsung, size);
+	} else {
+		size = ARRAY_SIZE(isp_init_regs_ov8830_foxconn);
+		ov8830_write_isp_seq(isp_init_regs_ov8830_foxconn, size);
+	}
 #endif
 
 	return 0;
@@ -1742,6 +2552,8 @@ bool ov8830_read_otp_vcm(u16 index, u8 *vcm_start, u8 *vcm_end)
 
 	ov8830_read_reg(0x3d0e, vcm_start);
 	ov8830_read_reg(0x3d0f, vcm_end);
+
+	return true;
 }
 
 /*
@@ -1795,7 +2607,6 @@ bool ov8830_read_otp_lenc(u16 index, struct otp_struct *potp)
 				ov8830_read_reg(OTP_BUFFER_START_ADDRESS + i, &(potp->lenc[i + 16 * otp_part]));
 		}
 	}
-
 
 	return true;
 }
@@ -2067,15 +2878,23 @@ void ov8830_update_otp_wb(u16 otp_index)
 
 #else
 	/* sensor method */
-	u32 RG_Ratio_typical = 0x267; //RG_TYPICAL;
-	u32 BG_Ratio_typical = 0x261; //BG_TYPICAL;
 
 	struct otp_struct current_otp;
 
 	u32 rg_ratio, bg_ratio;
 	u32 R_gain, G_gain, B_gain, G_gain_R, G_gain_B;
-	
-	print_debug("Enter function %s", __func__);
+
+	u32 RG_Ratio_typical; //RG_TYPICAL;
+	u32 BG_Ratio_typical; //BG_TYPICAL;
+
+	if (factory_id == OV8830_SAMSUNG_FACTORY_ID) {
+		RG_Ratio_typical = 0x291;//0x250;
+		BG_Ratio_typical = 0x253;//0x261;
+	} else {
+		RG_Ratio_typical = 0x267;
+		BG_Ratio_typical = 0x261;
+	}
+
 	/* R/G and B/G of current camera module is read out from sensor OTP */
 	ov8830_read_otp_wb(otp_index, &current_otp);
 	rg_ratio = ((current_otp.rg_h << 8) & 0xff00) | (current_otp.rg_l & 0xff);/* OTP_RG' */
@@ -2086,7 +2905,10 @@ void ov8830_update_otp_wb(u16 otp_index)
 
 	if (current_otp.bg_coff != 0)
 		bg_ratio = bg_ratio * (current_otp.bg_coff + 128) / 256;
-	
+
+	print_info("rg_ratio 0x%x, bg_ratio 0x%x, current_otp.rg_coff 0x%x, current_otp.bg_coff 0x%x",
+		rg_ratio, bg_ratio, current_otp.rg_coff, current_otp.bg_coff);
+
 	//calculate gain
 	//0x400 = 1x gain
 	if (bg_ratio < BG_Ratio_typical) {
@@ -2182,7 +3004,7 @@ void ov8830_update_blc(void)
 	}
 	ov8830_write_reg(0x4009, 0x10, 0x00);
 }
-#define OV8830_VCM_V2H_OFFSET	0x60
+#define OV8830_VCM_V2H_OFFSET	0xa0
 
 static void ov8830_get_vcm_otp(u16 *vcm_start, u16 *vcm_end)
 {
@@ -2195,6 +3017,18 @@ static void ov8830_get_vcm_otp(u16 *vcm_start, u16 *vcm_end)
 		*vcm_end = (ov8830_vcm_end << 2) - OV8830_VCM_V2H_OFFSET;
 	else
 		*vcm_end = 0;
+}
+
+static int ov8830_get_sensor_aperture()
+{
+	print_info("enter %s", __func__);
+	return OV8830_APERTURE_FACTOR;
+}
+
+static int ov8830_get_equivalent_focus()
+{
+	print_info("enter %s", __func__);
+	return OV8830_EQUIVALENT_FOCUS;
 }
 
 /*
@@ -2237,7 +3071,7 @@ static void ov8830_set_default(void)
 	ov8830_sensor.set_frame_intervals = NULL;
 	ov8830_sensor.get_frame_intervals = NULL;
 
-	ov8830_sensor.get_capability = NULL;
+	ov8830_sensor.get_capability = ov8830_get_capability;
 
 	ov8830_sensor.set_hflip = ov8830_set_hflip;
 	ov8830_sensor.get_hflip = ov8830_get_hflip;
@@ -2291,8 +3125,18 @@ static void ov8830_set_default(void)
 	ov8830_sensor.sensor_gain_to_iso = ov8830_gain_to_iso;
 	ov8830_sensor.sensor_iso_to_gain = ov8830_iso_to_gain;
 
+	ov8830_sensor.get_sensor_aperture = ov8830_get_sensor_aperture;
+	ov8830_sensor.get_equivalent_focus = ov8830_get_equivalent_focus;
+
 	ov8830_sensor.get_ccm_pregain = ov8830_get_ccm_pregain;
 
+	ov8830_sensor.get_flash_awb = ov8830_get_flash_awb;
+
+#ifndef OVISP_DEBUG_MODE
+	ov8830_sensor.awb_dynamic_ccm_gain = ov8830_awb_dynamic_ccm_gain;
+#else
+	ov8830_sensor.awb_dynamic_ccm_gain = NULL;
+#endif
 	ov8830_sensor.set_effect = NULL;
 	ov8830_sensor.set_awb = NULL;
 

@@ -1300,6 +1300,9 @@ static void s5k3h2yx_samsungem_set_default(void)
 	s5k3h2yx_samsungem_sensor.sensor_gain_to_iso = s5k3h2yx_samsungem_gain_to_iso;
 	s5k3h2yx_samsungem_sensor.sensor_iso_to_gain = s5k3h2yx_samsungem_iso_to_gain;
 
+	s5k3h2yx_samsungem_sensor.get_sensor_aperture = NULL;
+	s5k3h2yx_samsungem_sensor.get_equivalent_focus = NULL;
+
 	s5k3h2yx_samsungem_sensor.isp_location = CAMERA_USE_K3ISP;
 	s5k3h2yx_samsungem_sensor.sensor_tune_ops = NULL;
 

@@ -174,6 +174,28 @@ int panel_next_set_frc(struct platform_device *pdev, int target_fps)
 	return ret;
 }
 
+int panel_next_check_esd(struct platform_device *pdev)
+{
+	int ret = 0;
+	struct k3_fb_panel_data *pdata = NULL;
+	struct k3_fb_panel_data *next_pdata = NULL;
+	struct platform_device *next_pdev = NULL;
+
+	BUG_ON(pdev == NULL);
+
+	pdata = (struct k3_fb_panel_data *)pdev->dev.platform_data;
+	if (pdata) {
+		next_pdev = pdata->next;
+		if (next_pdev) {
+			next_pdata = (struct k3_fb_panel_data *)next_pdev->dev.platform_data;
+			if ((next_pdata) && (next_pdata->check_esd))
+				ret = next_pdata->check_esd(next_pdev);
+		}
+	}
+
+	return ret;
+}
+
 struct platform_device *k3_fb_device_alloc(struct k3_fb_panel_data *pdata,
 	u32 type, u32 id, u32 *graphic_ch)
 {
@@ -195,8 +217,8 @@ struct platform_device *k3_fb_device_alloc(struct k3_fb_panel_data *pdata,
 		snprintf(dev_name, sizeof(dev_name), "ldi");
 		*graphic_ch = OVERLAY_PIPE_EDC0_CH2;
 		break;
-	case MIPI_VIDEO_PANEL:
-	case MIPI_CMD_PANEL:
+	case PANEL_MIPI_VIDEO:
+	case PANEL_MIPI_CMD:
 		snprintf(dev_name, sizeof(dev_name), "mipi_dsi");
 		*graphic_ch = OVERLAY_PIPE_EDC0_CH2;
 		break;
@@ -224,3 +246,23 @@ void  k3_fb_device_free(struct platform_device *pdev)
     BUG_ON(pdev == NULL);
     platform_device_put(pdev);
 }
+
+/*y=pow(x,0.6),x=[0,255]*/
+u32 square_point_six(u32 x)
+{
+	unsigned long t = x * x * x;
+	int i = 0, j = 255, k = 0;
+	unsigned long t0 = 0;
+	while (j - i > 1) {
+		k = (i + j) / 2;
+			t0 = k * k * k * k * k;
+		if(t0 < t)
+			i = k;
+		else if (t0 > t)
+			j = k;
+		else
+			return k;
+	}
+	return k;
+}
+

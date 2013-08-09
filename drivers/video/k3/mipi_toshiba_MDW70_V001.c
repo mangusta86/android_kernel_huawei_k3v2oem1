@@ -341,31 +341,6 @@ static struct attribute *toshiba_attrs[] = {
 static struct attribute_group toshiba_attr_group = {
 	.attrs = toshiba_attrs,
 };
-static u32 square_point_6(u32 x)
-{
-	unsigned long t = x * x * x;
-	unsigned long t0 = 0;
-	u32 i = 0, j = 255, k = 0;
-
-	while(j - i > 1)
-	{
-		k = (i + j) / 2;
-		t0 = k * k * k * k * k;
-		if(t0 < t){
-		    i = k;
-		}
-		else if(t0 > t){
-		    j = k;
-		}
-		else{
-		    return k;
-		}
-	}
-
-	return k;
-}
-/* END:   Added by huohua, 2012/6/12 */
-
 static int toshiba_sysfs_init(struct platform_device *pdev)
 {
 	int ret;
@@ -426,7 +401,7 @@ static int toshiba_set_cabc(struct lcd_tuning_dev *ltd, enum  tft_cabc cabc)
 	BUG_ON(k3fd == NULL);
 	edc_base = k3fd->edc_base;
 
-	bl_level = ( k3fd->bl_level * square_point_6(k3fd->bl_level) * 100 ) / 2779;
+	bl_level = ( k3fd->bl_level * square_point_six(k3fd->bl_level) * 100 ) / 2779;
 	if(bl_level > 255){
 		bl_level = 255;
 	}
@@ -536,6 +511,8 @@ static void toshiba_disp_on(struct k3_fb_data_type *k3fd)
 		mipi_dsi_cmds_tx(toshiba_cabc_ui_cmds, \
 			ARRAY_SIZE(toshiba_cabc_ui_cmds), edc_base);
 	}
+
+	printk("-----display on-----");
 	/* END:   Added by huohua, 2012/02/14 */
 }
 
@@ -661,7 +638,7 @@ static int mipi_toshiba_panel_set_backlight(struct platform_device *pdev)
 		//Let the backlight brightness to adjust way by the curve transformation,
 		//to better meet the human visual characteristics.
 		//Y = (X / 255) ^ 1.6 * 255
-		bl_level = ( k3fd->bl_level * square_point_6(k3fd->bl_level) * 100 ) / 2779;
+		bl_level = ( k3fd->bl_level * square_point_six(k3fd->bl_level) * 100 ) / 2779;
 		if(bl_level > 255){
 			bl_level = 255;
 		}
@@ -769,7 +746,7 @@ static int __devinit toshiba_probe(struct platform_device *pdev)
 	pinfo->display_on = false;
 	pinfo->xres = 720;
 	pinfo->yres = 1280;
-	pinfo->type = MIPI_VIDEO_PANEL;
+	pinfo->type = PANEL_MIPI_VIDEO;
 	pinfo->orientation = LCD_PORTRAIT;
 	pinfo->bpp = EDC_OUT_RGB_888;
 	pinfo->s3d_frm = EDC_FRM_FMT_2D;
@@ -777,6 +754,10 @@ static int __devinit toshiba_probe(struct platform_device *pdev)
 	pinfo->bl_set_type = BL_SET_BY_MIPI;
 	pinfo->bl_max = PWM_LEVEL;
 	pinfo->bl_min = 1;
+
+	pinfo->frc_enable = 1;
+	pinfo->esd_enable = 1;
+	pinfo->sbl_enable = 1;
 
 	pinfo->sbl.bl_max = 0xff;
 	pinfo->sbl.cal_a = 0x0f;
@@ -850,6 +831,8 @@ static int __devinit toshiba_probe(struct platform_device *pdev)
 	/* END:   Added by huohua, 2012/01/07 */
 
 	toshiba_sysfs_init(pdev);
+
+	printk("-----%s complete\n", __func__);
 
 	return 0;
 }

@@ -141,7 +141,7 @@
 /* target Y definitions */
 #define DEFAULT_TARGET_Y_LOW			0x2c
 #define DEFAULT_TARGET_Y_HIGH			0x4c
-#define DEFAULT_TARGET_Y_FLASH			0x30
+#define DEFAULT_TARGET_Y_FLASH		0x30
 
 #define METERING_CWA_WIDTH_PERCENT		75
 #define METERING_CWA_HEIGHT_PERCENT	75
@@ -154,13 +154,18 @@
 #define REG_ISP_TARGET_Y				(0x1c5aa)
 #define REG_ISP_TARGET_Y_LOW			(0x1c146)
 #define REG_ISP_TARGET_Y_LOW_SHORT		(0x1c147)
-
 #define REG_ISP_TARGET_Y_HIGH			(0x1c5a0)
 
+#define DEFAULT_FLASH_AEC_FAST_STEP		0x18
+#define DEFAULT_FLASH_AEC_SLOW_STEP		0x10
+#define DEFAULT_FLASH_AWB_STEP			0x0c
+
+#define REG_ISP_AWB_STEP		(0x1c184)
+
 #define REG_ISP_SLOW_RANGE			(0x1c148)
-#define REG_ISP_SLOW_RANGE_SHORT	(0x1c149)
-#define REG_ISP_STABLE_RANGE		(0x1c14a)
-#define REG_ISP_STABLE_RANGE_SHORT	(0x1c14b)
+#define REG_ISP_SLOW_RANGE_SHORT		(0x1c149)
+#define REG_ISP_UNSTABLE2STABLE_RANGE		(0x1c14a)
+#define REG_ISP_STABLE2UNSTABLE_RANGE		(0x1c14b)
 #define REG_ISP_FAST_STEP			(0x1c14c)
 #define REG_ISP_FAST_STEP_SHORT		(0x1c14d)
 #define REG_ISP_SLOW_STEP			(0x1c14e)
@@ -215,29 +220,95 @@
 /* 0x1cddf for aec stable status. 1 for stable, 0 for unstable. */
 #define REG_ISP_AECAGC_STABLE	(0x1cddf)
 
-#define CAF_STAT_COMPARE_START_FRAME	2
-#define CAF_STAT_COMPARE_END_FRAME	5
+
+
+
+#define YUV_EDGE_STAT_MODE
+
+#define FOCUS_PARAM_JUDGE_BASE_LOW	0x04
+#define FOCUS_PARAM_JUDGE_BASE_HIGH	0x10
+
+#define FOCUS_PARAM_ULTRALOW_CONTRAST		0x80
+#define FOCUS_PARAM_LOW_CONTRAST			0x140
+
+#define FOCUS_PARAM_JUDGE_ERROR_MINDIFF		0x18
+#define FOCUS_PARAM_JUDGE_ERROR_MINSTEPS	0x08
+#define FOCUS_PARAM_JUDGE_LOW_CONTRAST		0xC0
+#define FOCUS_PARAM_JUDGE_ERROR_LUM			0x04
+
+/* AF from one stage to another, should hold some frames first */
+#define FOCUS_PARAM_STAGE_HOLDING_FRAMES	1
+
+/* 
+ * decide Picture CAF first stage should try or not.
+ * if current position >= 1/RANGE_OF_TRY and <= (RANGE_OF_TRY - 1)/RANGE_OF_TRY
+ * Picture CAF should first try.
+ */
+#define FOCUS_PARAM_RANGE_OF_TRY		5
+#define FOCUS_PARAM_STAT_THRESHOLD_PERCENT	95
+
+/* AF difference compare ratio or var definitions */
+#define FOCUS_PARAM_COMPARE_RATIO_CONTRAST	3
+#define FOCUS_PARAM_COMPARE_RATIO_LUM			3
+#define FOCUS_PARAM_COMPARE_RATIO_AE			4
+#define FOCUS_PARAM_COMPARE_RATIO_AWB		10
+#define FOCUS_PARAM_COMPARE_DIFF_XYZ			0x28
+
+#define FOCUS_PARAM_VAR_RATIO_CONTRAST		25 /* more larger, more difficulty to trigger CAF. */
+#define FOCUS_PARAM_VAR_RATIO_LUM		16 /* more larger, more difficulty to trigger CAF. */
+#define FOCUS_PARAM_VAR_DIFF_XYZ		256 /* more small, more difficulty to trigger CAF. */
+
+#define FOCUS_PARAM_MIN_TRIGGER_LUM	0xc /* minimum lum CAF can trigger. */
+
+#define FOCUS_PARAM_MIN_TRIGGER_CONTRAST_DIFF	4 /* minimum contrast diff CAF will trigger. */
+#define FOCUS_PARAM_MIN_TRIGGER_LUM_DIFF	4 /* minimum lum diff CAF will trigger. */
+
+/* if unpeace caused by Gsensor more than XX seconds, force VCM go to infinite */
+#define FOCUS_PARAM_GOTO_INFINITE_TIMEOUT	2
+
+#define CAF_STAT_COMPARE_START_FRAME		2
+#define CAF_STAT_COMPARE_END_FRAME			6
 #define CAF_STAT_COMPARE_FRAMES \
 	(CAF_STAT_COMPARE_END_FRAME - CAF_STAT_COMPARE_START_FRAME + 1)
 
 #define CAF_STAT_SKIP_FRAME		15
-#define CAF_STAT_FRAME			10
 
-#define FLASH_TEST_MAX_COUNT	20
-#define FLASH_TEST_OVER_EXPO	0x80
+#define CAF_STAT_FRAME			8
+#define CAF_STAT_FRAME_FULL		12
+#define CAF_STAT_FRAME_LOW		6
+
+#define FOCUS_PARAM_LARGE_STRIDE_BASE				0x10
+
+/* if focus RECT size is large than this value, edge calc will use coarse flag. */
+#define FOCUS_PARAM_EDGE_CALC_COARSE_SIZE		(1280 * 720)
+
+#define FOCUS_PARAM_ASSISTANT_AF_LUMTH_1X		0x10
+#define FOCUS_PARAM_ASSISTANT_AF_LUMTH_9X		0x30
+#define FOCUS_PARAM_ASSISTANT_AF_GAINTH_HIGH	0xA0
+
+#define FOCUS_PARAM_MIN_HEIGHT_RATIO	5
+
+#define FOCUS_PARAM_CAF_RESTART_DIFF_XYZ		0x40
+
+#define FLASH_TEST_MAX_COUNT	30
+#define FLASH_CAP_RAW_OVER_EXPO	0xe0
+#define FLASH_PREFLASH_LOWLIGHT_TH	0x20
+#define FLASH_PREVIEW_LOWCT_TH	0x140
+
+#define ISP_LUM_WIN_WIDTH_NUM	8
+#define ISP_LUM_WIN_HEIGHT_NUM	6
 
 /* struct definition */
 typedef enum {
 	FOCUS_STATE_STOPPED = 0,
-	FOCUS_STATE_CAF_HOLDING,
 	FOCUS_STATE_CAF_PREPARING,
 	FOCUS_STATE_CAF_DETECTING,
 	FOCUS_STATE_CAF_RUNNING,
 	FOCUS_STATE_AF_PREPARING,
 	FOCUS_STATE_AF_RUNNING,
-	FOCUS_STATE_AF_HOLDING,
 	FOCUS_STATE_MAX,
 } focus_state_e;
+
 typedef enum {
 	CAMERA_AUTO_SNAPSHOT_MODE = 0,
 	CAMERA_SINGLE_SNAPSHOT_MODE,
@@ -248,15 +319,68 @@ typedef enum {
 typedef enum {
 	FOCUS_SCHEDULE_CASE_AF_MOVE = 0,
 	FOCUS_SCHEDULE_CASE_CAF_PICTURE_DETECT,
-	FOCUS_SCHEDULE_CASE_CAF_PICTURE_MONITOR,
 	FOCUS_SCHEDULE_CASE_CAF_PICTURE_MOVE,
 
 	FOCUS_SCHEDULE_CASE_CAF_VIDEO_DETECT,
-	FOCUS_SCHEDULE_CASE_CAF_VIDEO_MONITOR,
 	FOCUS_SCHEDULE_CASE_CAF_VIDEO_MOVE,
 
 	FOCUS_SCHEDULE_CASE_AF_HOLDING,
 } focus_schedule_case;
+
+#define VCAF_RUN_RETRY_COUNT_MAX		100
+
+typedef enum {
+	AF_RUN_DIRECTION_BACKWARD = -1,
+	AF_RUN_DIRECTION_FORWARD = 1,
+} af_run_direction;
+
+typedef enum {
+	VCAF_RUN_STAGE_PREPARE = 0,
+	VCAF_RUN_STAGE_STARTUP,
+	VCAF_RUN_STAGE_TRY,
+
+	VCAF_RUN_STAGE_TRYREWIND,
+	VCAF_RUN_STAGE_FORWARD,
+
+	VCAF_RUN_STAGE_REWIND,
+} vcaf_run_stage;
+
+typedef enum {
+	AF_RUN_STAGE_PREPARE = 0,
+	AF_RUN_STAGE_PREPARE_POST,
+	AF_RUN_STAGE_TRY,
+	AF_RUN_STAGE_TRY_POST,
+	AF_RUN_STAGE_COARSE,
+	AF_RUN_STAGE_COARSE_POST,
+	AF_RUN_STAGE_FINE,
+	AF_RUN_STAGE_END,
+} af_run_stage;
+
+typedef enum {
+	FOCUS_POSITION_PART_LEFT = 0,
+	FOCUS_POSITION_PART_CENTER_LEFT,
+	FOCUS_POSITION_PART_CENTER_RIGHT,
+	FOCUS_POSITION_PART_RIGHT,
+} focus_position_e;
+
+typedef enum {
+	AF_CODE_STEP_COARSE = 0,
+	AF_CODE_STEP_FINE,
+	AF_CODE_STEP_VIDEO,
+} af_code_step;
+
+typedef enum {
+	CAF_DETECT_RESULT_NONE = 0,
+	CAF_DETECT_RESULT_TRIGGER,
+	CAF_DETECT_RESULT_INFINITE,
+	CAF_DETECT_RESULT_NOISE,
+} caf_detect_result;
+
+typedef enum {
+	CAF_FORCESTART_NONE = 0, /* clear force start all bits */
+	CAF_FORCESTART_LEVEL0, /* force start level0: should wait peace */
+	CAF_FORCESTART_LEVEL1, /* force start top level: do not need wait peace */
+} caf_forcestart_level;
 
 /* vcm focus position information */
 typedef struct _pos_info {
@@ -264,26 +388,65 @@ typedef struct _pos_info {
 	u32	code;
 } pos_info;
 
+typedef struct _af_trip_info {
+	int start_pos;
+	int end_pos;
+	u32 step;
+	af_run_direction direction;
+	u32 step_cnt;
+} af_trip_info;
+
+typedef struct _af_run_param {
+	af_trip_info trip;
+	pos_info top;
+	pos_info histtop;
+	u8 hold_cnt;
+	u8 af_analysis;
+} af_run_param;
+
 /* frame's statistic data */
 typedef struct _focus_frame_stat_s {
 	u32 contrast;
-	u32 ae;
 	u32 lum;
+	u32 ae;
 	u32 rbratio;
 	axis_triple xyz;
 
 	u32 contrast_var;
+	u32 lum_var;
 	axis_triple xyz_var;
+
 	u32 fps;
 } focus_frame_stat_s;
+
+typedef struct _lum_win_info_s {
+	/* In fact ISP raw win is divided to 8x6, we select 4 wins which are nearest to current focus center pointer. */
+	u32 index[4];
+	u32 width;
+	u32 height;
+} lum_win_info_s;
+
+typedef struct _lum_table_s {
+	u32 lum;
+	u32 value;
+} lum_table_s;
 
 typedef struct _ispv1_afae_ctrl_s {
 	metering_area_s ae_area;
 
 	focus_area_s af_area;
+
+	bool area_changed;
+
+	lum_win_info_s lum_info;
+
 	camera_focus mode;
 
+	u32 zoom;
+
 	camera_rect_s cur_rect;
+
+	u32 raw_unit_area;
 
 	int binning;
 	int multi_win;
@@ -291,7 +454,7 @@ typedef struct _ispv1_afae_ctrl_s {
 	/* save current focus state. */
 	focus_state_e focus_state;
 
-	/* previous focus action is failed or not. */
+	/* previous focus action is failed or not. 0:success; 1:failed */
 	int focus_failed;
 
 	/* save statistic frames count */
@@ -299,9 +462,6 @@ typedef struct _ispv1_afae_ctrl_s {
 
 	/* force CAF start flag */
 	u16 force_start;
-
-	FOCUS_STATUS video_caf_status;
-	int video_caf_code;
 
 	bool k3focus_running;
 
@@ -320,14 +480,14 @@ typedef struct _ispv1_afae_ctrl_s {
 	 */
 	focus_frame_stat_s compare_data;
 
-	/* using for calculate focus's uper limit and lower limit */
-	u16 focus_frame_count;
-
 	/*
 	 * save several frame's statistic data,
 	 * used to judge scene change.
 	 */
-	focus_frame_stat_s frame_stat[CAF_STAT_FRAME];
+	focus_frame_stat_s frame_stat[CAF_STAT_FRAME_FULL];
+
+
+	int gsensor_interval;
 
 	/*
 	 * Define each focus rect's win ID, maybe several win IDs.
@@ -336,6 +496,8 @@ typedef struct _ispv1_afae_ctrl_s {
 	 * After ispv1_exit_focus is called, all table value will be 0.
 	 */
 	int *map_table;
+	pos_info curr;
+	u8 af_result; /* equals focus_state */
 } ispv1_afae_ctrl;
 
 /* For auto focus, public API, temporarily we just support one point focus.
@@ -343,8 +505,9 @@ typedef struct _ispv1_afae_ctrl_s {
  */
 int ispv1_auto_focus(int flag);
 int ispv1_set_focus_mode(camera_focus focus_mode);
-int ispv1_set_focus_area(focus_area_s *area);
+int ispv1_set_focus_area(focus_area_s *area, u32 zoom);
 int ispv1_get_focus_result(focus_result_s *result);
+int ispv1_set_focus_zoom(u32 zoom);
 
 /* For auto focus, following are private functions for ispv1*/
 
@@ -369,8 +532,17 @@ int ispv1_set_metering_area(metering_area_s *area);
 int ispv1_set_focus_range(camera_focus focus_mode);
 int ispv1_get_focus_distance(void);
 
+focus_state_e get_focus_state(void);
+
+bool afae_ctrl_is_null(void);
+
 int ispv1_set_gsensor_stat(axis_triple *xyz);
 int ispv1_set_ae_statwin(pic_attr_t *pic_attr);
 void ispv1_wakeup_focus_schedule(bool force_flag);
+
+void ispv1_get_raw_lum_info(aec_data_t *ae_data, u32 stat_unit_area);
+u32 ispv1_get_stat_unit_area(void);
+void ispv1_set_stat_unit_area(u32 unit_area);
+
 #endif /*__K3_ISPV1_AFAE_H__ */
 /********************************* END ****************************************/

@@ -33,13 +33,13 @@ static struct regulator_consumer_supply ldo5_consumers[] = {
 	REGULATOR_SUPPLY("slcnand-vcc", "slc-nand"),
 	REGULATOR_SUPPLY("bt-vcc", "bt"),
 	REGULATOR_SUPPLY("gps-vcc", "gps-rfic"),
-	REGULATOR_SUPPLY("ts-vbus", "synaptics-ts"),
+	REGULATOR_SUPPLY("ts-vbus", "2-0070"),
 	REGULATOR_SUPPLY("es305-vcc", NULL),
 	REGULATOR_SUPPLY("lowpower-vcc", NULL),
 };
 static struct regulator_consumer_supply ldo6_consumers[] = {
 	REGULATOR_SUPPLY("io-vcc", "io"),
-	REGULATOR_SUPPLY("ts-vdd", "synaptics-ts"),
+	//REGULATOR_SUPPLY("ts-vdd", "synaptics-ts"),
 	REGULATOR_SUPPLY("tsanalog-Platform-vcc", "atmel-ts"),
 };
 static struct regulator_consumer_supply ldo7_consumers[] = {
@@ -66,6 +66,7 @@ static struct regulator_consumer_supply ldo12_consumers[] = {
 static struct regulator_consumer_supply ldo13_consumers[] = {
 	REGULATOR_SUPPLY("cmmb-vcc", "cmmb"),
 	REGULATOR_SUPPLY("tsanalog-Phone-vcc", "atmel-ts"),
+	REGULATOR_SUPPLY("ts-vdd", "2-0070"),
 };
 static struct regulator_consumer_supply ldo14_consumers[] = {
 	REGULATOR_SUPPLY("wifiio-vcc", NULL),

@@ -81,7 +81,7 @@ struct k3_bq24161_device_info {
 
 	int			charge_status;
 	int			charger_source;
-
+	int     temperature_warm;
 	unsigned long		event;
 
 	struct notifier_block	nb;
@@ -90,7 +90,8 @@ struct k3_bq24161_device_info {
 
 	/*hand control charging process*/
 	bool   			factory_flag;
-
+    bool            battery_full;
+    u32    charge_full_count;
 	/**********ADD BY 00186176 begin****************/
 	int 			gpio;
 	struct iomux_block  	*piomux_block;
@@ -109,6 +110,61 @@ extern struct blocking_notifier_head notifier_list_bat;
 extern u32 wakeup_timer_seconds;
 
 struct k3_bq24161_i2c_client *k3_bq24161_client;
+
+static bool bq2416x_get_boardid_charge_parameter(struct k3_bq24161_device_info *di)
+{
+    bool ret = 0;
+    int battery_id_status = 0;
+
+    battery_id_status = get_battery_id();
+    dev_info(di->dev, " battery_id_status = %d\n",battery_id_status);
+    switch(battery_id_status){
+    case BAT_ID_10K_STATUS:
+         ret = get_hw_config_int("gas_gauge/charge_voltage_10k", &di->max_voltagemV, NULL);
+         ret&= get_hw_config_int("gas_gauge/charge_current_10k", &di->max_currentmA, NULL);
+        break;
+    case BAT_ID_22K_STATUS:
+         ret = get_hw_config_int("gas_gauge/charge_voltage_22k", &di->max_voltagemV, NULL);
+         ret&= get_hw_config_int("gas_gauge/charge_current_22k", &di->max_currentmA, NULL);
+        break;
+    case BAT_ID_39K_STATUS:
+         ret = get_hw_config_int("gas_gauge/charge_voltage_39k", &di->max_voltagemV, NULL);
+         ret&= get_hw_config_int("gas_gauge/charge_current_39k", &di->max_currentmA, NULL);
+        break;
+    case BAT_ID_68K_STATUS:
+         ret = get_hw_config_int("gas_gauge/charge_voltage_68k", &di->max_voltagemV, NULL);
+		 ret&= get_hw_config_int("gas_gauge/charge_current_68k", &di->max_currentmA, NULL);
+        break;
+    case BAT_ID_110K_STATUS:
+         ret = get_hw_config_int("gas_gauge/charge_voltage_110k", &di->max_voltagemV, NULL);
+         ret&= get_hw_config_int("gas_gauge/charge_current_110k", &di->max_currentmA, NULL);
+        break;
+    case BAT_ID_200K_STATUS:
+         ret = get_hw_config_int("gas_gauge/charge_voltage_200k", &di->max_voltagemV, NULL);
+         ret&= get_hw_config_int("gas_gauge/charge_current_200k", &di->max_currentmA, NULL);
+        break;
+    case BAT_ID_470K_STATUS:
+         ret = get_hw_config_int("gas_gauge/charge_voltage_470k", &di->max_voltagemV, NULL);
+         ret&= get_hw_config_int("gas_gauge/charge_current_470k", &di->max_currentmA, NULL);
+        break;
+    case BAT_ID_2M_STATUS:
+         ret = get_hw_config_int("gas_gauge/charge_voltage_2m", &di->max_voltagemV, NULL);
+         ret&= get_hw_config_int("gas_gauge/charge_current_2m", &di->max_currentmA, NULL);
+        break;
+    default:
+         ret = get_hw_config_int("gas_gauge/charge_voltage",&di->max_voltagemV, NULL);
+         ret&= get_hw_config_int("gas_gauge/charge_current", &di->max_currentmA, NULL);
+        break;
+    }
+    if(ret){
+        return true;
+    }else{
+        dev_err(di->dev, " bq2416x get charge parameter from boardid fail \n");
+        di->max_voltagemV = 4200;
+        di->max_currentmA = 1000;
+        return false;
+    }
+}
 
 enum{
     BATTERY_HEALTH_TEMPERATURE_NORMAL = 0,
@@ -397,7 +453,7 @@ k3_bq24161_charge_status(struct k3_bq24161_device_info *di)
 {
     long int events = BQ24161_START_CHARGING;
     u8 read_reg[8] = {0};
-    int battery_capacity = 0;
+
 
 	k3_bq24161_read_block(di, &read_reg[0], 0, 2);
 	if((read_reg[1] & BQ24161_FAULT_VBUS_VUVLO) == BQ24161_FAULT_VBUS_OVP)
@@ -416,14 +472,11 @@ k3_bq24161_charge_status(struct k3_bq24161_device_info *di)
 		events = BQ24161_NOT_CHARGING;
 
 	} else if((read_reg[0] & BQ24161_VUSB_FAULT) == BQ24161_CHARGE_DONE){
-        battery_capacity = k3_bq27510_battery_capacity(g_battery_measure_by_bq27510_device);
-        if ((!is_k3_bq27510_battery_full(g_battery_measure_by_bq27510_device))||(battery_capacity!= 100)) {
-            dev_info(di->dev, "charge_done_battery_capacity = %d\n",battery_capacity);
+        if (!di->battery_full) {
             di->hz_mode = 1;
             k3_bq24161_write_byte(di, di->control_reg | di->hz_mode, REG_CONTROL_REGISTER);
-            /*disable bq2416x charger high impedance mode*/
-            msleep(700);
             di->hz_mode = 0;
+            msleep(700);
             k3_bq24161_config_control_reg(di);
             events = BQ24161_START_CHARGING;
 		} else {
@@ -441,7 +494,7 @@ k3_bq24161_charge_status(struct k3_bq24161_device_info *di)
     return;
 }
 
-static int k3_bq24161_check_battery_temperature_threshold(void)
+static int k3_bq24161_check_battery_temperature_threshold(struct k3_bq24161_device_info *di)
 {
     int battery_temperature = 0;
 
@@ -455,14 +508,14 @@ static int k3_bq24161_check_battery_temperature_threshold(void)
         return BATTERY_HEALTH_TEMPERATURE_LOW;
 
 	} else if ((battery_temperature >= BQ24161_COOL_BATTERY_THRESHOLD)
-	  && (battery_temperature < (BQ24161_WARM_BATTERY_THRESHOLD - TEMPERATURE_OFFSET))){
+	  && (battery_temperature < (di->temperature_warm - TEMPERATURE_OFFSET))){
         return BATTERY_HEALTH_TEMPERATURE_NORMAL;
 
-	} else if ((battery_temperature >= (BQ24161_WARM_BATTERY_THRESHOLD - TEMPERATURE_OFFSET))
-	  && (battery_temperature < BQ24161_WARM_BATTERY_THRESHOLD)){
+	} else if ((battery_temperature >= (di->temperature_warm - TEMPERATURE_OFFSET))
+	  && (battery_temperature < di->temperature_warm)){
         return BATTERY_HEALTH_TEMPERATURE_NORMAL_HIGH;
 
-	} else if ((battery_temperature >= BQ24161_WARM_BATTERY_THRESHOLD)
+	} else if ((battery_temperature >= di->temperature_warm)
 	  && (battery_temperature < BQ24161_HOT_BATTERY_THRESHOLD)){
         return BATTERY_HEALTH_TEMPERATURE_HIGH;
 
@@ -490,7 +543,7 @@ k3_bq24161_low_current_charge(struct k3_bq24161_device_info *di)
        return;
 
 	battery_voltage = k3_bq27510_battery_voltage(g_battery_measure_by_bq27510_device);
-    battery_temp_status = k3_bq24161_check_battery_temperature_threshold();
+    battery_temp_status = k3_bq24161_check_battery_temperature_threshold(di);
 
 	switch (battery_temp_status) {
 	case BATTERY_HEALTH_TEMPERATURE_OVERLOW:
@@ -558,6 +611,25 @@ k3_bq24161_low_current_charge(struct k3_bq24161_device_info *di)
     k3_bq24161_charge_status(di);
 }
 
+static void bq2416x_check_bq27510_charge_full(struct k3_bq24161_device_info *di)
+{
+    if(di->battery_present){
+        if(di->battery_full){
+            di->enable_iterm = ENABLE_ITERM;
+            di->charge_full_count++;
+            if(di->charge_full_count >= BQ2416x_CHARGE_FULL_DELAY_TIME){
+               di->charge_full_count = BQ2416x_CHARGE_FULL_DELAY_TIME;
+            }
+        }else{
+            di->enable_iterm = DISABLE_ITERM;
+        }
+    }else{
+        di->enable_iterm = DISABLE_ITERM;
+    }
+
+   //k3_bq24161_config_control_reg(di);
+   return;
+}
 
 /*===========================================================================
   Function:       k3_bq24161_open_inner_fet
@@ -567,20 +639,20 @@ k3_bq24161_low_current_charge(struct k3_bq24161_device_info *di)
 ===========================================================================*/
 void k3_bq24161_open_inner_fet(struct k3_bq24161_device_info *di)
 {
-	u8 en_nobatop = 0;
+    u8 en_nobatop = 0;
 
-	k3_bq24161_read_byte(di, &en_nobatop, REG_BATTERY_AND_SUPPLY_STATUS);
+    k3_bq24161_read_byte(di, &en_nobatop, REG_BATTERY_AND_SUPPLY_STATUS);
 
-	if (di->battery_present) {
-		di->enable_iterm = ENABLE_ITERM;
-		en_nobatop = en_nobatop & (~EN_NOBATOP);
-	} else {
-		di->enable_iterm = DISABLE_ITERM;
-		en_nobatop = en_nobatop | EN_NOBATOP;
-	}
+    if (di->battery_present) {
+        bq2416x_check_bq27510_charge_full(di);
+        en_nobatop = en_nobatop & (~EN_NOBATOP);
+    } else {
+        di->enable_iterm = DISABLE_ITERM;
+        en_nobatop = en_nobatop | EN_NOBATOP;
+    }
 
-	k3_bq24161_config_control_reg(di);
-	k3_bq24161_write_byte(di, en_nobatop, REG_BATTERY_AND_SUPPLY_STATUS);
+    k3_bq24161_config_control_reg(di);
+    k3_bq24161_write_byte(di, en_nobatop, REG_BATTERY_AND_SUPPLY_STATUS);
 }
 
 /*===========================================================================
@@ -598,11 +670,7 @@ static void k3_bq24161_start_500mA_charger(struct k3_bq24161_device_info *di)
 	wake_lock(&di->charger_wake_lock);
 #endif
 
-	/*if the charger is NON_STANDARD AC, the charge parameters are same of USB, only the
-	type is AC*/
-	//if (CHARGER_TYPE_NON_STANDARD == di->event)
-	//	events = BQ24161_START_AC_CHARGING;
-
+    bq2416x_get_boardid_charge_parameter(di);
 	/*set gpio_074 low level for CD pin to enable bq24161 IC*/
 	gpio_set_value(di->gpio, 0);
 
@@ -610,9 +678,8 @@ static void k3_bq24161_start_500mA_charger(struct k3_bq24161_device_info *di)
 
     /*enable charger*/
 	di->enable_ce = ENABLE_CE;
-    /*enable charge current termination*/
-	di->enable_iterm = ENABLE_ITERM;
-
+    di->enable_iterm = DISABLE_ITERM;
+    di->charge_full_count = 0;
     di->calling_limit = 0;
 	di->factory_flag = 0;
 	di->hz_mode = 0;
@@ -623,6 +690,7 @@ static void k3_bq24161_start_500mA_charger(struct k3_bq24161_device_info *di)
 	di->cin_limit = CURRENT_USB_LIMIT_IN;
 	di->currentmA = CURRENT_USB_CHARGE_IN;
     di->dppm_voltagemV = VOLT_DPPM_ADJUST_USB;
+    di->voltagemV = di->max_voltagemV;
 
 	k3_bq24161_config_control_reg(di);
 	k3_bq24161_config_voltage_reg(di);
@@ -661,7 +729,7 @@ static void k3_bq24161_start_BCUSB_charger(struct k3_bq24161_device_info *di)
 	/* hold system to enter into suspend when charging */
 	wake_lock(&di->charger_wake_lock);
 #endif
-
+    bq2416x_get_boardid_charge_parameter(di);
 	/*set gpio_074 low level for CD pin to enable bq24161 IC*/
 	gpio_set_value(di->gpio, 0);
 
@@ -669,9 +737,8 @@ static void k3_bq24161_start_BCUSB_charger(struct k3_bq24161_device_info *di)
 
 	/*enable charger*/
 	di->enable_ce = ENABLE_CE;
-	/*enable charge current termination*/
-	di->enable_iterm = ENABLE_ITERM;
-
+    di->enable_iterm = DISABLE_ITERM;
+    di->charge_full_count = 0;
     di->calling_limit = 0;
 	di->factory_flag = 0;
 	di->hz_mode = 0;
@@ -681,6 +748,7 @@ static void k3_bq24161_start_BCUSB_charger(struct k3_bq24161_device_info *di)
 	di->cin_limit = CURRENT_AC_LIMIT_IN;
 	di->currentmA = di->max_currentmA ;
     di->dppm_voltagemV = VOLT_DPPM_ADJUST;
+    di->voltagemV = di->max_voltagemV;
 
 	k3_bq24161_config_control_reg(di);
 	k3_bq24161_config_voltage_reg(di);
@@ -718,7 +786,7 @@ static void k3_bq24161_start_ac_charger(struct k3_bq24161_device_info *di)
 	/* hold system to enter into suspend when charging */
 	wake_lock(&di->charger_wake_lock);
 #endif
-
+    bq2416x_get_boardid_charge_parameter(di);
 	/*set gpio_074 low level for CD pin to enable bq24161 IC*/
 	gpio_set_value(di->gpio, 0);
 
@@ -726,9 +794,8 @@ static void k3_bq24161_start_ac_charger(struct k3_bq24161_device_info *di)
 
 	/*enable charger*/
 	di->enable_ce = ENABLE_CE;
-
-	/*enable charge current termination*/
-	di->enable_iterm = ENABLE_ITERM;
+    di->enable_iterm = DISABLE_ITERM;
+    di->charge_full_count = 0;
     di->calling_limit = 0;
 	di->factory_flag = 0;
 	di->hz_mode = 0;
@@ -738,6 +805,7 @@ static void k3_bq24161_start_ac_charger(struct k3_bq24161_device_info *di)
 	di->cin_limit = CURRENT_AC_LIMIT_IN;
 	di->currentmA = di->max_currentmA ;
     di->dppm_voltagemV = VOLT_DPPM_ADJUST;
+    di->voltagemV = di->max_voltagemV;
 
 	k3_bq24161_config_control_reg(di);
 	k3_bq24161_config_voltage_reg(di);
@@ -786,7 +854,7 @@ static void k3_bq24161_stop_charger(struct k3_bq24161_device_info *di)
 
 	/*set gpio_074 high level for CD pin to disable bq24161 IC */
 	gpio_set_value(di->gpio, 1);
-
+    di->charge_full_count = 0;
         msleep(1000);
 #if BQ2416X_USE_WAKE_LOCK
 	wake_unlock(&di->charger_wake_lock);
@@ -823,10 +891,10 @@ k3_bq24161_charger_update_status(struct k3_bq24161_device_info *di)
     if ((read_reg[1] & 0x6) == 0x2) {
         di->hz_mode = 1;
         k3_bq24161_config_control_reg(di);
+        di->hz_mode = 0;
         k3_bq24161_write_byte(di, di->voltage_reg, REG_BATTERY_VOLTAGE);
         dev_err(di->dev, "battery ovp = %x,%x\n", read_reg[1],read_reg[3]);
         msleep(700);
-        di->hz_mode = 0;
         k3_bq24161_config_control_reg(di);
     }
 
@@ -855,6 +923,8 @@ static void k3_bq24161_charger_work(struct work_struct *work)
 
 	di->battery_present = is_k3_bq27510_battery_exist(g_battery_measure_by_bq27510_device);
 
+    di->battery_full = is_k3_bq27510_battery_full(g_battery_measure_by_bq27510_device);
+
 	k3_bq24161_open_inner_fet(di);
 
 	k3_bq24161_low_current_charge(di);
@@ -865,7 +935,7 @@ static void k3_bq24161_charger_work(struct work_struct *work)
 	k3_bq24161_config_status_reg(di);
 
 	/* arrange next 30 seconds charger work */
-	schedule_delayed_work(&di->bq24161_charger_work, msecs_to_jiffies(25000));
+	schedule_delayed_work(&di->bq24161_charger_work, msecs_to_jiffies(BQ2416x_WATCHDOG_TIMEOUT));
 }
 
 
@@ -1358,6 +1428,7 @@ static int k3_bq24161_usb_notifier_call(struct notifier_block *nb,
 	schedule_work(&di->usb_work);
 	return NOTIFY_OK;
 }
+#if 0
 static int bq2416x_get_max_charge_voltage(struct k3_bq24161_device_info *di)
 {
 	bool ret = 0;
@@ -1389,6 +1460,18 @@ static int bq2416x_get_max_charge_current(struct k3_bq24161_device_info *di)
 		dev_err(di->dev, " bq2416x_get_max_charge_current from boardid fail \n");
 		return false;
 	}
+}
+#endif
+static int get_firmware_charge_warm_temp(void)
+{
+	int temp = 0;
+    if ( get_hw_config_int("gas_gauge/charge_warm_temp_limit", &temp, NULL))
+		return temp;
+	else{
+	        pr_info("[brand] %s,charge_warm_temp_limit get error\n\r", __func__);	
+		 return BQ24161_WARM_BATTERY_THRESHOLD;
+	}
+
 }
 static int __devinit k3_bq24161_charger_probe(struct i2c_client *client,
 				 const struct i2c_device_id *id)
@@ -1437,14 +1520,10 @@ static int __devinit k3_bq24161_charger_probe(struct i2c_client *client,
 		ret = -EINVAL;
 		goto err_kfree;
 	}
-    ret = bq2416x_get_max_charge_voltage(di);
+    ret = bq2416x_get_boardid_charge_parameter(di);
     if(!ret){
-	    di->max_voltagemV = pdata->max_charger_voltagemV;
-	}
-
-    ret = bq2416x_get_max_charge_current(di);
-    if(!ret){
-	    di->max_currentmA = pdata->max_charger_currentmA;
+        di->max_voltagemV = pdata->max_charger_voltagemV;
+        di->max_currentmA = pdata->max_charger_currentmA;
 	}
 
 	di->voltagemV = di->max_voltagemV;
@@ -1453,7 +1532,8 @@ static int __devinit k3_bq24161_charger_probe(struct i2c_client *client,
 	di->dppm_voltagemV = VOLT_DPPM_ADJUST;
 	di->cin_limit = CURRENT_USB_LIMIT_IN;
 	di->gpio = pdata->gpio;
-
+	di->temperature_warm = get_firmware_charge_warm_temp();
+	pr_info("[brand] get_firmware_charge_warm_temp[%d]\n\r", di->temperature_warm);
 	 /* Set iomux normal */
 #ifdef CONFIG_GPIO_BAT
 	if (!di->piomux_block)
@@ -1482,11 +1562,11 @@ static int __devinit k3_bq24161_charger_probe(struct i2c_client *client,
 
 	di->enable_low_chg = DISABLE_LOW_CHG;
 
-	/*enable charge current termination*/
-	di->enable_iterm = ENABLE_ITERM;
-
+	/*disable charge current termination*/
+    di->enable_iterm = DISABLE_ITERM;
+    di->charge_full_count = 0;
 	di->factory_flag = 0;
-
+    di->battery_full = 0;
 	di->enable_ce = ENABLE_CE;
 	di->hz_mode = 0;
 	di->cd_active = 0;
@@ -1608,12 +1688,17 @@ static const struct i2c_device_id bq24161_id[] = {
 static int k3_bq24161_charger_suspend(struct i2c_client *client,
 	pm_message_t state)
 {
-	return 0;
+    struct k3_bq24161_device_info *di = i2c_get_clientdata(client);
+    k3_bq24161_config_status_reg(di);
+    return 0;
 }
 
 static int k3_bq24161_charger_resume(struct i2c_client *client)
 {
-	return 0;
+    struct k3_bq24161_device_info *di = i2c_get_clientdata(client);
+    k3_bq24161_config_voltage_reg(di);
+    k3_bq24161_config_status_reg(di);
+    return 0;
 }
 #else
 #define k3_bq24161_charger_suspend	NULL

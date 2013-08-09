@@ -502,7 +502,6 @@ static int acm_tty_open(struct tty_struct *tty, struct file *filp)
 	if (usb_autopm_get_interface(acm->control) < 0)
 		goto early_bail;
 	else
-		/* modem can not need remote wakeup.by w00186176 */
 		acm->control->needs_remote_wakeup = 0;
 
 	mutex_lock(&acm->mutex);
@@ -557,7 +556,6 @@ static int acm_tty_reopen(struct tty_struct *tty, struct acm *acm)
 
 	acm->port.tty = tty;
 
-	/* modem can not need remote wakeup.by w00186176 */
 	acm->control->needs_remote_wakeup = 0;
 
 	mutex_lock(&acm->mutex);

@@ -742,6 +742,7 @@ int tps61310_reset(void)
  * Other       : NA;
  **************************************************************************
  */
+ #ifdef CONFIG_PRODUCT_U9510
 static int tps61310_turn_on(work_mode mode, flash_lum_level lum)
 {
 	u8 val;
@@ -828,7 +829,123 @@ static int tps61310_turn_on(work_mode mode, flash_lum_level lum)
 	
 	return 0; 
 }
+ #else
+static int tps61310_turn_on(work_mode mode, flash_lum_level lum)
+{
+	u8 val;
+	print_debug("enter %s", __FUNCTION__);
 
+	set_strobe0(0);
+	set_strobe1(1);
+
+	gpio_direction_output(reset_pin, 1);
+	tps61310_read_reg8(0x4, &val);
+	val = val | 0x10;
+	tps61310_write_reg8(0x4, val);
+
+	/* enable LED1,2,3 */
+	tps61310_read_reg8(0x5, &val);
+	val = val | 0x7;
+	tps61310_write_reg8(0x5, val);
+
+	if (mode == FLASH_MODE) {
+		switch (lum) {
+		case LUM_LEVEL0:
+			val = FLASH_100MA;
+			break;
+
+		case LUM_LEVEL1:
+			val = FLASH_200MA;
+			break;
+
+		case LUM_LEVEL2:
+			val = FLASH_300MA;
+			break;
+
+		case LUM_LEVEL3:
+			val = FLASH_400MA;
+			break;
+
+		case LUM_LEVEL4:
+			val = FLASH_500MA;
+			break;
+
+		case LUM_LEVEL5:
+			val = FLASH_600MA;
+			break;
+
+		case LUM_LEVEL6:
+			val = FLASH_700MA;
+			break;
+
+		case LUM_LEVEL7:
+			val = FLASH_800MA;
+			break;
+
+		default:
+			print_error("Unsupport lum_level:%d", lum);
+			return -1;
+		}
+
+		tps61310_write_reg8(0x1, val | 0x80);
+		tps61310_write_reg8(0x2, (val >> 1) | 0x80);
+
+		print_debug("start FLASH_MODE");
+		set_strobe1(0);
+		set_strobe0(1);
+	} else if (mode == TORCH_MODE) {
+		printk("%s torch lum=%d.\n", __func__, lum);
+
+              /*Enable LED2 LED3 ,Disable LED1*/
+		tps61310_read_reg8(0x5, &val);
+		val = (val & 0xf8)|0x6;
+		tps61310_write_reg8(0x5, val);
+
+		switch (lum) {
+		case LUM_LEVEL0:
+			val = TOUCH_100MA;
+			break;
+
+		case LUM_LEVEL1:
+			val = TOUCH_150MA;
+			break;
+
+		case LUM_LEVEL2:
+			val = TOUCH_200MA;
+			break;
+
+		case LUM_LEVEL3:
+			val = TOUCH_250MA;
+			break;
+
+		case LUM_LEVEL4:
+			val = TOUCH_300MA;
+			break;
+
+		default:
+			print_error("Unsupport lum_level:%d", lum);
+			return -1;
+		}
+
+		tps61310_write_reg8(0x0, val);
+		tps61310_read_reg8(0x1, &val);
+		val |= 0x80;
+		tps61310_write_reg8(0x1, val);
+		tps61310_read_reg8(0x2, &val);
+		val |= 0x80;
+		tps61310_write_reg8(0x2, val);
+
+		print_debug("start TORCH_MODE");
+		set_strobe1(1);
+		set_strobe0(1);
+	}
+
+
+	tps61310_camera_mode_flag = 1;
+
+	return 0;
+}
+#endif
 
 
 /*

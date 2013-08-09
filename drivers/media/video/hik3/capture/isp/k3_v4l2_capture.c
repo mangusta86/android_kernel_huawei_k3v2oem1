@@ -56,6 +56,9 @@
 /* Camera control struct data */
 static v4l2_ctl_struct v4l2_ctl;
 static int video_nr = -1;
+#ifdef READ_BACK_RAW
+static u8 buf_used = 0;
+#endif
 
 #define SAFE_GET_DRVDATA(cam, fh) \
 		do { \
@@ -624,6 +627,30 @@ static int k3_v4l2_ioctl_g_ctrl(struct file *file, void *fh,
 			break;
 		}
 
+	case V4L2_CID_GET_CURRENT_CCM_RGAIN:
+		{
+			a->value = k3_isp_get_current_ccm_rgain();
+			break;
+		}
+
+	case V4L2_CID_GET_CURRENT_CCM_BGAIN:
+		{
+			a->value = k3_isp_get_current_ccm_bgain();
+			break;
+		}
+
+	case V4L2_CID_GET_APERTURE:
+		{
+			a->value = k3_isp_get_sensor_aperture();
+			break;
+		}
+
+	case V4L2_CID_GET_EQUIV_FOCUS:
+		{
+			a->value = k3_isp_get_equivalent_focus();
+			break;
+		}
+
 	default:
 		{
 			ret = -EINVAL;
@@ -700,7 +727,7 @@ static int k3_v4l2_ioctl_s_ctrl(struct file *file, void *fh,
 		{
 			print_info("set ev %d", v4l2_param->value);
 			if ((v4l2_param->value <= CAMERA_EXPOSURE_MAX)
-			    || (v4l2_param->value >= -(CAMERA_EXPOSURE_MAX)))
+			    && (v4l2_param->value >= -(CAMERA_EXPOSURE_MAX)))
 				k3_isp_set_ev(v4l2_param->value);
 			break;
 		}
@@ -837,6 +864,7 @@ static int k3_v4l2_ioctl_s_ctrl(struct file *file, void *fh,
 					break;
 				}
 			}
+			break;
 		}
 	case V4L2_CID_HFLIP:
 		{
@@ -953,19 +981,13 @@ static long k3_v4l2_ioctl_g_caps(struct file *file, void *fh, bool private,
 
 	for (i = 0; i < ext_ctls->count; ++i) {
 		controls[i].value = 0;
-		/* FIXME: if use front sensor, we query sensor's capability */
-		if (CAMERA_USE_SENSORISP == cam->sensor->isp_location) {
-			if (cam->sensor->get_capability) {
-				cam->sensor->get_capability(controls[i].id,
-							    &controls[i].value);
-			}
-		} else if (CAMERA_USE_K3ISP == cam->sensor->isp_location) {
+
+		if(cam->sensor->isp_location == CAMERA_USE_K3ISP ||
+			V4L2_CID_ZOOM_RELATIVE == controls[i].id)
 			k3_isp_get_k3_capability(controls[i].id, &controls[i].value);
-		}
-		k3_isp_get_common_capability(controls[i].id, &controls[i].value);
-		if (CAMERA_SENSOR_PRIMARY == cam->sensor->sensor_index) {
-			k3_isp_get_primary_capability(controls[i].id, &controls[i].value);
-		}
+
+		if(cam->sensor->get_capability)
+			cam->sensor->get_capability(controls[i].id, &controls[i].value);
 	}
 
 	if (ext_ctls->count) {
@@ -1395,6 +1417,22 @@ static int k3_v4l2_ioctl_dqbuf(struct file *file, void *fh,
 
 	print_debug("exit %s, index=%d, phyaddr is 0x%x", __func__,
 		    b->index, frame->phyaddr);
+
+#ifdef READ_BACK_RAW
+	if (STATE_PREVIEW == state) {
+		print_info("Line:%d, before update read ready++++++++++++", __LINE__);
+		msleep(100);
+		if (0 == buf_used) {
+			buf_used = 1;
+			k3_isp_update_read_ready(buf_used);
+		} else {
+			buf_used = 0;
+			k3_isp_update_read_ready(buf_used);
+		}
+		print_info("Line:%d, after update read ready++++++++++++", __LINE__);
+	}
+#endif
+
 out:
 	return ret;
 }
@@ -1433,6 +1471,11 @@ static int k3_v4l2_ioctl_streamon(struct file *file, void *fh,
 	ret = k3_isp_stream_on(&cam->fmt[state].fmt.pix, buf_type, state);
 	cam->pid[state] = current->pid;
 	cam->running[state] = 1;
+
+#ifdef READ_BACK_RAW
+	if(STATE_PREVIEW == state)
+		buf_used = 0;
+#endif
 
 	SAFE_UP(&cam->busy_lock);
 	return ret;
@@ -1574,9 +1617,9 @@ static int k3_v4l2_ioctl_s_param(struct file *file, void *fh,
 	sensor = cam->sensor;
 	if (CAMERA_USE_K3ISP == sensor->isp_location) {
 		if (0 == cam->frame_rate.denominator) {
-			k3_isp_set_fps(CAMERA_FPS_MAX, 30);
+			k3_isp_set_fps(CAMERA_FPS_MAX, CAMERA_MAX_FRAMERATE);
 			/*h00206029 modified 20120511*/
-			k3_isp_set_fps(CAMERA_FPS_MIN, 15);
+			k3_isp_set_fps(CAMERA_FPS_MIN, CAMERA_MIN_FRAMERATE);
 		} else {
 			k3_isp_set_fps(CAMERA_FPS_MAX, cam->frame_rate.denominator / cam->frame_rate.numerator);
 			k3_isp_set_fps(CAMERA_FPS_MIN, cam->frame_rate.denominator / cam->frame_rate.numerator);
@@ -1950,7 +1993,8 @@ static int k3_v4l2_open(struct file *file)
 			goto out;
 		}
 		flashlight = get_camera_flash();
-		flashlight->init();
+		if (flashlight)
+			flashlight->init();
 	} else {
 		print_info("%s failed : camera already opened, open_count[%d]",
 			   __func__, cam->open_count);
@@ -2013,7 +2057,8 @@ static int k3_v4l2_close(struct file *file)
 		   }
 		 */
 		flashlight = get_camera_flash();
-		flashlight->exit();
+		if (flashlight)
+			flashlight->exit();
 
 		/* wake up user process */
 		wake_up_interruptible(&cam->data_queue.queue[STATE_IPP]);

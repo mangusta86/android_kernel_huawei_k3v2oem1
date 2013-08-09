@@ -56,7 +56,9 @@
 #include "../isp/cam_log.h"
 #include "../isp/cam_dbg.h"
 
-#define QCIF_WIDTH		176		/* add by j00179721 20120621 */
+#define QCIF_WIDTH		176		
+#define MT9M114_APERTURE_FACTOR		240 // F2.4
+#define MT9M114_EQUIVALENT_FOCUS	31  // 31mm
 
 #define MT9M114_BYD_SLAVE_ADDRESS     0x90
 #define MT9M114_SUNNY_SLAVE_ADDRESS     0x90
@@ -73,20 +75,6 @@
 #define MT9M114_EXPOSURE_REG	0x3012
 #define MT9M114_GAIN_REG		0x305e
 
-#define MT9M114_EFFECT		(\
-					(1 << CAMERA_EFFECT_NONE)      | \
-					(1 << CAMERA_EFFECT_MONO)      | \
-					(1 << CAMERA_EFFECT_NEGATIVE)  | \
-					(1 << CAMERA_EFFECT_SEPIA)   \
-				)
-
-#define MT9M114_AUTO_WHITE_BALANCE (1 << CAMERA_WHITEBALANCE_AUTO)
-#define MT9M114_WHITE_BALANCE	( \
-					(1 << CAMERA_WHITEBALANCE_INCANDESCENT)	| \
-					(1 << CAMERA_WHITEBALANCE_FLUORESCENT)	| \
-					(1 << CAMERA_WHITEBALANCE_DAYLIGHT)	| \
-					(1 << CAMERA_WHITEBALANCE_CLOUDY_DAYLIGHT) \
-				)
 
 #define MT9M114_HFLIP		((1 << CAMERA_H_FLIP) |\
 					(1 << CAMERA_V_FLIP))
@@ -97,9 +85,9 @@
 				)
 
 static camera_capability mt9m114_cap[] = {
-	{V4L2_CID_AUTO_WHITE_BALANCE, MT9M114_AUTO_WHITE_BALANCE},
-	{V4L2_CID_DO_WHITE_BALANCE, MT9M114_WHITE_BALANCE},
-	{V4L2_CID_EFFECT, MT9M114_EFFECT},
+	{V4L2_CID_AUTO_WHITE_BALANCE, THIS_AUTO_WHITE_BALANCE},
+	{V4L2_CID_DO_WHITE_BALANCE, THIS_WHITE_BALANCE},
+	{V4L2_CID_EFFECT, THIS_EFFECT},
 	{V4L2_CID_HFLIP, MT9M114_HFLIP},
 	{V4L2_CID_VFLIP, MT9M114_VFLIP},
 };
@@ -342,14 +330,12 @@ static int mt9m114_set_framesizes(camera_state state,
 	print_debug("Enter Function:%s State(%d), flag=%d, width=%d, height=%d",
 		    __func__, state, flag, fs->width, fs->height);
 
-	/* modified by j00179721 20120621 begin*/
 	if (QCIF_WIDTH == fs->width)
 		i = 0;
 	else
 		i = 1;
 	fs->width = mt9m114_framesizes[i].width;
 	fs->height = mt9m114_framesizes[i].height;
-	/* modified by j00179721 20120621 end*/
 
 	if (i >= ARRAY_SIZE(mt9m114_framesizes)) {
 		print_error("request resolution larger than sensor's max resolution");
@@ -943,6 +929,18 @@ static int mt9m114_get_vflip(void)
 	return mt9m114_sensor.vflip;
 }
 
+static int mt9m114_get_sensor_aperture(void)
+{
+	print_info("enter %s", __func__);
+	return MT9M114_APERTURE_FACTOR;
+}
+
+static int mt9m114_get_equivalent_focus()
+{
+	print_info("enter %s", __func__);
+	return MT9M114_EQUIVALENT_FOCUS;
+}
+
 /*
  **************************************************************************
  * FunctionName: mt9m114_set_default;
@@ -1030,13 +1028,15 @@ static void mt9m114_set_default(void)
 	mt9m114_sensor.sensor_gain_to_iso = NULL;
 	mt9m114_sensor.sensor_iso_to_gain = NULL;
 
-	mt9m114_sensor.set_effect = mt9m114_set_effect;
-	mt9m114_sensor.set_awb = mt9m114_set_awb;
-
-	mt9m114_sensor.set_anti_banding = mt9m114_set_anti_banding;
+	mt9m114_sensor.get_sensor_aperture = mt9m114_get_sensor_aperture;
+	mt9m114_sensor.get_equivalent_focus = mt9m114_get_equivalent_focus;
 
 	mt9m114_sensor.isp_location = CAMERA_USE_SENSORISP;
-	mt9m114_sensor.sensor_tune_ops = NULL;
+	mt9m114_sensor.sensor_tune_ops = (isp_tune_ops *)kmalloc(sizeof(isp_tune_ops), GFP_KERNEL);
+	if (mt9m114_sensor.sensor_tune_ops == NULL) {
+		print_error("failed to kmalloc isp_tune_ops");
+		return -ENOMEM;
+	}
 
 	mt9m114_sensor.af_enable = 0;
 
@@ -1056,6 +1056,11 @@ static void mt9m114_set_default(void)
 	mt9m114_sensor.hflip = 0;
 	mt9m114_sensor.vflip = 0;
 	mt9m114_sensor.old_flip = 0;
+
+	memset(mt9m114_sensor.sensor_tune_ops, 0, sizeof(isp_tune_ops));
+	mt9m114_sensor.sensor_tune_ops->set_effect 	= mt9m114_set_effect;
+	mt9m114_sensor.sensor_tune_ops->set_awb		= mt9m114_set_awb;
+	mt9m114_sensor.sensor_tune_ops->set_anti_banding = NULL;
 }
 
 /*

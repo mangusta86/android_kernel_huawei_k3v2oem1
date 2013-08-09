@@ -49,6 +49,7 @@ struct _sensor_reg_t;
 struct _camera_sensor;
 struct _sensor_reg_t;
 /* Sensor driver read/write I2C through ISP */
+void k3_ispio_reset_i2c(struct i2c_t *i2c);
 int k3_ispio_read_reg(i2c_index_t index, u8 i2c_addr, u16 reg, u16 *val, i2c_length length);
 int k3_ispio_write_reg(i2c_index_t index, u8 i2c_addr, u16 reg, u16 val, i2c_length length, u8 mask);
 int k3_ispio_write_seq(i2c_index_t index, u8 i2c_addr,
@@ -102,6 +103,7 @@ typedef struct _isp_sensor_reg_controller {
 	void (*isp_reset_sensor) (sensor_index_t sensor_index, camera_power_state power_state,
 				  electrical_valid_t reset_valid);
 	void (*isp_enable_mclk) (mclk_state state, sensor_index_t sensor_index);
+    void (*isp_sensor_reset_i2c)(struct i2c_t *i2c);
 } isp_sensor_reg_controller;
 
 ispio_controller *get_ispio_controller(void);

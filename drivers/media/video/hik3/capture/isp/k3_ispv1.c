@@ -63,6 +63,10 @@
 #define LOG_TAG "K3_ISPV1"
 #include "cam_log.h"
 
+#ifdef READ_BACK_RAW
+#define RAW_PHYADDR 0x3c771000
+#endif
+
 #define	SCENE_NIGHT_MODE_FPS			5
 
 /* MACRO DEFINITION */
@@ -249,11 +253,9 @@ const struct isp_reg_t isp_mipi_init_regs1[] = {
 	{0x65008, 0x00},
 	{0x65009, 0x00},
 
+	{0x1d998, 0x01}, //disable BLC auto activate.
 };
 
-const struct isp_reg_t isp_mipi_init_regs2[] = {
-
-};
 /*	this is isp register initial sequeuence for dvp camera
  *	default config:
  *	data interface:		DVP
@@ -433,6 +435,8 @@ const struct isp_reg_t isp_dvp_init_regs[] = {
 	   {0x63b3b, HEIGHT_L},
 	 */
 	{0x63b3d, 0xff},
+
+	{0x1d998, 0x01}, //disable BLC auto activate.
 };
 
 /* GLOBAL VARIABLES */
@@ -491,7 +495,10 @@ static camera_frame_buf *ispv1_del_queue_element(struct list_head *list, u8 sour
 
 int ispv1_write_sensor_byte(i2c_index_t index, u8 i2c_addr, u16 reg, u16 val, i2c_length length, u8 mask);
 /* last modified for new mechanism of flash */
-static int ispv1_is_need_flash(void);
+static int ispv1_is_need_flash(camera_sensor *sensor);
+static void ispv1_sensor_reset_i2c(struct i2c_t *i2c);
+static void skip_for_hdr(camera_sensor *sensor, pic_attr_t *pic_attr, int *skip_frame);
+
 /*
  **************************************************************************
  * FunctionName: k3_calc_stride;
@@ -760,12 +767,16 @@ static void ispv1_set_auto_flash(int status, camera_flash flash_mode)
 }
 
 
-static int ispv1_is_need_flash(void)
+static int ispv1_is_need_flash(camera_sensor *sensor)
 {
+	aec_data_t ae_data;
+	u32 target_y_low = GETREG8(REG_ISP_TARGET_Y_LOW);
 	int ret;
-	print_debug("---enter %s---", __func__);
-	/* new mechanism for flash light */
-	if (get_current_y() < (GETREG8(REG_ISP_TARGET_Y_LOW) * 4 / 5))
+
+	ae_data.lum = get_current_y();
+	ae_data.gain = get_writeback_gain();
+
+	if (ae_is_need_flash(sensor, &ae_data, target_y_low) == true)
 		ret = 0;
 	else
 		ret = -1;
@@ -810,7 +821,7 @@ static int ispv1_cold_boot_set(camera_sensor *sensor)
 		sensor->set_exposure(expo);
 
 	/* config sensor vts. */
-	level = camera_get_frame_rate_level();
+	level = ispv1_get_frame_rate_level();
 	if ((CAMERA_USE_K3ISP == sensor->isp_location)	&& (NULL != sensor->set_vts)) {
 		frame_index = sensor->preview_frmsize_index;
 		basic_vts = sensor->frmsize_list[frame_index].vts;
@@ -864,7 +875,6 @@ static void ispv1_fill_fmt_info(struct v4l2_pix_format *fmt)
 		}
 	}
 }
-
 
 /*
  **************************************************************************
@@ -976,7 +986,7 @@ static void ispv1_disable_irq(void)
  */
 static void ispv1_enable_irq(void)
 {
-	SETREG8(REG_ISP_INT_EN, 
+	SETREG8(REG_ISP_INT_EN,
 		MASK_EOF_INT_ENABLE | MASK_CMDSET_INT_ENABLE | MASK_MAC_INT_ENABLE);
 	SETREG8(REG_ISP_MAC_INT_EN_H, ISP_MAC_INT_H);
 	SETREG8(REG_ISP_MAC_INT_EN_L, ISP_MAC_INT_L);
@@ -1063,11 +1073,15 @@ static int ispv1_update_zoom_setting(pic_attr_t *pic_attr)
  * Other       : NA;
  **************************************************************************
 */
-static int ispv1_set_zoom(u32 ratio, zoom_quality_t quality)
+static int ispv1_set_zoom(u32 zoom, zoom_quality_t quality)
 {
 	int ret = 0;
-	print_debug("ratio = 0x%x", ratio);
-	ratio = ((ratio*10+100)*0x100)/100;
+	u32 ratio;
+
+	print_debug("%s: zoom = 0x%x", __func__, zoom);
+
+	ratio = ispv1_zoom_to_ratio(zoom);
+
 	SETREG8(COMMAND_REG1, quality);
 	SETREG16(COMMAND_REG2, ratio);
 	SETREG16(COMMAND_REG4, ratio);
@@ -1373,15 +1387,52 @@ static int ispv1_switch_config(camera_state state)
 		ispv1_switch_contrast(STATE_PREVIEW, this_ispdata->contrast); /* ygain */
 		ispv1_switch_brightness(STATE_PREVIEW, this_ispdata->brightness); /* ybright */
 
+		#ifndef OVISP_DEBUG_MODE
 		SETREG8(REG_ISP_SHARPNESS, 0x30);
+		#endif
 	} else if (state == STATE_CAPTURE) {
 		SETREG8(REG_ISP_SDE_YOFFSET, 0x00); /* yoffset */
 		ispv1_switch_contrast(STATE_CAPTURE, this_ispdata->contrast); /* ygain */
 		ispv1_switch_brightness(STATE_CAPTURE, this_ispdata->brightness); /* ybright */
 
-		SETREG8(REG_ISP_SHARPNESS, 0x0a); /* sharpness */
+		#ifndef OVISP_DEBUG_MODE
+		SETREG8(REG_ISP_SHARPNESS, 0x10);
+		#endif
 	}
 	return 0;
+}
+
+static const expo_table_t capture_expo_table[]= {
+	{30, 100}, /* max expo is 3 band(50Hz), 4band(60Hz) */
+	//{23, 180}, /* max expo is 4 band(50Hz), 5band(60Hz) */
+	{20, 200}, /* max expo is 5 band(50Hz), 6band(60Hz) */
+
+	/* Below is Lower capture frame rate (or larger exposure) than normal frame rate. */
+	{14, 600}, /* max expo is 7 band(50Hz), 8band(60Hz) */
+	{10, 800}, /* max expo is 10 band(50Hz),  12band(60Hz)*/
+	{8, 8000}, /* max expo is 12 band(50Hz), 15band(60Hz) */
+};
+
+static int ispv1_check_expo_table(u32 expo_1x, bool binning, u32 fps, u32 vts)
+{
+	int gain, expo, iso, index, expo_line;
+	int array_size = ARRAY_SIZE(capture_expo_table);
+
+	for (index = 0; index < array_size; index++) {
+		expo = capture_expo_table[index].expo;
+		iso = capture_expo_table[index].iso;
+
+		expo_line = ispv1_expo_time2line(expo, fps, vts);
+		gain = ispv1_iso2gain(iso, binning);
+
+		if (expo_1x < (expo_line * gain / 0x10))
+			break;
+	}
+
+	if (index > (array_size - 1))
+		index = (array_size - 1);
+
+	return(capture_expo_table[index].expo);
 }
 
 /*
@@ -1412,17 +1463,21 @@ static int ispv1_capture_cmd(pic_attr_t *pic_attr, u32 phyaddr, u32 count, int *
 	u32 ratio0 = EV_RATIO_DIVIDEND;
 	u32 ratio1 = EV_RATIO_DIVIDEND;
 	u32 ratio2 = EV_RATIO_DIVIDEND;
-	u16 full_fps, basic_vts, step;
+	u16 full_fps, basic_vts;
 	int capture_level;
-	int capture_target_lum;
-	int preview_level = camera_get_frame_rate_level();
-	volatile u8 target_y_low, target_y_high;
+	int preview_level = ispv1_get_frame_rate_level();
+	volatile u8 target_y_low;
+	bool binning;
+	int skip_frame = sensor->skip_frames;
 
 	u32 max_expo;
 	u32 preview_gain, preview_expo;
-	u32 capture_expo, expected_expo;
+	u32 capture_el_1x; /* calculated exposure line in 1x gain */
+	u32 el_expected; /* expected capture Exposure line */
+	u32 et_reciprocal; /* reciprocal of Exposure time */
 	u8 rgain = 0x80;
 	u8 bgain = 0x80;
+	u32 max_gain;
 
 	ispv1_set_aecagc_mode(MANUAL_AECAGC);
 
@@ -1432,9 +1487,12 @@ static int ispv1_capture_cmd(pic_attr_t *pic_attr, u32 phyaddr, u32 count, int *
 	 * for AWB, capture will return awb post-gain back to 0x80/0x80/0x80
 	 */
 	frame_index = sensor->capture_frmsize_index;
-	if (sensor->get_ccm_pregain != NULL) {
+
+	if ((false == flash_on) && (sensor->get_ccm_pregain != NULL)) {
 		sensor->get_ccm_pregain(STATE_CAPTURE, frame_index, &bgain, &rgain);
 	}
+
+	binning = sensor->frmsize_list[frame_index].binning;
 
 	/* config awb post-gain to cmdset params */
 	SETREG8(ISP_CMDSET_CCM_PREGAIN_B, bgain);
@@ -1444,7 +1502,6 @@ static int ispv1_capture_cmd(pic_attr_t *pic_attr, u32 phyaddr, u32 count, int *
 
 	full_fps = sensor->frmsize_list[frame_index].fps;
 	basic_vts = sensor->frmsize_list[frame_index].vts;
-	step = 1;
 
 	/* added by y36721 2012-04-10 for banding step auto calculation. */
 	ispv1_get_banding_step(sensor, frame_index, &banding_step_50hz, &banding_step_60hz);
@@ -1453,13 +1510,13 @@ static int ispv1_capture_cmd(pic_attr_t *pic_attr, u32 phyaddr, u32 count, int *
 	if (full_fps <= sensor->fps_min)
 		capture_level = 0;
 	else
-		capture_level = (full_fps - sensor->fps_min) / step;
+		capture_level = full_fps - sensor->fps_min;
 
-	capture_level = preview_level < capture_level ? preview_level : capture_level;
-	sensor->fps = full_fps - capture_level * step;
+	capture_level = capture_level > preview_level ? preview_level : capture_level;
+	sensor->fps = full_fps - capture_level;
 
-	print_info("capture_level %d, preview_level %d, full_fps %d, fps %d, band50Hz 0x%x, band60Hz 0x%x",
-	    capture_level, preview_level, full_fps, sensor->fps, banding_step_50hz, banding_step_60hz);
+	print_info("capture_level %d, preview_level %d, full_fps %d, fps %d, band50Hz 0x%x, band60Hz 0x%x, bgain 0x%x, rgain 0x%x",
+	    capture_level, preview_level, full_fps, sensor->fps, banding_step_50hz, banding_step_60hz, bgain, rgain);
 
 	if ((CAMERA_USE_K3ISP == sensor->isp_location)	&& (NULL != sensor->get_vts_reg_addr)) {
 		vts_addr = sensor->get_vts_reg_addr();
@@ -1485,23 +1542,6 @@ static int ispv1_capture_cmd(pic_attr_t *pic_attr, u32 phyaddr, u32 count, int *
 		SETREG8(ISP_AGC_SENSOR_TYPE, 0x00);
 	}
 	#endif
-
-	CMD_SET_SENSOR_VTS(vts);
-
-	size = sensor->frmsize_list[frame_index].sensor_setting.seq_size;
-	ispv1_write_i2c_buf(sensor->frmsize_list[frame_index].sensor_setting.setting, size, 0, sensor->i2c_config.val_bits);
-	if ((CAMERA_USE_K3ISP == sensor->isp_location)	&& (NULL != sensor->get_vts_reg_addr)) {
-		const struct _sensor_reg_t vts_regs[] = {
-			{vts_addr, (vts >> 8) & 0xff},
-			{vts_addr + 1, vts & 0xff},
-		};
-
-		if (0 != vts_addr) {
-			ispv1_write_i2c_buf(vts_regs, ARRAY_SIZE(vts_regs), size, I2C_8BIT);
-			size += ARRAY_SIZE(vts_regs);
-		}
-	}
-	SETREG8(COMMAND_REG3, size); /* number of registers needed be written */
 
 	is_bypass_isp = (ISP_CAPTURE_OFFLINE == (ispv1_get_process_mode()));
 
@@ -1585,6 +1625,8 @@ static int ispv1_capture_cmd(pic_attr_t *pic_attr, u32 phyaddr, u32 count, int *
 			SETREG8(REG_ISP_TOP7, REG_UV_ORDER_V_AHEAD);
 		} else if (pic_attr->out_fmt == V4L2_PIX_FMT_NV12) {
 			SETREG8(REG_ISP_TOP7, REG_UV_ORDER_U_AHEAD);
+		} else if (pic_attr->out_fmt == V4L2_PIX_FMT_YUYV) {
+			SETREG8(REG_ISP_TOP7, REG_UV_ORDER_U_AHEAD);
 		}
 
 		CMD_SET_ISP_OUT_FMT_SIZE(out_fmt, pic_attr->out_width, pic_attr->out_height);
@@ -1615,24 +1657,25 @@ static int ispv1_capture_cmd(pic_attr_t *pic_attr, u32 phyaddr, u32 count, int *
 	}
 	ratio0 = ratio0 * sensor->frmsize_list[frame_index].capture_ratio / latest_preview_ratio;
 
+	if(ratio2 != ratio1)
+		skip_for_hdr(sensor, pic_attr, &skip_frame);
 	target_y_low = GETREG8(REG_ISP_TARGET_Y_LOW);
-	target_y_high = GETREG8(REG_ISP_TARGET_Y_HIGH);
 
 	if (true == flash_on) {
-		if (isp_hw_data.preview_ae.luminance >= (target_y_low - 4)) {
-			capture_target_lum = isp_hw_data.preview_ae.luminance;
-		}
-		else {
-			capture_target_lum = DEFAULT_TARGET_Y_FLASH;
-		}
-		if (0 != isp_hw_data.capflash_luminance) {
-			ratio0 = ratio0 * capture_target_lum / isp_hw_data.capflash_luminance;
-		}
+		ratio0 = ratio0 * isp_hw_data.ratio_factor / 0x100;
+		isp_hw_data.flash_resume = true;
 	} else {
-		if ((0 != isp_hw_data.preview_ae.luminance) && (isp_hw_data.preview_ae.luminance < target_y_low)) {
-			ratio0 *= target_y_low / isp_hw_data.preview_ae.luminance;
+		if (0 != isp_hw_data.preview_ae.lum) {
+			if (isp_hw_data.preview_ae.lum < target_y_low) {
+				ratio0 = ratio0 * target_y_low / isp_hw_data.preview_ae.lum;
+			}
+		} else {
+			ratio0 = ISP_EXPOSURE_RATIO_MAX;
 		}
 	}
+
+	if (ratio0 > ISP_EXPOSURE_RATIO_MAX)
+		ratio0 = ISP_EXPOSURE_RATIO_MAX;
 
 	if (CAMERA_SCENE_ACTION == scene) {
 		max_expo = full_fps * basic_vts / 100;
@@ -1646,30 +1689,74 @@ static int ispv1_capture_cmd(pic_attr_t *pic_attr, u32 phyaddr, u32 count, int *
 			if (false == flash_on) {
 				/*
 				 * some case set max expo time below 1/30s to avoid handshake.
-				 * if expected gain not larger than 0x40, should set max expo below 1/30s.
 				 */
 				preview_gain = isp_hw_data.preview_ae.gain;
 				preview_expo = isp_hw_data.preview_ae.expo;
 
-				/* get expected capture expo line at gain 0x40 */
-				capture_expo = preview_gain * preview_expo * ratio0 / EV_RATIO_DIVIDEND / 0x40;
+				/* get expected capture expo line at gain 0x10 */
+				capture_el_1x = ((preview_gain * preview_expo) >> 8) * ratio0 / EV_RATIO_DIVIDEND;
 			} else {
-				capture_expo = isp_hw_data.preflash_ae.gain * isp_hw_data.preflash_ae.expo
-								* ratio0 / EV_RATIO_DIVIDEND / 0x40;
+				preview_gain = isp_hw_data.preflash_ae.gain;
+				preview_expo = isp_hw_data.preflash_ae.expo;
+
+				capture_el_1x = ((preview_gain * preview_expo) >> 8) * ratio0 / EV_RATIO_DIVIDEND;
+
+				if (capture_el_1x > banding_step_50hz) {
+					SETREG8(REG_ISP_YDENOISE_1X, ISP_YDENOISE_COFF_2X);
+					SETREG8(REG_ISP_YDENOISE_2X, ISP_YDENOISE_COFF_2X);
+				} else {
+					SETREG8(REG_ISP_YDENOISE_1X, ISP_YDENOISE_COFF_1X);
+					SETREG8(REG_ISP_YDENOISE_2X, ISP_YDENOISE_COFF_1X);
+				}
 			}
 
-			/* convert 1/30s expo time to expo line */
-			expected_expo = full_fps * basic_vts / 30;
+			/* look up expo table to select the best expo-gain */
+			et_reciprocal = ispv1_check_expo_table(capture_el_1x, binning, sensor->fps, vts);
 
-			if ((capture_expo >> 4) < expected_expo)
-				max_expo = expected_expo;
+			print_info("@@@@@@ preview:gain 0x%x, expo 0x%x, ratio0 0x%x, capture_el_1x 0x%x, et_reciprocal %d",
+				preview_gain, preview_expo, ratio0, capture_el_1x, et_reciprocal);
+
+			if (et_reciprocal < sensor->fps) {
+				/* update new frame rate and vts */
+				vts = sensor->fps * vts / et_reciprocal;
+				sensor->fps = et_reciprocal;
+			}
+
+			/* convert target expo time to expo line */
+			el_expected = full_fps * basic_vts / et_reciprocal;
+
+			if (el_expected < basic_vts)
+				max_expo = el_expected;
+			else
+				max_expo = el_expected - 14;
 		}
 	}
 
+	/* vts maybe re-configured, so move here. */
+	CMD_SET_SENSOR_VTS(vts);
+
+	size = sensor->frmsize_list[frame_index].sensor_setting.seq_size;
+	ispv1_write_i2c_buf(sensor->frmsize_list[frame_index].sensor_setting.setting, size, 0, sensor->i2c_config.val_bits);
+	if ((CAMERA_USE_K3ISP == sensor->isp_location)	&& (NULL != sensor->get_vts_reg_addr)) {
+		const struct _sensor_reg_t vts_regs[] = {
+			{vts_addr, (vts >> 8) & 0xff},
+			{vts_addr + 1, vts & 0xff},
+		};
+
+		if (0 != vts_addr) {
+			ispv1_write_i2c_buf(vts_regs, ARRAY_SIZE(vts_regs), size, I2C_8BIT);
+			size += ARRAY_SIZE(vts_regs);
+		}
+	}
+	SETREG8(COMMAND_REG3, size); /* number of registers needed be written */
+
 	if (sensor->frmsize_list[frame_index].binning == true)
 		CMD_SET_ISP_SET_GAIN_RANGE(sensor->max_gain, sensor->min_gain);
-	else
-		CMD_SET_ISP_SET_GAIN_RANGE(sensor->max_gain * 2, sensor->min_gain);
+	else {
+		/* revise max gain to keep preview and capture brightness are same. */
+		max_gain = sensor->max_gain * 2 * CAMERA_MIN_CAP_FRAMERATE / CAMERA_MIN_FRAMERATE;
+		CMD_SET_ISP_SET_GAIN_RANGE(max_gain, sensor->min_gain);
+	}
 
 	CMD_SET_ISP_SET_EXPOSURE_RANGE(max_expo, 0x003);
 	CMD_SET_ISP_SET_EXPOSURE_RATIO(ratio0);
@@ -1692,13 +1779,14 @@ static int ispv1_capture_cmd(pic_attr_t *pic_attr, u32 phyaddr, u32 count, int *
 		print_warn("%s count %d error", __func__, count);
 		break;
 	}
-	if ((false == flash_on) && (0 != isp_hw_data.preview_ae.luminance)
-		&& (isp_hw_data.preview_ae.luminance < target_y_low))
-		preview_ratio = preview_ratio * target_y_low / isp_hw_data.preview_ae.luminance;
+
+	if ((false == flash_on) && (0 != isp_hw_data.preview_ae.lum)
+		&& (isp_hw_data.preview_ae.lum < target_y_low))
+		preview_ratio = preview_ratio * target_y_low / isp_hw_data.preview_ae.lum;
 
 	if (true == flash_on) {
 		if (isp_hw_data.preview_ratio_lum != 0)
-			preview_ratio = preview_ratio * isp_hw_data.preview_ae.luminance / isp_hw_data.preview_ratio_lum;
+			preview_ratio = preview_ratio * isp_hw_data.preview_ae.lum / isp_hw_data.preview_ratio_lum;
 		else
 			preview_ratio = 0xffff;
 	}
@@ -1719,7 +1807,7 @@ static int ispv1_capture_cmd(pic_attr_t *pic_attr, u32 phyaddr, u32 count, int *
 	reg5 |= ISP_SENSOR_INT_ENABLE | ISP_MACINT_SET_ENABLE | ISP_EXPO_RATIO_ENABLE | ISP_IDI_CONFIG_ENABLE;
 
 	ispv1_config_idi(pic_attr->in_fmt, is_bypass_isp, &reg3c13, &reg3c15);
-	SETREG8(REG_ISP_CAPTURE_SKIP_FRAME, sensor->skip_frames);	/* modified by j200179721 20120621 */
+	SETREG8(REG_ISP_CAPTURE_SKIP_FRAME, skip_frame);
 	/* 7. Send command */
 
 	if (I2C_16BIT == sensor->i2c_config.val_bits)
@@ -1846,7 +1934,7 @@ static int ispv1_preview_cmd(pic_attr_t *pic_attr,
 	 * if it is cool boot or frame size changed, should set below:
 	 * frame rate level, sensor->fps, previous_frame_index.
 	 */
-	level = camera_get_frame_rate_level();
+	level = ispv1_get_frame_rate_level();
 
 	if ((cold_boot == true) || (frame_index != previous_frame_index) ||
 		(sensor->fps_max == sensor->fps_min)) {
@@ -1856,7 +1944,7 @@ static int ispv1_preview_cmd(pic_attr_t *pic_attr,
 			(CAMERA_SCENE_FIREWORKS != scene)	&&
 			(CAMERA_SCENE_CANDLELIGHT != scene)) {
 			level = 0;
-			camera_set_frame_rate_level(0);
+			ispv1_set_frame_rate_level(0);
 			previous_frame_index = frame_index;
 		}
 	}
@@ -1942,6 +2030,8 @@ static int ispv1_preview_cmd(pic_attr_t *pic_attr,
 		SETREG8(REG_ISP_TOP7, REG_UV_ORDER_V_AHEAD);
 	} else if (pic_attr->out_fmt == V4L2_PIX_FMT_NV12) {
 		SETREG8(REG_ISP_TOP7, REG_UV_ORDER_U_AHEAD);
+	} else if (pic_attr->out_fmt == V4L2_PIX_FMT_YUYV) {
+		SETREG8(REG_ISP_TOP7, REG_UV_ORDER_U_AHEAD);
 	}
 
 	CMD_SET_ISP_OUT_FMT_SIZE(out_fmt, pic_attr->out_width, pic_attr->out_height);
@@ -2003,6 +2093,10 @@ static int ispv1_preview_cmd(pic_attr_t *pic_attr,
 	SETREG8(COMMAND_REG5, reg5);
 	SETREG8(COMMAND_REG6, reg3c13);
 	SETREG8(COMMAND_REG7, reg3c15);
+
+#ifdef READ_BACK_RAW
+	SETREG8(ISP_INPUT_FORMAT, 0x61);
+#endif
 
 	dump_cmd_reg();
 	SETREG8(COMMAND_REG0, CMD_SET_FORMAT);
@@ -2157,6 +2251,27 @@ static int ispv1_start_preview(pic_attr_t *pic_attr, camera_sensor *sensor, bool
 
 	ispv1_enable_irq();
 
+	#ifdef READ_BACK_RAW
+	u32 viraddr = 0;
+	viraddr = ioremap_nocache(RAW_PHYADDR,3264 * 2448 * 2);//1600 * 1200 * 2   3264 * 2448 * 2
+	if(0 != viraddr) {
+		if (0 <= load_raw_file("/data/raw10.raw", viraddr))
+			print_info("read raw file ok!!!");
+		else
+			print_info("please push raw file to phone as /data/raw10.raw!!!");
+
+		mb();
+		iounmap(viraddr);
+	} else {
+		print_info("don't have enough memory");
+	}
+	SETREG32(0x63b20, RAW_PHYADDR);
+	SETREG32(0x63b24, RAW_PHYADDR);
+	SETREG32(0x63b28, RAW_PHYADDR);
+	SETREG32(0x63b2c, RAW_PHYADDR);
+	SETREG8(0x63b57, 1);
+	#endif
+
 	isp_hw_data.preview_stop = false;
 
 	return 0;
@@ -2218,7 +2333,19 @@ static int ispv1_start_process(pic_attr_t *pic_attr, ipp_mode mode)
 			print_error("bypass cmd set failed.\n");
 	}
 
-
+#ifdef READ_BACK_RAW
+		u32 viraddr = 0;
+		viraddr = ioremap_nocache(framedst->phyaddr, 3264 * 2448 * 2);//1600 * 1200 * 2   3264*2448*2
+		if(0 != viraddr) {
+			memset(viraddr, 0, 3264 * 2448 * 2);//1600 * 1200 * 2  3264*2448*2
+			mb();
+			iounmap(viraddr);
+		}
+		msleep(100);
+		ret = ispv1_offline_cmd(pic_attr, RAW_PHYADDR, framedst->phyaddr);
+//#else
+//		ret = ispv1_offline_cmd(pic_attr, framesrc->phyaddr, framedst->phyaddr);
+#endif
 
 #ifdef DUMP_CAP_FILE
 	dump_file("/data/nv12.yuv", framedst->viraddr,
@@ -2229,6 +2356,15 @@ static int ispv1_start_process(pic_attr_t *pic_attr, ipp_mode mode)
 
 }
 
+#ifdef READ_BACK_RAW
+void ispv1_update_read_ready(u8 buf_used)
+{
+	if (BUF_LEFT == buf_used)
+		SETREG8(0x63b57, 1);
+	else
+		SETREG8(0x63b57, 2);
+}
+#endif
 /*
  **************************************************************************
  * FunctionName: ispv1_start_capture;
@@ -2269,6 +2405,7 @@ static int ispv1_start_capture(pic_attr_t *pic_attr, camera_sensor *sensor, int 
 	isp_hw_data.offline_state = OFFLINE_READY;
 	isp_hw_data.cur_state = STATE_CAPTURE;
 
+	#ifndef READ_BACK_RAW
 	ret = ispv1_capture_cmd(pic_attr, frame->phyaddr, count, ev, sensor, flash_on, scene);
 	if (0 != ret) {
 		print_error("capture cmd set failed.\n");
@@ -2276,6 +2413,10 @@ static int ispv1_start_capture(pic_attr_t *pic_attr, camera_sensor *sensor, int 
 	}
 
 	dump_size_reg();
+	#else
+	ispv1_frame_done_handler();
+	#endif
+
 #ifdef DUMP_CAP_FILE
 	dump_file("/data/raw.raw", frame->viraddr,
 			pic_attr->sensor_width * pic_attr->sensor_height * 2);
@@ -2321,6 +2462,13 @@ static int ispv1_stop_capture(void)
 	print_info("enter %s", __func__);
 	tasklet_kill(&isr_tasklet);
 	isp_hw_data.cur_state = STATE_MAX; /* isr should executed before this sentence */
+
+	/* double resume(another is preview_cmd) preview awb value to make sure it take effect. */
+	if (isp_hw_data.flash_resume == true) {
+		ispv1_set_wb_value(&isp_hw_data.preview_awb);
+		isp_hw_data.flash_resume = false;
+	}
+
 	return 0;
 }
 
@@ -2705,9 +2853,6 @@ int ispv1_write_sensor_byte(i2c_index_t index, u8 i2c_addr, u16 reg, u16 val, i2
 		reg_value_len = REG_SCCB_MAST2_2BYTE_CONTROL;
 	}
 
-	if ((0x90 == i2c_addr) || (0xba == i2c_addr))
-		udelay(50);
-
 	if (mask != 0x00) {
 		ispv1_read_sensor_byte(index, i2c_addr, reg, &old_val, length);
 		old_val &= mask;
@@ -2746,6 +2891,10 @@ int ispv1_write_sensor_byte(i2c_index_t index, u8 i2c_addr, u16 reg, u16 val, i2
 
 	spin_unlock_irqrestore(&i2c_lock, flags);
 	free_i2c_bus_mutex();
+
+	if (I2C_16BIT == length)
+		udelay(50);
+
 	return 0;
 
 error_out1:
@@ -3023,6 +3172,30 @@ static void ispv1_set_i2c(struct i2c_t *i2c)
 
 /*
  **************************************************************************
+ * FunctionName: ispv1_sensor_reset_i2c;
+ * Description : reset sensor i2c addr to isp;
+ * Input       : NA;
+ * Output      : NA;
+ * ReturnValue : NA;
+ * Other       : NA;
+ **************************************************************************
+ */
+static void ispv1_sensor_reset_i2c(struct i2c_t *i2c)
+{
+	print_info("%s, addr=%#x", __func__, i2c->addr);
+	memcpy(&isp_hw_data.i2c_config, i2c, sizeof(struct i2c_t));
+
+	if (i2c->index == I2C_PRIMARY) {
+		SETREG8(REG_SCCB_MAST1_SLAVE_ID, i2c->addr);
+		SETREG8(REG_SCCB_FIRMWARE1_ID, i2c->addr);
+	} else {
+		SETREG8(REG_SCCB_MAST2_SLAVE_ID, i2c->addr);
+		SETREG8(REG_SCCB_FIRMWARE2_ID, i2c->addr);
+	}
+}
+
+/*
+ **************************************************************************
  * FunctionName: ispv1_power_sensor;
  * Description : power down or power on sensor through gpio;
  * Input       : NA;
@@ -3047,13 +3220,13 @@ void ispv1_power_sensor(sensor_index_t sensor_index,
 		if (CAMERA_SENSOR_PRIMARY == sensor_index) {
 			SETREG8(REG_ISP_GPIO_CTL_L, 0x20 | GETREG8(REG_ISP_GPIO_CTL_L));
 		} else {
-			SETREG8(REG_ISP_GPIO_CTL_L, 0x40 | GETREG8(REG_ISP_GPIO_CTL_L));
+			SETREG8(REG_ISP_GPIO_CTL_L, 0x10 | GETREG8(REG_ISP_GPIO_CTL_L));
 		}
 	} else {
 		if (CAMERA_SENSOR_PRIMARY == sensor_index) {
 			SETREG8(REG_ISP_GPIO_CTL_L, 0xdf & GETREG8(REG_ISP_GPIO_CTL_L));
 		} else {
-			SETREG8(REG_ISP_GPIO_CTL_L, 0xbf & GETREG8(REG_ISP_GPIO_CTL_L));
+			SETREG8(REG_ISP_GPIO_CTL_L, 0xef & GETREG8(REG_ISP_GPIO_CTL_L));
 		}
 	}
 
@@ -3190,9 +3363,6 @@ static void ispv1_hw_init_regs(data_interface_t sensor_type)
 				sizeof(isp_mipi_init_regs1)/sizeof(isp_mipi_init_regs1[0]));
 		print_debug("download isp mipi init seqenence");
 
-		ispv1_write_isp_seq(isp_mipi_init_regs2,
-				sizeof(isp_mipi_init_regs2)/sizeof(isp_mipi_init_regs2[0]));
-		print_debug("download isp mipi init seqenence");
 	#ifdef OVISP_DEBUG_MODE
 		char *filename = "/data/ov-debug.txt";
 		ispv1_load_isp_setting(filename);
@@ -3356,14 +3526,20 @@ static int ispv1_drop_handler(u8 buf_sel, u32 addr)
 	if (BUF_LEFT == buf_sel) {
 		/* FIXME left buffer is writing */
 		if ((REG_BASE_ADDR1_WRITING & GETREG8(REG_BASE_WORKING_ADDR)) == 0)
+		{
+			print_info("REG_BASE_WORKING_ADDR ==  %#x \n   ", GETREG8(REG_BASE_WORKING_ADDR));
 			return 0;
+		}
 
 		rdy_current = WRITE_ADDR0_READY;
 		rdy_another = WRITE_ADDR1_READY;
 	} else {
 		/* right buffer is writing */
 		if ((REG_BASE_ADDR1_WRITING & GETREG8(REG_BASE_WORKING_ADDR)) != 0)
+		{
+			print_info("REG_BASE_WORKING_ADDR ==  %#x \n   ", GETREG8(REG_BASE_WORKING_ADDR));
 			return 0;
+		}
 
 		rdy_current = WRITE_ADDR1_READY;
 		rdy_another = WRITE_ADDR0_READY;
@@ -3592,11 +3768,13 @@ static void isr_do_tasklet(unsigned long data)
 		if (STATE_PREVIEW == isp_hw_data.cur_state)
 			ispv1_preview_done_do_tune();
 	}
+
 	if (isp_hw_data.irq_val.irq_status & MASK_SOF_INT_ENABLE) {
 		spin_lock_irqsave(&isp_hw_data.irq_status_lock, lock_flags);
 		isp_hw_data.irq_val.irq_status &= ~MASK_SOF_INT_ENABLE;
 		spin_unlock_irqrestore(&isp_hw_data.irq_status_lock, lock_flags);
 	}
+
 	/* done */
 	if (isp_hw_data.irq_val.mac_irqstatus_l & ISP_WRITE_DONE_INT0) {
 		if (STATE_PREVIEW == isp_hw_data.cur_state) {
@@ -3914,6 +4092,50 @@ int ispv1_get_band_threshold(camera_sensor *sensor, camera_anti_banding banding)
 
 /*
  **************************************************************************
+ * FunctionName: static bool skip_for_hdr;
+ * Description : calculate the frame num needed to skip for hdr;
+ * Input       : NA;
+ * Output      : NA;
+ * ReturnValue : NA;
+ * Other       : NA;
+ **************************************************************************
+ */
+static void skip_for_hdr(camera_sensor *sensor, pic_attr_t *pic_attr, int *skip_frame)
+{
+	u32 index = sensor->capture_frmsize_index;
+
+	if (SENSOR_SONY == sensor->sensor_type) {
+		if (0 == strcmp(sensor->info.name, "sonyimx135"))
+			*skip_frame = 2;
+		else
+			*skip_frame = 1;
+		return;
+	}
+
+	/*if ov8830, isp output size is 16:9 and smaller than 5M, skip 1 frame when do hdr*/
+	if ((SENSOR_OV == sensor->sensor_type) && (true == sensor->frmsize_list[index].binning)
+		&& (RESOLUTION_16_9 == camera_get_resolution_type(pic_attr->out_width, pic_attr->out_height)))
+		*skip_frame = 1;
+
+	return;
+}
+
+#define U9508_FLASH_TYPE_FILE_NAME "/system/etc/u9508_flash_type"
+static void ispv1_get_u9508_flashtype(U9508_FLASH_TYPE_T *type)
+{
+	struct file *filp = NULL;
+
+	filp = filp_open(U9508_FLASH_TYPE_FILE_NAME, O_RDONLY, 0666);
+	if (!IS_ERR_OR_NULL(filp)) {
+		filp_close(filp, NULL);
+		*type = U9508_FLASH_TYPE_OSRAM;
+	} else {
+		*type = U9508_FLASH_TYPE_UNKNOW;
+	}
+}
+
+/*
+ **************************************************************************
  * FunctionName: ispv1_hw_set_default;
  * Description : Set default value of ispv1_ctl struct;
  * Input       : NA;
@@ -3932,6 +4154,9 @@ static int ispv1_hw_set_default (void)
 	ispv1_ctl.isp_hw_init_regs		= ispv1_hw_init_regs;
 	ispv1_ctl.isp_get_process_mode		= ispv1_get_process_mode;
 	ispv1_ctl.isp_set_process_mode		= ispv1_set_process_mode;
+	#ifdef READ_BACK_RAW
+	ispv1_ctl.update_read_ready		= ispv1_update_read_ready;
+	#endif
 	ispv1_ctl.isp_check_config		= ispv1_check_config;
 	ispv1_ctl.start_preview			= ispv1_start_preview;
 	ispv1_ctl.start_capture			= ispv1_start_capture;
@@ -3951,6 +4176,8 @@ static int ispv1_hw_set_default (void)
 	/*h00206029_0218*/
 	ispv1_ctl.isp_set_awb_mode		= ispv1_set_awb_mode;
 	ispv1_ctl.cold_boot_set		= ispv1_cold_boot_set;
+
+	ispv1_ctl.isp_check_flash_prepare		= ispv1_check_flash_prepare;
 
 	if (ispv1_ctl.isp_tune_ops == NULL) {
 		print_error("failed to kmalloc isp_tune_ops");
@@ -3978,38 +4205,39 @@ static int ispv1_hw_set_default (void)
 	/* param: focus_zone_s *zone, zone definition, max 25 rectangle */
 	ispv1_ctl.isp_tune_ops->isp_set_focus_area			= ispv1_set_focus_area;
 	ispv1_ctl.isp_tune_ops->isp_get_focus_result			= ispv1_get_focus_result;
+	ispv1_ctl.isp_tune_ops->isp_set_focus_zoom			= ispv1_set_focus_zoom;
 
 	/* For anti-shaking */
 	ispv1_ctl.isp_tune_ops->isp_set_anti_shaking			= ispv1_set_anti_shaking;
 	ispv1_ctl.isp_tune_ops->isp_set_anti_shaking_block		= ispv1_set_anti_shaking_block;
 	ispv1_ctl.isp_tune_ops->isp_get_anti_shaking_coordinate		= ispv1_get_anti_shaking_coordinate;
 	/* auto, 100, 200, 400, 800... */
-	ispv1_ctl.isp_tune_ops->isp_set_iso				= ispv1_set_iso;
+	ispv1_ctl.isp_tune_ops->set_iso				= ispv1_set_iso;
 	/* -2, -1, 0, +1, +2, ... */
-	ispv1_ctl.isp_tune_ops->isp_set_ev				= ispv1_set_ev;
+	ispv1_ctl.isp_tune_ops->set_ev				= ispv1_set_ev;
 	/* spot/cwa/average */
-	ispv1_ctl.isp_tune_ops->isp_set_metering_mode			= ispv1_set_metering_mode; /*spot/cwa/average*/
-	ispv1_ctl.isp_tune_ops->isp_set_metering_area	= ispv1_set_metering_area;
+	ispv1_ctl.isp_tune_ops->set_metering_mode			= ispv1_set_metering_mode; /*spot/cwa/average*/
+	ispv1_ctl.isp_tune_ops->set_metering_area	= ispv1_set_metering_area;
 
-	ispv1_ctl.isp_tune_ops->isp_set_gsensor_stat	= ispv1_set_gsensor_stat;
+	ispv1_ctl.isp_tune_ops->set_gsensor_stat	= ispv1_set_gsensor_stat;
 
 	/* auto, 50Hz, 60Hz, off; in fact, it is needed in door. */
-	ispv1_ctl.isp_tune_ops->isp_set_anti_banding			= ispv1_set_anti_banding;
-	ispv1_ctl.isp_tune_ops->isp_get_anti_banding			= ispv1_get_anti_banding;
+	ispv1_ctl.isp_tune_ops->set_anti_banding			= ispv1_set_anti_banding;
+	ispv1_ctl.isp_tune_ops->get_anti_banding			= ispv1_get_anti_banding;
 
 	/* auto, mwb:daylight, cloudy, incandescence, fluorescence ... */
-	ispv1_ctl.isp_tune_ops->isp_set_awb = ispv1_set_awb;
+	ispv1_ctl.isp_tune_ops->set_awb = ispv1_set_awb;
 
 	ispv1_ctl.isp_tune_ops->isp_get_focus_distance = ispv1_get_focus_distance;
 	ispv1_ctl.isp_tune_ops->isp_set_fps_lock = ispv1_set_fps_lock;
 
 	/* 0, 1, 2, 3, 4... */
-	ispv1_ctl.isp_tune_ops->isp_set_sharpness			= ispv1_set_sharpness;
-	ispv1_ctl.isp_tune_ops->isp_set_saturation			= ispv1_set_saturation;
-	ispv1_ctl.isp_tune_ops->isp_set_contrast			= ispv1_set_contrast;
-	ispv1_ctl.isp_tune_ops->isp_set_scene				= ispv1_set_scene;
-	ispv1_ctl.isp_tune_ops->isp_set_brightness			= ispv1_set_brightness;
-	ispv1_ctl.isp_tune_ops->isp_set_effect				= ispv1_set_effect;
+	ispv1_ctl.isp_tune_ops->set_sharpness			= ispv1_set_sharpness;
+	ispv1_ctl.isp_tune_ops->set_saturation			= ispv1_set_saturation;
+	ispv1_ctl.isp_tune_ops->set_contrast			= ispv1_set_contrast;
+	ispv1_ctl.isp_tune_ops->set_scene				= ispv1_set_scene;
+	ispv1_ctl.isp_tune_ops->set_brightness			= ispv1_set_brightness;
+	ispv1_ctl.isp_tune_ops->set_effect				= ispv1_set_effect;
 
 	ispv1_ctl.isp_tune_ops->isp_get_actual_iso			= ispv1_get_actual_iso;
 	ispv1_ctl.isp_tune_ops->isp_get_exposure_time			= ispv1_get_exposure_time;
@@ -4018,6 +4246,9 @@ static int ispv1_hw_set_default (void)
 	ispv1_ctl.isp_tune_ops->isp_get_focus_rect			= ispv1_get_focus_rect;
 	ispv1_ctl.isp_tune_ops->isp_get_expo_line			= ispv1_get_expo_line;
 	ispv1_ctl.isp_tune_ops->isp_get_sensor_vts			= ispv1_get_sensor_vts;
+
+	ispv1_ctl.isp_tune_ops->isp_get_current_ccm_rgain		= ispv1_get_current_ccm_rgain;
+	ispv1_ctl.isp_tune_ops->isp_get_current_ccm_bgain		= ispv1_get_current_ccm_bgain;
 	/* AndroidK3 added by y36721 2011-10-28 end */
 	ispv1_sensor_reg_ctl.isp_power_sensor				= ispv1_power_sensor;
 	ispv1_sensor_reg_ctl.isp_reset_sensor				= ispv1_reset_sensor;
@@ -4029,10 +4260,17 @@ static int ispv1_hw_set_default (void)
 	ispv1_sensor_reg_ctl.isp_write_isp_seq				= ispv1_write_isp_seq;
 	ispv1_sensor_reg_ctl.isp_read_isp_seq			= ispv1_read_isp_seq;
 	ispv1_sensor_reg_ctl.isp_enable_mclk				= ispv1_enable_mclk;
+	ispv1_sensor_reg_ctl.isp_sensor_reset_i2c			= ispv1_sensor_reset_i2c;
 
 	isp_hw_data.cur_state	= STATE_MAX;
 	isp_hw_data.pix_fmt	= V4L2_PIX_FMT_NV12;
 	isp_hw_data.flash_mode = CAMERA_FLASH_AUTO;
+
+	isp_hw_data.flash_resume = false;
+	isp_hw_data.ae_resume = false;
+
+	ispv1_get_u9508_flashtype(&isp_hw_data.flash_type);
+
 	return 0;
 }
 
@@ -4072,31 +4310,4 @@ isp_sensor_reg_controller *get_isp_sensor_reg_controller(void)
 	return &ispv1_sensor_reg_ctl;
 }
 
-int ispv1_copy_preview_data(u8 *dest, camera_rect_s *rect)
-{
-	camera_frame_buf	 *frame = this_ispdata->current_frame;
-	u32 preview_width = this_ispdata->pic_attr[STATE_PREVIEW].out_width;
-	u32 preview_height = this_ispdata->pic_attr[STATE_PREVIEW].out_height;
-	u32 index;
-	u8 *src;
-
-	if (NULL == dest || NULL == frame) {
-		print_error("params error, dest 0x%x, frame 0x%x", (unsigned int)dest, (unsigned int)frame);
-		return -1;
-	}
-
-	frame->viraddr = ioremap_nocache( frame->phyaddr, preview_width * preview_height);
-	if (frame->viraddr == NULL) {
-		print_error("%s line %d error", __func__, __LINE__);
-		return -1;
-	}
-
-	for(index = 0; index < rect->height; index++) {
-		src = (u8 *)frame->viraddr + preview_width * (rect->top + index) + rect->left;
-		memcpy(dest, src, rect->width);
-		dest += rect->width;
-	}
-	iounmap(frame->viraddr);
-	return 0;
-}
 /******************* END ********************/

@@ -228,6 +228,18 @@
 #define REG_ISP_CCM_PREGAIN_G		(0x1c5ad)
 #define REG_ISP_CCM_PREGAIN_R		(0x1c5ae)
 
+#define ISP_YDENOISE_COFF_1X		2
+#define ISP_YDENOISE_COFF_2X		4
+#define ISP_YDENOISE_COFF_4X		6
+#define ISP_YDENOISE_COFF_8X		8
+#define ISP_YDENOISE_COFF_16X		12
+
+#define REG_ISP_YDENOISE_1X		(0x6551a)
+#define REG_ISP_YDENOISE_2X		(0x6551b)
+#define REG_ISP_YDENOISE_4X		(0x6551c)
+#define REG_ISP_YDENOISE_8X		(0x6551d)
+#define REG_ISP_YDENOISE_16X		(0x6551e)
+
 /* cmd_set and capture_cmd register operation */
 #define CMD_SET_ISP_IN_FMT_SIZE(fmt, width, height) \
 	do { \
@@ -673,17 +685,51 @@
 #define REG_ISP_YUV_CROP_WIDTH          (0x650f4)
 #define REG_ISP_YUV_CROP_HEIGHT         (0x650f6)
 
-typedef struct _irq_reg{
+
+typedef enum {
+	FLASH_AWBTEST_POLICY_FIXED = 0,
+	FLASH_AWBTEST_POLICY_FREEGO,
+} FLASH_AWBTEST_POLICY;
+
+typedef enum {
+	U9508_FLASH_TYPE_UNKNOW = 0,
+	U9508_FLASH_TYPE_EVERLIGHT,
+	U9508_FLASH_TYPE_OSRAM,
+} U9508_FLASH_TYPE_T;
+
+typedef struct _irq_reg {
 	u32 irq_status;
 	u32 mac_irqstatus_h;
 	u32 mac_irqstatus_l;
 } irq_reg_t;
 
-typedef struct _aec_data{
+typedef struct _aecawb_step {
+	u8 stable_range0; /* UNSTABLE2STABLE_RANGE: 0x1c14a */
+	u8 stable_range1; /* STABLE2UNSTABLE_RANGE: 0x1c14b */
+	u8 fast_step; /* 0x1c14c */
+	u8 slow_step; /* 0x1c14e */
+	u8 awb_step; /* 0x1c184 */
+} aecawb_step_t;
+
+typedef struct _flash_weight {
+	u32 preflash_env;
+	u32 preflash_flash;
+	u32 capflash_env;
+	u32 capflash_flash;
+} flash_weight_t;
+
+typedef struct _aec_data {
 	u32 gain;
 	u32 expo;
-	u32 luminance;
+	u32 lum;
+	u32 lum_max; /* using for save max lum in 4x4 raw lum stat window */
+	u32 lum_sum;
 } aec_data_t;
+
+typedef struct _expo_table {
+	u32 expo; /* in fact this is the reciprocal of expo */
+	u32 iso;
+} expo_table_t;
 
 typedef struct _isp_hw_data {
 
@@ -713,7 +759,14 @@ typedef struct _isp_hw_data {
 	aec_data_t preflash_ae;
 	u32 preview_ratio_lum;
 
-	u16 capflash_luminance;
+	aecawb_step_t aecawb_step;
+	awb_gain_t flash_preset_awb;
+	bool flash_resume;
+	bool ae_resume;
+	awb_gain_t led_awb[2];
+	FLASH_AWBTEST_POLICY awb_test; /* used to save policy of flash awb test. */
+	
+	U9508_FLASH_TYPE_T flash_type;
 
 	isp_process_mode_t process_mode;
 
@@ -728,10 +781,11 @@ typedef struct _isp_hw_data {
 	u8 fps_min;
 
 	camera_flash	flash_mode;
+
+	u32 ratio_factor;
 } isp_hw_data_t;
 
 extern isp_hw_data_t isp_hw_data;
-
 
 static inline void SETREG8(u32 reg, u8 value) {
 	(reg >= COMMAND_BUFFER_END) ?
@@ -1071,6 +1125,8 @@ r_rb_switch: switch R and B for RGB565
 #define EV_RATIO_DENOMINATOR	10	/* EV RATIO denominator */
 #define EV_RATIO_DIVIDEND		0x100
 
+#define ISP_EXPOSURE_RATIO_MAX		0xff00
+
 /* EV RATIO */
 #define EV_BRACKET_RATIO_NUMERATOR		635	/* EV BRACKET  RATIO numerator */
 #define EV_BRACKET_RATIO_DENOMINATOR		1000	/* EV BRACKET RATIO denominator */
@@ -1129,6 +1185,8 @@ r_rb_switch: switch R and B for RGB565
 #define REG_ISP_AWB_MANUAL_GAIN_GREEN(group)	(0x1c4f2+6*(group))
 #define REG_ISP_AWB_MANUAL_GAIN_RED(group)		(0x1c4f4+6*(group))
 
+#define REG_ISP_WIN_LUM(index)		(0x1cb9c + 4 * (index))
+
 #define REG_ISP_AWB_GAIN_B		(0x65300L)
 #define REG_ISP_AWB_GAIN_GB		(0x65302L)
 #define REG_ISP_AWB_GAIN_GR		(0x65304L)
@@ -1163,14 +1221,12 @@ r_rb_switch: switch R and B for RGB565
 #define AUTO_FRAME_RATE_TRIGER_COUNT		4
 /*h00206029 modified 20120511*/
 #define AUTO_FRAME_RATE_MAX_GAIN			0x60
-#define AUTO_FRAME_RATE_MIN_GAIN			0x40
-#define AUTO_FRAME_RATE_EXPOSURE		0x3
-#define AUTO_FRAME_RATE_LUMINANCE_MAX		0xa
-#define AUTO_FRAME_RATE_LUMINANCE_MIN		0x3
+#define AUTO_FRAME_RATE_MIN_GAIN			0x28
 
-
+/*y00215412 added 20121207*/
+#define FLASH_TRIGGER_GAIN			0x80
+#define FLASH_TRIGGER_LUM_RATIO		0xc0
 #define FLASH_CAP2PRE_RATIO			0x04
-#define FLASH_ENABLE_RANGE	0x0f
 /* for isp tune ops added registers end */
 
 /* scene add by j00179721*/
@@ -1227,6 +1283,15 @@ r_rb_switch: switch R and B for RGB565
 
 #define get_current_y() GETREG8(REG_ISP_CURRENT_Y)
 
+#define get_win_lum(index) \
+	((GETREG8(REG_ISP_WIN_LUM(index)) << 24) | (GETREG8(REG_ISP_WIN_LUM(index) + 1) << 16) | \
+	(GETREG8(REG_ISP_WIN_LUM(index) + 2) << 8) | (GETREG8(REG_ISP_WIN_LUM(index) + 3)))
+
+#define ISP_ZOOM_BASE_RATIO 0x100
+#define ISP_ZOOM_MAX_RATIO 0x400
+#define ISP_FOCUS_ZOOM_MAX_RATIO 0x200
+#define ispv1_zoom_to_ratio(zoom) (((zoom) * 10 + 100) * ISP_ZOOM_BASE_RATIO / 100)
+
 /* Used for tune ops and AF functions to get isp_data handler */
 void ispv1_tune_ops_init(k3_isp_data *ispdata);
 void ispv1_tune_ops_exit(void);
@@ -1243,15 +1308,17 @@ int ispv1_get_anti_shaking_coordinate(coordinate_s *coordinate);
  */
 int ispv1_set_iso(camera_iso iso);
 
+int ispv1_iso2gain(int iso, bool binning);
+
+int ispv1_gain2iso(int gain, bool binning);
+
 /*
- * only useful for ISO auto mode, pWriteBackGain[0x1c7a4-0x1c7a5] is real gain.
- * but there is a real gain register 0x66c00-0x66c01, maybe they are same
+ * only useful for ISO auto mode
  */
 int ispv1_get_actual_iso(void);
 
-/*
- * real exposure time is pWriteBackExpo[0x1c79c-0x1c79f]
- */
+#define ispv1_expo_time2line(expo_time, fps, vts) ((fps) * (vts) / (expo_time))
+#define ispv1_expo_line2time(expo_line, fps, vts) ((fps) * (vts) / (expo_line))
 int ispv1_get_exposure_time(void);
 
 u32 ispv1_get_awb_gain(int withShift);
@@ -1260,6 +1327,9 @@ u32 ispv1_get_focus_rect(camera_rect_s *rect);
 
 u32 ispv1_get_expo_line(void);
 u32 ispv1_get_sensor_vts(void);
+
+u32 ispv1_get_current_ccm_rgain(void);
+u32 ispv1_get_current_ccm_bgain(void);
 
 int ispv1_get_fps(camera_sensor *sensor, camera_fps fps);
 int ispv1_set_fps(camera_sensor *sensor, camera_fps fps, u8 value);
@@ -1344,8 +1414,21 @@ void ispv1_cmd_id_do_ecgc(void);
 void ispv1_set_aecagc_mode(aecagc_mode_t mode);
 void ispv1_set_awb_mode(awb_mode_t mode);
 
+void ispv1_save_aecawb_step(aecawb_step_t *step);
+void ispv1_config_aecawb_step(bool flash_mode, aecawb_step_t *step);
+void ispv1_check_flash_prepare(void);
+
 void ispv1_get_wb_value(awb_gain_t *awb);
 void ispv1_set_wb_value(awb_gain_t *awb);
 int ispv1_copy_preview_data(u8 *dest, camera_rect_s *rect);
+
+int ispv1_get_frame_rate_level(void);
+void ispv1_set_frame_rate_level(int level);
+
+camera_frame_rate_state ispv1_get_frame_rate_state(void);
+void ispv1_set_frame_rate_state(camera_frame_rate_state state);
+
+bool ae_is_need_flash(camera_sensor *sensor, aec_data_t *ae_data, u32 target_y_low);
+
 #endif /*__K3_ISPV1_H__ */
 /********************************* END ***********************************************/

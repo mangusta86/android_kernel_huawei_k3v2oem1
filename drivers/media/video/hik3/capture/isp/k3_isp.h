@@ -134,6 +134,8 @@ typedef struct _k3_isp_data {
 	bool cold_boot;
 #ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
 	struct pm_qos_request_list qos_request;
+	struct pm_qos_request_list qos_request_gpu;
+	bool gpu_blocked;
 	struct pm_qos_request_list qos_request_cpu;
 #endif
 	struct semaphore check_flash_level_done;
@@ -208,6 +210,9 @@ typedef struct _isp_hw_controller {
 
 	int (*start_preview) (pic_attr_t *pic_attr, camera_sensor *sensor, bool cold_boot, camera_scene scene);
 	int (*start_capture) (pic_attr_t *pic_attr, camera_sensor *sensor,  int *ev, bool flash_on, camera_scene scene);
+	#ifdef READ_BACK_RAW
+	void (*update_read_ready) (u8 buf_used);
+	#endif
 	int (*start_process) (pic_attr_t *pic_attr, ipp_mode mode);
 	int (*stop_preview) (void);
 	int (*stop_capture) (void);
@@ -228,11 +233,13 @@ typedef struct _isp_hw_controller {
 	isp_tune_ops *isp_tune_ops;
 
 	void (*isp_set_auto_flash) (int status, camera_flash flash_mode);
-	int (*isp_is_need_flash) (void);
+	int (*isp_is_need_flash) (camera_sensor *sensor);
 
 	void (*isp_set_aecagc_mode) (aecagc_mode_t mode);
 	/*h00206029_20120221*/
 	void (*isp_set_awb_mode) (awb_mode_t mode);
+
+	void (*isp_check_flash_prepare) (void);
 
 	int (*cold_boot_set)(camera_sensor *sensor);
 

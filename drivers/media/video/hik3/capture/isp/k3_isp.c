@@ -54,6 +54,7 @@
 #include <linux/pm_qos_params.h>
 #include "k3_v4l2_capture.h"
 #include "k3_isp.h"
+#include <hsad/config_interface.h>
 
 #define DEBUG_DEBUG 0
 #define LOG_TAG "K3_ISP"
@@ -66,110 +67,10 @@
 
 #define DDR_PREVIEW_MIN_PROFILE 360000
 #define DDR_CAPTURE_MIN_PROFILE 360000
+#define GPU_BLOCK_PROFILE 360000
 
 #define WAIT_CHECK_FLASH_LEVEL_COMPLT_TIMEOUT 1000
 
-/* capbility of k3isp */
-#define THIS_AUTO_WHITE_BALANCE (1 << CAMERA_WHITEBALANCE_AUTO)
-#define THIS_WHITE_BALANCE ( \
-				(1 << CAMERA_WHITEBALANCE_INCANDESCENT)	| \
-				(1 << CAMERA_WHITEBALANCE_FLUORESCENT)	| \
-				(1 << CAMERA_WHITEBALANCE_DAYLIGHT)	| \
-				(1 << CAMERA_WHITEBALANCE_CLOUDY_DAYLIGHT) \
-			   )
-#define THIS_BRIGHTNESS (\
-				(1 << CAMERA_BRIGHTNESS_L2) | \
-				(1 << CAMERA_BRIGHTNESS_L1) | \
-				(1 << CAMERA_BRIGHTNESS_H0) | \
-				(1 << CAMERA_BRIGHTNESS_H1) | \
-				(1 << CAMERA_BRIGHTNESS_H2)   \
-			)
-#define THIS_CONTRAST (\
-				(1 << CAMERA_CONTRAST_L2) | \
-				(1 << CAMERA_CONTRAST_L1) | \
-				(1 << CAMERA_CONTRAST_H0) | \
-				(1 << CAMERA_CONTRAST_H1) | \
-				(1 << CAMERA_CONTRAST_H2)   \
-			)
-#define THIS_SATURATION	(\
-				(1 << CAMERA_SATURATION_L2) | \
-				(1 << CAMERA_SATURATION_L1) | \
-				(1 << CAMERA_SATURATION_H0) | \
-				(1 << CAMERA_SATURATION_H1) | \
-				(1 << CAMERA_SATURATION_H2)   \
-			)
-#define THIS_ISO	(\
-				(1 << CAMERA_ISO_AUTO) | \
-				(1 << CAMERA_ISO_100) | \
-				(1 << CAMERA_ISO_200) | \
-				(1 << CAMERA_ISO_400) | \
-				(1 << CAMERA_ISO_800)   \
-			)
-#define THIS_EFFECT	(\
-				(1 << CAMERA_EFFECT_NONE)      | \
-				(1 << CAMERA_EFFECT_MONO)      | \
-				(1 << CAMERA_EFFECT_NEGATIVE)  | \
-				(1 << CAMERA_EFFECT_SEPIA)   \
-			)
-#define THIS_EXPOSURE    (CAMERA_EXPOSURE_MAX)
-#define THIS_EXPOSURE_STEP (CAMERA_EXPOSURE_STEP)
-#define THIS_SHARPNESS	(\
-				(1 << CAMERA_SHARPNESS_AUTO)   | \
-				(1 << CAMERA_SHARPNESS_1)      | \
-				(1 << CAMERA_SHARPNESS_2)      | \
-				(1 << CAMERA_SHARPNESS_3)      | \
-				(1 << CAMERA_SHARPNESS_4)      | \
-				(1 << CAMERA_SHARPNESS_5)        \
-			)
-#define THIS_METERING	(\
-				(1 << CAMERA_METERING_SPOT)   | \
-				(1 << CAMERA_METERING_CWA)   | \
-				(1 << CAMERA_METERING_AVERAGE)  \
-			)
-#define THIS_FLASH	(\
-				(1 << CAMERA_FLASH_ON)   | \
-				(1 << CAMERA_FLASH_TORCH)| \
-				(1 << CAMERA_FLASH_OFF)  | \
-				(1 << CAMERA_FLASH_AUTO)   \
-			)
-#define THIS_FOCUS_MODE	(\
-				(1 << CAMERA_FOCUS_AUTO) | \
-				(1 << CAMERA_FOCUS_INFINITY) | \
-				(1 << CAMERA_FOCUS_MACRO) | \
-				(1 << CAMERA_FOCUS_CONTINUOUS_VIDEO) | \
-				(1 << CAMERA_FOCUS_CONTINUOUS_PICTURE)   \
-			)
-#define THIS_HFLIP	(1 << CAMERA_H_FLIP)
-#define THIS_VFLIP	(\
-				(1 << CAMERA_NO_FLIP) | \
-				(1 << CAMERA_H_FLIP)  | \
-				(1 << CAMERA_V_FLIP)  | \
-					(1 << CAMERA_HV_FLIP)   \
-				)
-
-#define THIS_HDR	(\
-				(1 << CAMERA_HDR_ON) | \
-				(1 << CAMERA_HDR_OFF) \
-			)
-
-#define THIS_ANTI_BANDING (\
-				(1 << V4L2_CID_POWER_LINE_FREQUENCY_50HZ) | \
-				(1 << V4L2_CID_POWER_LINE_FREQUENCY_60HZ) \
-			)
-
-#define THIS_SCENE	(\
-				(1 << CAMERA_SCENE_AUTO) | \
-				(1 << CAMERA_SCENE_ACTION) | \
-				(1 << CAMERA_SCENE_PORTRAIT) | \
-				(1 << CAMERA_SCENE_LANDSPACE) | \
-				(1 << CAMERA_SCENE_NIGHT) | \
-				(1 << CAMERA_SCENE_NIGHT_PORTRAIT) | \
-				(1 << CAMERA_SCENE_THEATRE) | \
-				(1 << CAMERA_SCENE_BEACH) | \
-				(1 << CAMERA_SCENE_SNOW) | \
-				(1 << CAMERA_SCENE_FIREWORKS) | \
-				(1 << CAMERA_SCENE_CANDLELIGHT)\
-			)
 
 /* VARIABLES AND ARRARYS */
 static k3_isp_data isp_data;
@@ -177,8 +78,6 @@ static isp_hw_controller *isp_hw_ctl;
 static isp_tune_ops *camera_tune_ops;
 static camera_flash_state flash_exif = FLASH_OFF;
 
-static camera_capability common_cap[] = {
-};
 
 static camera_capability k3_cap[] = {
 	{V4L2_CID_AUTO_WHITE_BALANCE, THIS_AUTO_WHITE_BALANCE},
@@ -193,16 +92,11 @@ static camera_capability k3_cap[] = {
 	{V4L2_CID_EXPOSURE_STEP, THIS_EXPOSURE_STEP},
 	{V4L2_CID_SHARPNESS, THIS_SHARPNESS},
 	{V4L2_CID_METERING, THIS_METERING},
-	{V4L2_CID_FOCUS_MODE, THIS_FOCUS_MODE},
 	{V4L2_CID_HFLIP, THIS_HFLIP},
 	{V4L2_CID_VFLIP, THIS_VFLIP},
-	{V4L2_CID_HDR, THIS_HDR},
 	{V4L2_CID_POWER_LINE_FREQUENCY, THIS_ANTI_BANDING},
 };
 
-static camera_capability flash_cap[] = {
-	{V4L2_CID_FLASH_MODE, THIS_FLASH},
-};
 /* FUNCTION DECLEARATION */
 static void k3_isp_set_default(void);
 static void k3_isp_calc_zoom(camera_state state, scale_strategy_t scale_strategy, u32 *in_width, u32 *in_height);
@@ -236,33 +130,18 @@ int k3_isp_get_process_mode(void)
 	return (int)isp_hw_ctl->isp_get_process_mode();
 }
 
-int k3_isp_get_common_capability(u32 id, u32 *value)
-{
-	int i;
-	print_debug("enter %s", __func__);
-
-	if (0 < sizeof(common_cap) / sizeof(common_cap[0])) {
-		for (i = 0; i < sizeof(common_cap) / sizeof(common_cap[0]); ++i) {
-			if (id == common_cap[i].id) {
-				*value = common_cap[i].value;
-				break;
-			}
-		}
-	}
-
-	if (V4L2_CID_ZOOM_RELATIVE == id) {
-		/* higt byte: 0x10 for zoom_ratio(100,110,120...400) */
-		/* low byte: ZOOM_STEPS(1, 1.1, 1.2...4.0) */
-		*value = 0x0A001E;
-	}
-
-	return 0;
-}
 
 int k3_isp_get_k3_capability(u32 id, u32 *value)
 {
 	int i;
 	print_debug("enter %s", __func__);
+
+	if (V4L2_CID_ZOOM_RELATIVE == id) {
+		/* higt byte: 0x10 for zoom_ratio(100,110,120...400) */
+		/* low byte: ZOOM_STEPS(1, 1.1, 1.2...4.0) */
+		*value = 0x0A001E;
+		return 0;
+	}
 
 	for (i = 0; i < sizeof(k3_cap) / sizeof(k3_cap[0]); ++i) {
 		if (id == k3_cap[i].id) {
@@ -274,19 +153,17 @@ int k3_isp_get_k3_capability(u32 id, u32 *value)
 	return 0;
 }
 
-int  k3_isp_get_primary_capability(u32 id, u32 *value)
-{
-	print_debug("enter %s", __func__);
-	if (V4L2_CID_FLASH_MODE == id && (NULL != get_camera_flash())) {
-		*value = flash_cap[0].value;
-	}
-	return 0;
-}
-
 void k3_isp_check_flash_level(camera_flash_state state)
 {
 	camera_flashlight *flashlight = get_camera_flash();
 
+	if (NULL == flashlight) {
+		isp_data.flash_flow = FLASH_DONE;
+		isp_data.flash_on = false;
+		isp_data.flash_state = FLASH_OFF;
+		flash_exif = FLASH_OFF;
+		return;
+	}
 #if 0
 	if (isp_data.flash_on == true)
 		/* now flash light is on, isp is taking a picture */
@@ -294,13 +171,16 @@ void k3_isp_check_flash_level(camera_flash_state state)
 #endif
 	if ((isp_data.sensor->sensor_index == CAMERA_SENSOR_PRIMARY) && (flashlight != NULL) && (CAMERA_SHOOT_SINGLE == isp_data.shoot_mode)) {
 		if (FLASH_ON == state) {
-			if (((isp_data.flash_mode == CAMERA_FLASH_AUTO) && (0 == isp_hw_ctl->isp_is_need_flash())) ||
+			if (((isp_data.flash_mode == CAMERA_FLASH_AUTO) && (0 == isp_hw_ctl->isp_is_need_flash(isp_data.sensor))) ||
 				isp_data.flash_mode == CAMERA_FLASH_ON) {
 
+
 				flashlight->turn_on(TORCH_MODE, LUM_LEVEL2);
-				isp_data.flash_flow = FLASH_TESTING;
 				isp_data.flash_state = state;
 				isp_data.flash_on = true;
+				isp_hw_ctl->isp_check_flash_prepare();
+
+				isp_data.flash_flow = FLASH_TESTING;
 				flash_exif = FLASH_ON;
 				return;
 			}
@@ -611,6 +491,13 @@ int k3_isp_try_fmt(struct v4l2_format *fmt, camera_state state, camera_setting_v
 	return 0;
 }
 
+#ifdef READ_BACK_RAW
+void k3_isp_update_read_ready(u8 buf_used)
+{
+	isp_hw_ctl->update_read_ready(buf_used);
+}
+#endif
+
 /*
  **************************************************************************
  * FunctionName: k3_isp_stream_on;
@@ -699,7 +586,6 @@ int k3_isp_stream_on(struct v4l2_pix_format *pixfmt,
 
 		isp_data.cold_boot = false;
 	}
-	print_ddr();
 	return ret;
 }
 
@@ -714,12 +600,12 @@ int k3_isp_stream_off(camera_state state)
 		if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP)
 			isp_hw_ctl->isp_tune_ops_withdraw(state);
 		ret = isp_hw_ctl->stop_preview();
-		if (true == isp_data.flash_on)
+		if (true == isp_data.flash_on && flashlight)
 			flashlight->turn_off();
 	} else {
 		ret = isp_hw_ctl->stop_capture();
 		if ((isp_data.sensor->sensor_index == CAMERA_SENSOR_PRIMARY) && (flashlight != NULL)) {
-			if (true == isp_data.flash_on) {
+			if (true == isp_data.flash_on && flashlight) {
 				flashlight->turn_off();
 				isp_data.flash_on = false;
 			}
@@ -797,7 +683,7 @@ int k3_isp_init(struct platform_device *pdev, data_queue_t *data_queue)
 	sema_init(&isp_data.check_flash_level_done, 0);
 
 #ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
-    pm_qos_add_request(&g_specialpolicy, PM_QOS_IPPS_POLICY, PM_QOS_IPPS_POLICY_DEFAULT_VALUE);
+	pm_qos_add_request(&g_specialpolicy, PM_QOS_IPPS_POLICY, PM_QOS_IPPS_POLICY_DEFAULT_VALUE);
 	pm_qos_add_request(&isp_data.qos_request, PM_QOS_DDR_MIN_PROFILE, DDR_PREVIEW_MIN_PROFILE);
 	/* pm_qos_add_request(&isp_data.qos_request_cpu, PM_QOS_CPU_NUMBER_MIN, 2); */
 #endif
@@ -821,7 +707,6 @@ int k3_isp_init(struct platform_device *pdev, data_queue_t *data_queue)
 		print_error("%s k3_isp_poweron failed ", __func__);
 
 fail:
-	print_ddr();
 	return ret;
 }
 
@@ -842,7 +727,7 @@ int k3_isp_exit(void *par)
 		if (isp_hw_ctl->isp_tune_ops_exit)
 			isp_hw_ctl->isp_tune_ops_exit();
 #ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
-    pm_qos_update_request(&g_specialpolicy, PM_QOS_IPPS_POLICY_DEFAULT_VALUE);
+	pm_qos_update_request(&g_specialpolicy, PM_QOS_IPPS_POLICY_DEFAULT_VALUE);
 #endif
 	if (isp_data.sensor) {
 		isp_data.sensor->reset(POWER_OFF);
@@ -856,8 +741,12 @@ int k3_isp_exit(void *par)
 
 #ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
 	pm_qos_remove_request(&isp_data.qos_request);
+	pm_qos_remove_request(&g_specialpolicy);
+	if (isp_data.gpu_blocked == true) {
+		pm_qos_remove_request(&isp_data.qos_request_gpu);
+		isp_data.gpu_blocked = false;
+	}
 	/* pm_qos_remove_request(&isp_data.qos_request_cpu); */
-    pm_qos_remove_request(&g_specialpolicy);
 #endif
 	return 0;
 }
@@ -910,22 +799,18 @@ void k3_isp_poweroff(void)
 void k3_isp_auto_focus(int flag)
 {
 	print_debug("enter %s", __func__);
-	if ((isp_data.sensor->sensor_index != CAMERA_SENSOR_PRIMARY)
-	    || (isp_data.sensor->isp_location == CAMERA_USE_SENSORISP)) {
-		return;
-	}
+	
 
-	camera_tune_ops->isp_auto_focus(flag);
+	if (isp_data.sensor->af_enable) {
+		camera_tune_ops->isp_auto_focus(flag);
+	}
 }
 
 int k3_isp_set_focus_mode(camera_focus mode)
 {
 	print_debug("enter %s", __func__);
-	if (isp_data.sensor->sensor_index != CAMERA_SENSOR_PRIMARY) {
-		return 0;
-	}
 
-	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) {
+	if (isp_data.sensor->af_enable) {
 		if (-1 == camera_tune_ops->isp_set_focus_mode(mode))
 			return -EINVAL;
 		isp_data.focus = mode;
@@ -942,8 +827,8 @@ int k3_isp_get_focus_mode(void)
 int k3_isp_set_focus_area(focus_area_s *area)
 {
 	print_debug("enter %s", __func__);
-	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) {
-		if (-1 == camera_tune_ops->isp_set_focus_area(area))
+	if (isp_data.sensor->af_enable) {
+		if (-1 == camera_tune_ops->isp_set_focus_area(area, isp_data.zoom))
 			return -EINVAL;
 	}
 	return 0;
@@ -951,7 +836,7 @@ int k3_isp_set_focus_area(focus_area_s *area)
 
 void k3_isp_get_focus_result(focus_result_s *result)
 {
-	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) {
+	if (isp_data.sensor->af_enable) {
 		camera_tune_ops->isp_get_focus_result(result);
 	} else {
 		result->status = STATUS_FOCUSED;
@@ -1018,19 +903,12 @@ int k3_isp_set_awb_mode(camera_white_balance awb_mode)
 	int ret = 0;
 
 	print_debug("enter %s", __func__);
-	if (CAMERA_USE_K3ISP == isp_data.sensor->isp_location) {
-		ret = camera_tune_ops->isp_set_awb(awb_mode);
-		if (!ret)
-			isp_data.awb_mode = awb_mode;
-	} else if (CAMERA_USE_SENSORISP == isp_data.sensor->isp_location) {
-		if (isp_data.sensor->set_awb) {
-			isp_data.sensor->set_awb(awb_mode);
-			if (!ret)
-				isp_data.awb_mode = awb_mode;
-		}
-	} else {
+
+	if (NULL != camera_tune_ops)
+		if (camera_tune_ops->set_awb)
+			ret = camera_tune_ops->set_awb(awb_mode);
+	if (!ret)
 		isp_data.awb_mode = awb_mode;
-	}
 
 	return ret;
 }
@@ -1053,14 +931,12 @@ int k3_isp_set_iso(camera_iso iso)
 	int ret = 0;
 
 	print_debug("enter %s", __func__);
-	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) {
-		ret = camera_tune_ops->isp_set_iso(iso);
-		if (!ret)
-			isp_data.iso = iso;
-	} else {
-		isp_data.iso = iso;
-	}
 
+	if (NULL != camera_tune_ops)
+		if (camera_tune_ops->set_iso)
+			ret = camera_tune_ops->set_iso(iso);
+	if (!ret)
+		isp_data.iso = iso;
 	return ret;
 }
 
@@ -1070,14 +946,12 @@ int k3_isp_set_ev(int ev)
 	int ret = 0;
 
 	print_debug("enter %s", __func__);
-	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) {
-		ret = camera_tune_ops->isp_set_ev(ev);
-		if (!ret)
-			isp_data.ev = ev;
-	} else {
-		isp_data.ev = ev;
-	}
 
+	if (NULL != camera_tune_ops)
+		if (camera_tune_ops->set_ev)
+			ret = camera_tune_ops->set_ev(ev);
+	if (!ret)
+		isp_data.ev = ev;
 	return ret;
 }
 
@@ -1091,12 +965,10 @@ int k3_isp_get_ev(void)
 int k3_isp_set_metering_area(metering_area_s *area)
 {
 	print_debug("enter %s", __func__);
-
-	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) {
-		return camera_tune_ops->isp_set_metering_area(area);
-	} else {
-		return 0;
-	}
+	if (NULL != camera_tune_ops)
+		if (camera_tune_ops->set_metering_area)
+			return camera_tune_ops->set_metering_area(area);
+	return 0;
 }
 
 /* for metering mode */
@@ -1105,14 +977,11 @@ int k3_isp_set_metering_mode(camera_metering metering)
 	int ret = 0;
 
 	print_debug("enter %s", __func__);
-	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) {
-		print_debug("%s,%d, CAMERA_USE_K3ISP", __func__, __LINE__);
-		ret = camera_tune_ops->isp_set_metering_mode(metering);
-		if (!ret)
-			isp_data.metering = metering;
-	} else {
+	if (NULL != camera_tune_ops)
+		if (camera_tune_ops->set_metering_mode)
+			ret = camera_tune_ops->set_metering_mode(metering);
+	if (!ret)
 		isp_data.metering = metering;
-	}
 
 	return ret;
 }
@@ -1128,7 +997,7 @@ int k3_isp_set_gsensor_stat(axis_triple *xyz)
 	print_debug("enter %s", __func__);
 
 	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) {
-		return camera_tune_ops->isp_set_gsensor_stat(xyz);
+		return camera_tune_ops->set_gsensor_stat(xyz);
 	} else {
 		return 0;
 	}
@@ -1140,34 +1009,25 @@ int k3_isp_set_anti_banding(camera_anti_banding banding)
 	int ret = 0;
 
 	print_debug("enter %s", __func__);
-	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) {
-		ret = camera_tune_ops->isp_set_anti_banding(banding);
-		if (!ret)
-			isp_data.anti_banding = banding;
-	} else if(isp_data.sensor->isp_location == CAMERA_USE_SENSORISP) {
-	    if (isp_data.sensor->set_anti_banding) {
-			ret = isp_data.sensor->set_anti_banding(banding);
-			if (!ret)
-			    isp_data.anti_banding = banding;
-	    }
-	} else {
+	if (NULL != camera_tune_ops)
+		if (camera_tune_ops->set_anti_banding)
+			ret = camera_tune_ops->set_anti_banding(banding);
+	if (!ret)
 		isp_data.anti_banding = banding;
-	}
 
 	return ret;
 }
 
 int k3_isp_get_anti_banding(void)
 {
-	camera_anti_banding banding;
+	camera_anti_banding banding = CAMERA_ANTI_BANDING_AUTO;
 
 	print_debug("enter %s", __func__);
-
-	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) {
-		banding = camera_tune_ops->isp_get_anti_banding();
-		if (0 < banding)
-			isp_data.anti_banding = banding;
-	}
+	if (NULL != camera_tune_ops)
+		if (camera_tune_ops->get_anti_banding)
+			banding = camera_tune_ops->get_anti_banding();
+	if (CAMERA_ANTI_BANDING_AUTO < banding)
+		isp_data.anti_banding = banding;
 
 	return isp_data.anti_banding;
 }
@@ -1178,14 +1038,11 @@ int k3_isp_set_sharpness(camera_sharpness sharpness)
 	int ret = 0;
 
 	print_debug("enter %s", __func__);
-	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) {
-		ret = camera_tune_ops->isp_set_sharpness(sharpness);
-		if (!ret)
-			isp_data.sharpness = sharpness;
-	} else {
+	if (NULL != camera_tune_ops)
+		if (camera_tune_ops->set_sharpness)
+			ret = camera_tune_ops->set_sharpness(sharpness);
+	if (!ret)
 		isp_data.sharpness = sharpness;
-	}
-
 	return ret;
 }
 
@@ -1203,8 +1060,8 @@ int k3_isp_set_saturation(camera_saturation saturation)
 	print_debug("enter %s", __func__);
 
 	if (NULL != camera_tune_ops)
-		if (camera_tune_ops->isp_set_saturation)
-			ret = camera_tune_ops->isp_set_saturation(saturation);
+		if (camera_tune_ops->set_saturation)
+			ret = camera_tune_ops->set_saturation(saturation);
 	if (!ret)
 			isp_data.saturation = saturation;
 
@@ -1225,8 +1082,8 @@ int k3_isp_set_contrast(camera_contrast contrast)
 	print_debug("enter %s", __func__);
 
 	if (NULL != camera_tune_ops)
-		if (camera_tune_ops->isp_set_contrast)
-			ret = camera_tune_ops->isp_set_contrast(contrast);
+		if (camera_tune_ops->set_contrast)
+			ret = camera_tune_ops->set_contrast(contrast);
 	if (!ret)
 		isp_data.contrast = contrast;
 	return ret;
@@ -1245,7 +1102,7 @@ int k3_isp_set_scene(camera_scene scene)
 
 	print_debug("enter %s", __func__);
 	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) {
-		ret = camera_tune_ops->isp_set_scene(scene);
+		ret = camera_tune_ops->set_scene(scene);
 		if (!ret)
 			isp_data.scene = scene;
 	} else {
@@ -1269,8 +1126,8 @@ int k3_isp_set_brightness(camera_brightness brightness)
 	print_debug("enter %s", __func__);
 
 	if (NULL != camera_tune_ops)
-		if (camera_tune_ops->isp_set_brightness)
-			ret = camera_tune_ops->isp_set_brightness(brightness);
+		if (camera_tune_ops->set_brightness)
+			ret = camera_tune_ops->set_brightness(brightness);
 	if (!ret)
 		isp_data.brightness = brightness;
 	return ret;
@@ -1288,16 +1145,11 @@ int k3_isp_set_effect(camera_effects effect)
 	int ret = 0;
 
 	print_debug("enter %s", __func__);
-	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) {
-		ret = camera_tune_ops->isp_set_effect(effect);
-		if (!ret)
-			isp_data.effect = effect;
-	} else if (CAMERA_USE_SENSORISP == isp_data.sensor->isp_location) {
-		isp_data.sensor->set_effect(effect);
+	if (NULL != camera_tune_ops)
+		if (camera_tune_ops->set_effect)
+			ret = camera_tune_ops->set_effect(effect);
+	if (!ret)
 		isp_data.effect = effect;
-	} else {
-		isp_data.effect = effect;
-	}
 
 	return ret;
 }
@@ -1327,13 +1179,18 @@ int k3_isp_set_flash_mode(camera_flash flash_mode)
 	case CAMERA_FLASH_TORCH:
 		{
 			print_info("set camera flash TORCH MODE");
-			flashlight->turn_on(TORCH_MODE, LUM_LEVEL2);
+			if (product_type("U9508")) {
+				flashlight->turn_on(TORCH_MODE, LUM_LEVEL1);
+			} else {
+				flashlight->turn_on(TORCH_MODE, LUM_LEVEL2);
+			}
 			break;
 		}
 	case CAMERA_FLASH_OFF:
 		{
 			print_info("set camera flash OFF MODE");
-			if (isp_data.flash_mode == CAMERA_FLASH_TORCH) {
+			if (isp_data.flash_mode == CAMERA_FLASH_TORCH
+				&& flashlight) {
 				flashlight->turn_off();
 			}
 
@@ -1399,12 +1256,30 @@ int k3_isp_get_zoom(void)
 */
 int k3_isp_set_zoom(char preview_running, u32 zoom)
 {
+	int ret = 0;
+
 	print_debug("Enter Function:%s	zoom:%d", __func__, zoom);
+
+	if (preview_running) {
+		ret |= isp_hw_ctl->isp_set_zoom(zoom, HIGH_QUALITY_MODE);
+		if (isp_data.sensor->af_enable)
+			ret |= camera_tune_ops->isp_set_focus_zoom(zoom);
+	}
+
 	isp_data.zoom = zoom;
-	if (preview_running)
-		return isp_hw_ctl->isp_set_zoom(zoom, HIGH_QUALITY_MODE);
-	else
-		return 0;
+
+#ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
+	if (0 == ret) {
+		if (zoom > 20 && (isp_data.gpu_blocked == false)) { // total is 30 steps
+			pm_qos_add_request(&isp_data.qos_request_gpu, PM_QOS_GPU_PROFILE_BLOCK, GPU_BLOCK_PROFILE);
+			isp_data.gpu_blocked = true;
+		} else if (zoom < 20 && isp_data.gpu_blocked) {
+			pm_qos_remove_request(&isp_data.qos_request_gpu);
+			isp_data.gpu_blocked = false;
+		}
+	}		
+#endif
+	return ret;
 }
 
 int k3_isp_get_exposure_time(void)
@@ -1521,6 +1396,48 @@ int k3_isp_get_sensor_vts(void)
 		ret = 0;
 	} else if (CAMERA_USE_K3ISP == isp_data.sensor->isp_location) {
 		ret = camera_tune_ops->isp_get_sensor_vts();
+	}
+	return ret;
+}
+
+int k3_isp_get_sensor_aperture(void)
+{
+	if (isp_data.sensor->get_sensor_aperture) {
+		return isp_data.sensor->get_sensor_aperture();
+	}
+
+	return 0;
+}
+
+int k3_isp_get_equivalent_focus(void)
+{
+	if (isp_data.sensor->get_equivalent_focus) {
+		return isp_data.sensor->get_equivalent_focus();
+	}
+
+	return 0;
+}
+
+int k3_isp_get_current_ccm_rgain(void)
+{
+	int ret = 0;
+
+	if (CAMERA_USE_SENSORISP == isp_data.sensor->isp_location) {
+		ret = 0;
+	} else if (CAMERA_USE_K3ISP == isp_data.sensor->isp_location) {
+		ret = camera_tune_ops->isp_get_current_ccm_rgain();
+	}
+	return ret;
+}
+
+int k3_isp_get_current_ccm_bgain(void)
+{
+	int ret = 0;
+
+	if (CAMERA_USE_SENSORISP == isp_data.sensor->isp_location) {
+		ret = 0;
+	} else if (CAMERA_USE_K3ISP == isp_data.sensor->isp_location) {
+		ret = camera_tune_ops->isp_get_current_ccm_bgain();
 	}
 	return ret;
 }
@@ -1826,11 +1743,11 @@ static void k3_isp_set_default(void)
 		isp_data.pic_attr[state].sensor_height		= 480;
 		isp_data.pic_attr[state].in_width		= 640;
 		isp_data.pic_attr[state].in_height		= 480;
-		isp_data.pic_attr[state].startx		= 0;
-		isp_data.pic_attr[state].starty		= 0;
+		isp_data.pic_attr[state].startx			= 0;
+		isp_data.pic_attr[state].starty			= 0;
 		isp_data.pic_attr[state].out_width		= 640;
 		isp_data.pic_attr[state].out_height		= 480;
-		isp_data.pic_attr[state].raw_scale_down	= 1;
+		isp_data.pic_attr[state].raw_scale_down		= 1;
 		isp_data.pic_attr[state].yuv_dcw		= 1;
 		isp_data.pic_attr[state].yuv_in_width		= 640;
 		isp_data.pic_attr[state].yuv_in_height		= 480;
@@ -1840,14 +1757,16 @@ static void k3_isp_set_default(void)
 		isp_data.pic_attr[state].crop_y		= 0; /* isp_data.pic_attr[state].starty; */
 		isp_data.pic_attr[state].crop_width		= isp_data.pic_attr[state].in_width;
 		isp_data.pic_attr[state].crop_height		= isp_data.pic_attr[state].in_height;
-		isp_data.pic_attr[state].in_fmt		= V4L2_PIX_FMT_RAW10;
+		isp_data.pic_attr[state].in_fmt			= V4L2_PIX_FMT_RAW10;
 		isp_data.pic_attr[state].out_fmt		= V4L2_PIX_FMT_NV12;
 	}
-	isp_data.zoom					= 0;
+	isp_data.zoom				= 0;
 	isp_data.sensor				= NULL;
 	isp_data.support_pixfmt			= NULL;
-	isp_data.pixfmt_count				= 0;
-
+	isp_data.pixfmt_count			= 0;
+#ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
+	isp_data.gpu_blocked			= false;
+#endif
 	isp_data.fps_mode	=	CAMERA_FRAME_RATE_AUTO;
 	isp_data.assistant_af_flash = false;
 

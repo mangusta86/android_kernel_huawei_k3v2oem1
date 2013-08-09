@@ -27,14 +27,12 @@ Problem NO.         Name        Time         Reason
 #include <linux/board_sensors.h>
 #include "adxl34x.h"
 
-/* zkf55108 2011/10/26 add begin */
 #include <mach/gpio.h>
 #include <asm/io.h>
 #include <linux/mux.h>
 
 #define GPIO_BOLCK_NAME "block_gsensor"
 
-/* zkf55108 2011/10/26 add end */
 
 struct data_rate_map data_rate_tbl[] = {
 	{625, 0x0e},
@@ -311,7 +309,7 @@ static ssize_t adxl34x_enable_show(struct device *dev,
 {
 	struct adxl34x *ac = dev_get_drvdata(dev);
 
-	return sprintf(buf, "%u\n", ~ac->disabled);	/* modified by zkf55108 2011/11/14 */
+	return sprintf(buf, "%u\n", ~ac->disabled);	
 }
 
 static ssize_t adxl34x_enable_store(struct device *dev,
@@ -590,7 +588,6 @@ static void adxl34x_input_close(struct input_dev *input)
 	adxl34x_disable(ac);
 }
 #endif
-/* zkf55108 2011/10/27 add begin */
 static int adxl34x_config_gpio(struct device *dev, struct adxl34x *acc_data)
 {
 
@@ -632,7 +629,6 @@ err_block_config:
 	return ret;
 
 }
-/* zkf55108 2011/10/27 add end */
 static int __devinit adxl34x_initialize(bus_device *bus, struct adxl34x *ac)
 {
 	struct input_dev *input_dev;
@@ -749,7 +745,6 @@ static int __devinit adxl34x_initialize(bus_device *bus, struct adxl34x *ac)
 
 	ac->write(bus, POWER_CTL, 0);
 
-	/* zkf55108 2011/10/26 add begin */
 	err = adxl34x_config_gpio(&bus->dev, ac);
 	if (err < 0) {
 		dev_err(&bus->dev, "%s: failed to config gpio lowpower mode\n", __func__);
@@ -763,7 +758,6 @@ static int __devinit adxl34x_initialize(bus_device *bus, struct adxl34x *ac)
 		}
 		gpio_direction_input(bus->irq);
 	}
-	/* zkf55108 2011/10/26 add end */
 
 	err = sysfs_create_group(&bus->dev.kobj, &adxl34x_attr_group);
 	if (err) {
@@ -1126,7 +1120,6 @@ static int __devexit adxl34x_i2c_remove(struct i2c_client *client)
 
 	return 0;
 }
-/* zkf55108 2011/11/3 add begin */
 static void adxl34x_shutdown(struct i2c_client *client)
 {
 	struct adxl34x *ac = dev_get_drvdata(&client->dev);
@@ -1138,7 +1131,6 @@ static void adxl34x_shutdown(struct i2c_client *client)
 	printk("[%s],-\n", __func__);
 
 }
-/* zkf55108 2011/11/3 add end */
 static const struct i2c_device_id adxl34x_id[] = {
 	{ ADXL34X_ACC_DEV_NAME, 0 },
 	{ }
@@ -1153,9 +1145,7 @@ static struct i2c_driver adxl34x_driver = {
 	},
 	.probe    = adxl34x_i2c_probe,
 	.remove   = __devexit_p(adxl34x_i2c_remove),
-	/* zkf55108 2011/11/3 add begin */
 	.shutdown = adxl34x_shutdown,
-	/* zkf55108 2011/11/3 add end */
 #ifndef CONFIG_HAS_EARLYSUSPEND
 	.suspend  = adxl34x_suspend,
 	.resume   = adxl34x_resume,

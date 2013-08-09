@@ -426,6 +426,10 @@ static int __devinit mma8452_probe(struct i2c_client *client,
 
 	dev_info(&client->dev, "Read mma8452 chip ok, ID is 0x%x\n", client_id);
 
+	result = set_sensor_chip_info(ACC, "FREESCALE MMA8452");
+	if (result) {
+		dev_err(&client->dev, "set_sensor_chip_info error \n");
+	}
 	result =  i2c_smbus_write_byte_data(client, MMA8452_CTRL_REG3, 0x2);
 	if (result < 0) {
 		dev_err(&client->dev, "%s: failed to selects the polarity of the interrupt signal\n", __func__);

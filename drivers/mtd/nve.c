@@ -268,7 +268,7 @@ static int nve_restore(struct NVE_struct *nve)
 		}
 		id = 1;
 	} else {
-		nve_ramdisk_temp = (u_char *)kzalloc(NVE_PARTITION_SIZE, GFP_KERNEL);
+		nve_ramdisk_temp = (u_char *)kzalloc(NVE_PARTITION_SIZE, GFP_ATOMIC);
 
 		if (NULL == nve_ramdisk_temp) {
 			printk(KERN_ERR "[NVE][%s]failed to allocate ramdisk temp buffer.\n", __func__);
@@ -365,7 +365,7 @@ static int nve_do_index_table(struct NVE_struct *nve)
 		kfree(nve->nve_index_table);
 		nve->nve_index_table = NULL;
 	}
-	nve->nve_index_table = kzalloc(nve_header->valid_items * sizeof(struct NVE_index), GFP_KERNEL);
+	nve->nve_index_table = kzalloc(nve_header->valid_items * sizeof(struct NVE_index), GFP_ATOMIC);
 
 	if (NULL == nve->nve_index_table) {
 		printk(KERN_ERR "[NVE] nve_do_index_table failed to allocate index table.\n");
@@ -709,6 +709,15 @@ static long nve_ioctl(struct file *file, u_int cmd, u_long arg)
 				up(&nv_sem);
 				return -EFAULT;
 			}
+	               printk("[NVE][%s]current_id = %d,ioctl = %d.\n", __func__, nve->nve_current_id,info.nv_operation);
+                       if(info.nv_operation)
+                       {
+                           if (nve_do_index_table(nve))
+                           {
+                              printk("[NVE]nve_ioctl,read nv from emmc error,nve_current_id = %d.\n",nve->nve_current_id);
+                              return -EFAULT;
+                           }
+                       }
 
 			nve_header = (struct NVE_partition_header *)(nve->nve_ramdisk + PARTITION_HEADER_OFFSET);
 
@@ -780,7 +789,7 @@ static int __init init_nve(void)
 	/*semaphore initial*/
 	sema_init(&nv_sem, 1);
 
-	my_nve = nve = kzalloc(sizeof(struct NVE_struct), GFP_KERNEL);
+	my_nve = nve = kzalloc(sizeof(struct NVE_struct), GFP_ATOMIC);
 
 	if (nve == NULL) {
 		printk(KERN_ERR "[NVE][%s]failed to allocate driver data in line %d.\n", __func__, __LINE__);
@@ -788,7 +797,7 @@ static int __init init_nve(void)
 	}
 
 	memset (nve, 0x0, sizeof(struct NVE_struct));
-	nve->nve_ramdisk= (u_char *)kzalloc(NVE_PARTITION_SIZE, GFP_KERNEL);
+	nve->nve_ramdisk= (u_char *)kzalloc(NVE_PARTITION_SIZE, GFP_ATOMIC);
 
 	if (NULL == nve->nve_ramdisk) {
 		printk(KERN_ERR "[NVE][%s]failed to allocate ramdisk buffer in line %d.\n", __func__, __LINE__);

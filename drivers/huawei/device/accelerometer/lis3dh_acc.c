@@ -68,14 +68,12 @@ Problem NO.         Name        Time         Reason
 #include	<linux/earlysuspend.h>
 #include    "lis3dh.h"
 #include <linux/board_sensors.h>
-/* zkf55108 2011/10/26 add begin */
 #include	<mach/gpio.h>
 #include	<asm/io.h>
 #include	<linux/mux.h>
 
 #define GPIO_BOLCK_NAME "block_gsensor"
 
-/* zkf55108 2011/10/26 add end */
 
 static int16_t accl_data[3] = {0, 0, 0};
 
@@ -118,10 +116,8 @@ struct lis3dh_acc_data {
 	struct work_struct irq2_work;
 	struct workqueue_struct *irq2_work_queue;
     struct early_suspend early_suspend;
-	/* zkf55108 2011/12/14 add begin */
 	struct iomux_block *gpio_block;
 	struct block_config *gpio_block_config;
-	/* zkf55108 2011/12/14 add end */
 
 #ifdef DEBUG
 	u8 reg_addr;
@@ -204,7 +200,6 @@ static int lis3dh_acc_hw_init(struct lis3dh_acc_data *acc)
 
 	dev_dbg(&acc->client->dev, "%s: hw init start\n", LIS3DH_ACC_DEV_NAME);
 
-	/* zkf55108 2011/11/25 add begin */
 	buf[0] = CFG1;
 	err = lis3dh_acc_i2c_read(acc, buf, 1);
 	if (err < 0) {
@@ -228,7 +223,6 @@ static int lis3dh_acc_hw_init(struct lis3dh_acc_data *acc)
 		dev_err(&acc->client->dev, "pull up disable failed 0x%x\n", buf[0]);
 		goto err_resume_state;
 	}
-	/* zkf55108 2011/11/25 add end */
 
 	buf[0] = CTRL_REG1;
 	buf[1] = acc->resume_state[RES_CTRL_REG1];
@@ -1133,7 +1127,6 @@ static void lis3dh_acc_input_cleanup(struct lis3dh_acc_data *acc)
 	input_free_device(acc->input_dev);
 }
 
-/* zkf55108 2011/10/28 add begin */
 
 static void acc_resumestate_init(struct lis3dh_acc_data *acc)
 {
@@ -1202,7 +1195,6 @@ err_block_config:
 	return ret;
 
 }
-/* zkf55108 2011/10/28 add end */
 
 static int lis3dh_acc_probe(struct i2c_client *client,
 		const struct i2c_device_id *id)
@@ -1257,8 +1249,10 @@ static int lis3dh_acc_probe(struct i2c_client *client,
 	}
 
 	dev_info(&client->dev, "Read lis3dh chip ok, ID is 0x%x\n", chipid);
-
-	/* zkf55108 2011/10/26 add begin */
+    err = set_sensor_chip_info(ACC, "ST LIS3DH");
+	if (err) {
+		dev_err(&client->dev, "set_sensor_chip_info error\n");
+	}
 
 	err = lis3dh_config_gpio(&client->dev, acc);
 	if (err) {
@@ -1266,7 +1260,6 @@ static int lis3dh_acc_probe(struct i2c_client *client,
 		goto err_mutexunlock;
 	}
 
-	/* zkf55108 2011/10/26 add end */
 
 	acc->pdata = kzalloc(sizeof(*acc->pdata), GFP_KERNEL);
 	if (acc->pdata == NULL) {
@@ -1278,7 +1271,6 @@ static int lis3dh_acc_probe(struct i2c_client *client,
 
 	memcpy(acc->pdata, client->dev.platform_data, sizeof(*acc->pdata));
 
-	/* zkf55108 2011/10/26 add begin */
 	if (acc->pdata->gpio_int1 >= 0) {
 		err = gpio_request(acc->pdata->gpio_int1, "gsensor_gpio1");
 		if (err) {
@@ -1307,7 +1299,6 @@ static int lis3dh_acc_probe(struct i2c_client *client,
 		dev_dbg(&client->dev, "%s: %s has set irq2 to irq: %d mapped on gpio:%d\n",
 			LIS3DH_ACC_DEV_NAME, __func__, acc->irq2, acc->pdata->gpio_int2);
 	}
-	/* zkf55108 2011/10/26 add end */
 
 	err = lis3dh_acc_validate_pdata(acc);
 	if (err < 0) {
@@ -1431,14 +1422,12 @@ err_power_off:
 err_pdata_init:
 	if (acc->pdata->exit)
 		acc->pdata->exit();
-/* zkf55108 2011/10/26 add begin */
 err_request_int2:
 	if (acc->pdata->gpio_int2 >= 0)
 		gpio_free(acc->pdata->gpio_int2);
 err_request_int1:
 	if (acc->pdata->gpio_int1 >= 0)
 		gpio_free(acc->pdata->gpio_int1);
-/* zkf55108 2011/10/26 add end */
 exit_kfree_pdata:
 	kfree(acc->pdata);
 	acc->pdata = NULL;
@@ -1519,7 +1508,6 @@ static int lis3dh_acc_suspend(struct i2c_client *client, pm_message_t mesg)
 #define lis3dh_acc_resume	NULL
 #endif /* CONFIG_PM */
 
-/* zkf55108 2011/11/3 add begin */
 static void lis3dh_acc_shutdown(struct i2c_client *client)
 {
 	struct lis3dh_acc_data *acc = i2c_get_clientdata(client);
@@ -1534,7 +1522,6 @@ static void lis3dh_acc_shutdown(struct i2c_client *client)
 	printk("[%s],-\n", __func__);
 
 }
-/* zkf55108 2011/11/3 add end */
 
 static const struct i2c_device_id lis3dh_acc_id[]
 		= { { LIS3DH_ACC_DEV_NAME, 0 }, { }, };
@@ -1548,9 +1535,7 @@ static struct i2c_driver lis3dh_acc_driver = {
 		  },
 	.probe = lis3dh_acc_probe,
 	.remove = __devexit_p(lis3dh_acc_remove),
-	/* zkf55108 2011/11/3 add begin */
 	.shutdown = lis3dh_acc_shutdown,
-	/* zkf55108 2011/11/3 add end */
 #ifndef CONFIG_HAS_EARLYSUSPEND
 	.suspend = lis3dh_acc_suspend,
 	.resume = lis3dh_acc_resume,

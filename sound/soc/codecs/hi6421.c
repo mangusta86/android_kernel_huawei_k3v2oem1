@@ -118,7 +118,8 @@ enum delay_time { /* ms */
     HI6421_HKADC_SLEEP_TIME       = 30,
     HI6421_PLL_STABLE_WAIT_TIME   = 20,
     HI6421_HS_BTN_JUDGEMENT_TIME  = 50,
-    HI6421_HS_PLUG_JUDGEMENT_TIME = 0
+    HI6421_HS_PLUG_JUDGEMENT_TIME = 0,
+    HI6421_PLL_DETECT_TIME        = 40,
 };
 
 /* codec private data */
@@ -126,6 +127,7 @@ struct hi6421_data {
 #ifdef CONFIG_MFD_HI6421_IRQ
     struct hi6421_jack_data hs_jack;
     struct wake_lock wake_lock;
+	struct wake_lock pll_wake_lock;
     volatile bool plug_in_running;
     volatile bool plug_in_loop;
     volatile bool plug_out_running;
@@ -155,6 +157,8 @@ struct hi6421_data {
     struct snd_soc_codec *codec;
     bool lower_power;
     unsigned int pmuid;
+    struct workqueue_struct *pll_delay_wq;
+    struct delayed_work  pll_delay_work;
 };
 
 /* feature */
@@ -165,6 +169,7 @@ static int hi6421_hs_keys = 1;
 /* HI6421 MUTEX */
 static struct mutex hi6421_power_lock;
 static int hi6421_active_pcm = 0;
+static int hi6421_active_pll_chk = 0;
 /* reference count */
 static int hi6421_audioldo_enabled = 0;
 static int hi6421_ibias_enabled = 0;
@@ -190,6 +195,8 @@ static struct snd_soc_jack hs_jack;
 static volatile enum hi6421_jack_states hs_status = HI6421_JACK_BIT_NONE;
 
 #endif
+
+static DEFINE_SPINLOCK(pll_lock);
 
 /* codec register array & default register value */
 unsigned int codec_registers[] = {
@@ -1490,19 +1497,61 @@ static void hi6421_ibias_enable(bool enable)
     }
 }
 
+static void hi6421_pll_work_func(struct work_struct *work)
+{
+    struct hi6421_data *priv =
+            container_of(work, struct hi6421_data, headset_btn_delay_work.work);
+    struct snd_soc_codec *codec = priv->codec;
+	
+	pr_info( "hi6421_pll_work_func\n");
+	
+    while(1) {
+		spin_lock(&pll_lock);
+		//pr_info( "hi6421_pll_work_func testing:%d, \n", hi6421_reg_read(codec, HI6421_PLL_PD_REG));
+		if ( 0 == (hi6421_reg_read(codec, HI6421_PLL_PD_REG) & (1 << HI6421_PLL_PD_BIT) ) )
+		{
+			unsigned char reg = hi6421_reg_read(codec, 0xf6);
+			if ( (0x80 > reg) || (0xF0 <= reg))
+			{
+				pr_info( "hi6421_pll_work_func working\n");
+            	hi6421_set_reg_bit(HI6421_PLL_PD_REG, HI6421_PLL_PD_BIT);
+            	mdelay(20);
+            	hi6421_clr_reg_bit(HI6421_PLL_PD_REG, HI6421_PLL_PD_BIT);				
+			}
+			spin_unlock(&pll_lock);
+		}
+		else
+		{
+			spin_unlock(&pll_lock);
+			break;
+		}
+        msleep(HI6421_PLL_DETECT_TIME);
+    }
+	pr_info( "hi6421_pll_work_func exit\n");
+}
+
 static void hi6421_pll_enable(bool enable)
 {
+    struct hi6421_data *priv = snd_soc_codec_get_drvdata(g_codec);
+	pr_info( "hi6421_pll_enable:%d\n", enable);
+
     if (enable) {
         if (0 == hi6421_pll_enabled) {
             hi6421_audioldo_enable(true);
             hi6421_ibias_enable(true);
+			spin_lock(&pll_lock);
             hi6421_clr_reg_bit(HI6421_PLL_PD_REG, HI6421_PLL_PD_BIT);
+            /* start pll delay work */
+			spin_unlock(&pll_lock);
+
         }
         hi6421_pll_enabled++;
     } else {
         hi6421_pll_enabled--;
         if (0 == hi6421_pll_enabled) {
+			spin_lock(&pll_lock);
             hi6421_set_reg_bit(HI6421_PLL_PD_REG, HI6421_PLL_PD_BIT);
+			spin_unlock(&pll_lock);
             hi6421_ibias_enable(false);
             hi6421_audioldo_enable(false);
         }
@@ -3158,11 +3207,28 @@ static void init_reg_value(struct snd_soc_codec *codec)
 static int hi6421_startup(struct snd_pcm_substream *substream,
                           struct snd_soc_dai *dai)
 {
+
     mutex_lock(&hi6421_power_lock);
     if (0 == hi6421_active_pcm)
         hi6421_power_on(g_codec);
     hi6421_active_pcm++;
     mutex_unlock(&hi6421_power_lock);
+	
+    if ((HI6421_PORT_MODEM == substream->pcm->device)||(HI6421_PORT_MM == substream->pcm->device) ) {
+        pr_info( "hi6421_startup check: %d\n", hi6421_active_pll_chk);
+        mutex_lock(&hi6421_power_lock);
+        if (0 == hi6421_active_pll_chk)
+        {
+            struct hi6421_data *priv = snd_soc_codec_get_drvdata(g_codec);
+            pr_info( "hi6421_startup start: %d\n", substream->pcm->device);
+            wake_lock(&priv->pll_wake_lock);
+            queue_delayed_work(priv->pll_delay_wq,
+                               &priv->pll_delay_work,
+                               msecs_to_jiffies(HI6421_PLL_DETECT_TIME));
+        }
+    hi6421_active_pll_chk++;
+    mutex_unlock(&hi6421_power_lock);
+    }
 
     return 0;
 }
@@ -3170,6 +3236,20 @@ static int hi6421_startup(struct snd_pcm_substream *substream,
 static void hi6421_shutdown(struct snd_pcm_substream *substream,
                             struct snd_soc_dai *dai)
 {
+    if ((HI6421_PORT_MODEM == substream->pcm->device)||(HI6421_PORT_MM == substream->pcm->device)) {
+	pr_info( "hi6421_shutdown check: %d \n", hi6421_active_pll_chk);
+	mutex_lock(&hi6421_power_lock);
+	hi6421_active_pll_chk--;
+	if (0 == hi6421_active_pll_chk)
+	{
+	    struct hi6421_data *priv = snd_soc_codec_get_drvdata(g_codec);
+	    pr_info( "hi6421_shutdown start: %d \n", substream->pcm->device);
+	    //cancel_delayed_work(&priv->pll_delay_work);
+	    wake_unlock(&priv->pll_wake_lock);
+	}
+	mutex_unlock(&hi6421_power_lock);
+    }
+
     mutex_lock(&hi6421_power_lock);
     hi6421_active_pcm--;
     if (0 == hi6421_active_pcm)
@@ -3309,7 +3389,8 @@ static int hi6421_codec_probe(struct snd_soc_codec *codec)
     hi6421_hs_jack_detect(codec, &hs_jack, SND_JACK_HEADSET);
 
     wake_lock_init(&priv->wake_lock, WAKE_LOCK_SUSPEND, "hi6421");
-
+    wake_lock_init(&priv->pll_wake_lock, WAKE_LOCK_SUSPEND, "test");
+	
     /* switch-class based headset detection */
     jack = &priv->hs_jack;
     jack->sdev.name = "h2w";
@@ -3343,6 +3424,15 @@ static int hi6421_codec_probe(struct snd_soc_codec *codec)
     }
     hi6421_hkadc_ctl_probe(codec, false);
 #endif
+
+    priv->pll_delay_wq = 
+        create_singlethread_workqueue("pll_delay_wq");
+    if (!(priv->pll_delay_wq)) {
+        pr_err("%s(%u) : workqueue create failed", __FUNCTION__,__LINE__);
+        ret = -ENOMEM;
+        goto pll_wq_err;
+    }
+    INIT_DELAYED_WORK(&priv->pll_delay_work, hi6421_pll_work_func);
 
     priv->headset_plug_in_delay_wq =
         create_singlethread_workqueue("headset_plug_in_delay_wq");
@@ -3436,6 +3526,7 @@ static int hi6421_codec_probe(struct snd_soc_codec *codec)
     }
 #endif
 
+
 #if DUMP_REG
     dump_reg(codec);
 #endif
@@ -3483,6 +3574,12 @@ headset_plug_out_wq_err:
         destroy_workqueue(priv->headset_plug_in_delay_wq);
     }
 headset_plug_in_wq_err:
+    if(priv->pll_delay_wq) {
+        cancel_delayed_work(&priv->pll_delay_work);
+        flush_workqueue(priv->pll_delay_wq);
+        destroy_workqueue(priv->pll_delay_wq);
+    }
+pll_wq_err:
     switch_dev_unregister(&jack->sdev);
 snd_soc_err:
     wake_lock_destroy(&priv->wake_lock);
@@ -3551,6 +3648,13 @@ static int hi6421_codec_remove(struct snd_soc_codec *codec)
                 flush_workqueue(priv->headset_plug_out_delay_wq);
                 destroy_workqueue(priv->headset_plug_out_delay_wq);
             }
+           
+            if(priv->pll_delay_wq) {
+                cancel_delayed_work(&priv->pll_delay_work);
+                flush_workqueue(priv->pll_delay_wq);
+                destroy_workqueue(priv->pll_delay_wq);
+            }
+            
             jack = &priv->hs_jack;
             switch_dev_unregister(&jack->sdev);
             wake_lock_destroy(&priv->wake_lock);

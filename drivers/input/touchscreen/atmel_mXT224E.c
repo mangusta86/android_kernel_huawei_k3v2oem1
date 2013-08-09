@@ -1046,6 +1046,7 @@ static void compatible_input_report(struct input_dev *idev,
                 input_report_key(idev, BTN_TOUCH, 1);
 
 
+
 	} else {
 		TS_DEBUG_ATMEL("k3ts, %s: Touch report_key x = %d, y = %d, z = %d, w = %d\n ", __func__,
 			fdata->x, fdata->y, fdata->z, fdata->w);

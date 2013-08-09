@@ -2333,7 +2333,6 @@ int usb_port_suspend(struct usb_device *udev, pm_message_t msg)
 	 * we don't explicitly enable it here.
 	 */
 
-	/* modem can not need remote wakeup.by w00186176 */
 	if (!udev->do_remote_wakeup) {
 		return 0;
 	}
@@ -2506,7 +2505,6 @@ int usb_port_resume(struct usb_device *udev, pm_message_t msg)
 	int		status;
 	u16		portchange, portstatus;
 
-	/* modem can not need remote wakeup.by w00186176 */
 	if (!udev->do_remote_wakeup) {
 		return 0;
 	}

@@ -33,6 +33,10 @@
 #include <linux/mux.h>
 #include <linux/slab.h>
 
+#include "../../../../include/hsad/config_mgr.h"
+#include <linux/string.h>
+
+
 /* interrupt mode or polling mode for 9244 driver */
 #define SiI9244DRIVER_INTERRUPT_MODE   1
 #define APP_DEMO_RCP_SEND_KEY_CODE (0x41)
@@ -283,7 +287,6 @@ void set_dcdc_mode(int value)
 	gpio_free(mhl_pdata->gpio_dcdc);
 }
 
-/* wakeup the mhl chip when plug out OTG device. add by w00186176 */
 int Sii9244_mhl_reset(void)
 {
 	struct mhl_platform_data *pdata = NULL;
@@ -659,6 +662,22 @@ static struct i2c_driver mhl_Sii9244_driver = {
 
 static int __init mhl_Sii9244_init(void)
 {
+
+	char mhl_chip_name[15];
+	bool ret =0;
+	ret = get_hw_config_string("MHL/chip_name",mhl_chip_name,15,NULL);
+	if(ret)
+	{
+	       if(strstr(mhl_chip_name,"none"))
+	       {
+	              printk("sii9244 doesn't support on this production");
+	              return 0;
+	       }
+	}
+	//else
+	//{
+	//      if not set mhl config,default this chip is support on this production
+	//}
 	return i2c_add_driver(&mhl_Sii9244_driver);
 }
 

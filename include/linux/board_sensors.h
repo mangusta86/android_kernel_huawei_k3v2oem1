@@ -18,7 +18,6 @@ Problem NO.         Name        Time         Reason
 #ifndef	__BOARD_SENSORS_H__
 #define	__BOARD_SENSORS_H__
 
-/* zkf55108 2011/10/26 add begin */
 /*Device Id Name*/
 #define AKM8975C_I2C_NAME		"akm8975"
 #define	LIS3DH_I2C_NAME			"lis3dh_acc"
@@ -30,6 +29,7 @@ Problem NO.         Name        Time         Reason
 
 /*Slave Adress*/
 #define	AKM8975C_I2C_ADDR		0x0c
+#define AKM8963_I2C_ADDR		0x0E
 #define	LIS3DH_I2C_ADDR			0x18
 #define APDS990x_I2C_ADDR		0x39
 #define MMA8452_I2C_ADDR		0x1C
@@ -60,6 +60,7 @@ Problem NO.         Name        Time         Reason
 enum input_name {
 	ACC,
 	AKM,
+	ORI,
 	GYRO,
 	ALS,
 	PS,
@@ -67,5 +68,7 @@ enum input_name {
 };
 
 int set_sensor_input(enum input_name name, const char *input_num);
-/* zkf55108 2011/10/26 add end */
+int set_sensor_chip_info(enum input_name name, const char *chip_info);
+int set_compass_selfTest_result(enum input_name name, const char *result);
+int set_gyro_selfTest_result(enum input_name name, const char *result);
 #endif

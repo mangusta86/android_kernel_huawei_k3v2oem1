@@ -39,6 +39,8 @@ extern unsigned long hisi_reserved_camera_phymem;
 #define HISI_FRAME_BUFFER_SIZE	PAGE_ALIGN(1280 * 720 * 4 * 4)
 #elif defined(CONFIG_LCD_PANASONIC_VVX10F002A00)
 #define HISI_FRAME_BUFFER_SIZE	PAGE_ALIGN(1920 * 1200 * 4 * 4)
+#elif defined(CONFIG_LCD_CMI_OTM1280A)
+#define HISI_FRAME_BUFFER_SIZE	PAGE_ALIGN(1280 * 720 * 4 * 4)
 #endif
 
 

@@ -174,6 +174,9 @@
 #define	DPPM_VOLTAGE_STEP						(80)
 #define	MONITOR_TIME							(10)
 
+#define BQ2416x_WATCHDOG_TIMEOUT         (20000)
+#define BQ2416x_CHARGE_FULL_DELAY_TIME   (15) /*BQ2416x_WATCHDOG_TIMEOUT*15=300s*/
+
 enum plugin_status {
 	/* no charger plugin */
 	PLUGIN_DEVICE_NONE,

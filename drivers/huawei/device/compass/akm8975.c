@@ -40,14 +40,12 @@ Problem NO.         Name        Time         Reason
 #include <linux/earlysuspend.h>
 #include "akm8975.h"
 #include <linux/board_sensors.h>
-/* zkf55108 2011/10/26 add begin */
 #include <mach/gpio.h>
 #include <asm/io.h>
 #include <linux/mux.h>
 
 #define MSENSOR_PIN "ac28"/*gpio_125*/
 
-/* zkf55108 2011/10/26 add end */
 
 #define AKM8975_DEBUG		0
 #define AKM8975_DEBUG_MSG	0
@@ -751,7 +749,6 @@ static irqreturn_t akm8975_interrupt(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-/* zkf55108 2011/10/27 add begin */
 static int akm8975_gpio_init(enum pull_updown new_mode, char *pin_name)
 {
 	int ret = 0;
@@ -771,7 +768,6 @@ static int akm8975_gpio_init(enum pull_updown new_mode, char *pin_name)
 err:
 	return ret;
 }
-/* zkf55108 2011/10/27 add end */
 
 static void akm8975_early_suspend(struct early_suspend *handler)
 {
@@ -878,8 +874,10 @@ int akm8975_probe(struct i2c_client *client, const struct i2c_device_id *id)
 		dev_err(&client->dev, "AKM8975 akm8975_probe: check chip id error\n");
 		goto exit2;
 	}
-
-	/* zkf55108 2011/10/26 add begin */
+    err = set_sensor_chip_info(AKM, "AKM AKM8975");
+	if (err) {
+		dev_err(&client->dev, "set_sensor_chip_info error\n");
+	}
 	err = akm8975_gpio_init(PULLDOWN, MSENSOR_PIN);
 	if (err < 0) {
 		dev_err(&client->dev, "failed to init gpio\n");
@@ -900,7 +898,6 @@ int akm8975_probe(struct i2c_client *client, const struct i2c_device_id *id)
 			goto exit4;
 		}
 	}
-	/* zkf55108 2011/10/26 add end */
 
 	/* Declare input device */
 	akm->input_dev = input_allocate_device();
@@ -932,10 +929,8 @@ int akm8975_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	input_set_abs_params(akm->input_dev, ABS_RUDDER, -32768, 3, 0, 0);
 	/* status of acceleration sensor */
 	input_set_abs_params(akm->input_dev, ABS_WHEEL, -32768, 3, 0, 0);
-	/* zkf55108 2011/10/26 add begin */
 	/* status of magnetic vector sensor */
 	input_set_abs_params(akm->input_dev, ABS_GAS, -32768, 3, 0, 0);
-	/* zkf55108 2011/10/26 add end */
 	/* x-axis of raw magnetic vector (-4096, 4095) */
 	input_set_abs_params(akm->input_dev, ABS_HAT0X, -20480, 20479, 0, 0);
 	/* y-axis of raw magnetic vector (-4096, 4095) */
@@ -1013,10 +1008,8 @@ exit5:
 	if (client->irq >= 0)
 		free_irq(client->irq, akm);
 exit4:
-	/* zkf55108 2011/10/26 add begin */
 	if (client->irq >= 0)
 		gpio_free(irq_to_gpio(client->irq));
-	/* zkf55108 2011/10/26 add begin */
 exit3:
 exit2:
 	i2c_set_clientdata(client, NULL);
@@ -1035,12 +1028,10 @@ static int akm8975_remove(struct i2c_client *client)
 	misc_deregister(&akm_aot_device);
 	misc_deregister(&akmd_device);
 	input_unregister_device(akm->input_dev);
-	/* zkf55108 2011/10/26 add begin */
 	if (client->irq >= 0) {
 		free_irq(client->irq, akm);
 		gpio_free(irq_to_gpio(client->irq));
 	}
-	/* zkf55108 2011/10/26 add end */
 	device_remove_file(&client->dev, &akm8975_accl_attr);
 	i2c_set_clientdata(client, NULL);
 	kfree(akm);
@@ -1049,7 +1040,6 @@ static int akm8975_remove(struct i2c_client *client)
 	AKMDBG("successfully removed.");
 	return 0;
 }
-/* zkf55108 2011/11/3 add begin */
 static void akm8975_shutdown(struct i2c_client *client)
 {
 	struct akm8975_data *akm = i2c_get_clientdata(client);
@@ -1063,7 +1053,6 @@ static void akm8975_shutdown(struct i2c_client *client)
 	printk("[%s] -\n", __func__);
 }
 
-/* zkf55108 2011/11/3 add end */
 static const struct i2c_device_id akm8975_id[] = {
 	{AKM8975_I2C_NAME, 0 },
 	{ }
@@ -1072,9 +1061,7 @@ static const struct i2c_device_id akm8975_id[] = {
 static struct i2c_driver akm8975_driver = {
 	.probe		= akm8975_probe,
 	.remove		= akm8975_remove,
-	/* zkf55108 2011/11/3 add begin */
 	.shutdown	= akm8975_shutdown,
-	/* zkf55108 2011/11/3 add end */
 	.id_table	= akm8975_id,
 	.driver = {
 		.name = AKM8975_I2C_NAME,

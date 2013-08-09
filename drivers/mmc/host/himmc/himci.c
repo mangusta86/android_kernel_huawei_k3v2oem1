@@ -48,6 +48,9 @@
 
 #include "himci.h"
 #include <linux/mux.h>
+#include <hsad/config_interface.h>
+
+
 
 /* parameters */
 int trace_level = HIMCI_TRACE_LEVEL; /* 5 - the highest trace level */
@@ -252,8 +255,18 @@ unsigned int mshci_hi_get_present_status(struct mshci_host *ms_host)
 		hi_host_trace(HIMCI_TRACE_SIGNIFICANT, "g00175134: gpio status = %d \n",
 						status);
 #else
-		/* GPIO High mean SD Card insert; GPIO Low means no SD card */
-		status = !gpio_get_value(hi_host->plat->cd_gpio);
+		if (get_sd_detect_type() == GPIO_LOW_MEAN_DETECTED)
+		{
+			/* GPIO Low mean SD Card insert; GPIO High means no SD card */
+			status = gpio_get_value(hi_host->plat->cd_gpio);
+		} else if (get_sd_detect_type() == GPIO_HIGH_MEAN_DETECTED){
+			/* GPIO High mean SD Card insert; GPIO Low means no SD card */
+			status = !gpio_get_value(hi_host->plat->cd_gpio);
+		} else {
+			himci_error("get_sd_detect_type failed");
+			/* GPIO High mean SD Card insert; GPIO Low means no SD card */
+			status = !gpio_get_value(hi_host->plat->cd_gpio);
+		}
 #endif
 		status |= hi_host->ocp_flag;
 		return status;

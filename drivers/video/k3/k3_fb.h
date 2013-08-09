@@ -53,8 +53,6 @@
 #define G2D_CLK_480MHz	(480 * 1000 * 1000)
 
 #define K3_FB_OVERLAY_USE_BUF 1
-#define K3_FB_FRC_ENABLE	1
-#define K3_FB_ESD_ENABLE	1
 /*FRC Frame definition*/
 #define K3_FB_FRC_BENCHMARK_FPS	67
 #define K3_FB_FRC_NORMAL_FPS	60
@@ -86,9 +84,14 @@
 extern u32 k3fd_reg_base_edc0;
 extern u32 k3fd_reg_base_edc1;
 
-#define K3_FB_SBL_ENABLE	1
 #define SBL_BKL_STEP 5
 #define SBL_REDUCE_VALUE(x)  ((x) * 70/100)
+
+#ifdef CONFIG_LCD_TOSHIBA_MDW70
+#define CLK_SWITCH	0
+#elif defined(CONFIG_LCD_CMI_OTM1280A)
+#define CLK_SWITCH	1
+#endif
 
 enum {
 	LCD_LANDSCAPE = 0,
@@ -150,6 +153,7 @@ struct k3_fb_data_type {
 	u32 ref_cnt;
 	u32 bl_level;
 	u32 bl_level_sbl;
+	u32 bl_level_old;
 	u32 fb_imgType;
 	u32 fb_bgrFmt;
 	u32 edc_base;
@@ -168,33 +172,41 @@ struct k3_fb_data_type {
 	u32 graphic_ch;
 	wait_queue_head_t edc_wait_queque;
 	s32 edc_wait_flash;
+	struct work_struct frame_end_work;
+	struct workqueue_struct *frame_end_wq;
+
+	bool cmd_mode_refresh;
+	u32 frame_count;
+	bool is_first_frame_end;
 
 	struct edc_overlay_ctrl ctrl;
 	struct platform_device *pdev;
 	struct semaphore sem;
 	struct clk *edc_clk;
+	struct clk *edc_clk_rst;
 	struct clk *ldi_clk;
 	struct clk *mipi_dphy_clk;
 	struct clk *g2d_clk;
 	struct regulator *edc_vcc;
 
-#if K3_FB_SBL_ENABLE
+	/* for vsync event */
+
+	/* for sbl */
 	u32 sbl_enable;
 	u32 sbl_lsensor_value;
 	struct work_struct sbl_work;
 	struct workqueue_struct *sbl_wq;
-#endif
 
-#if K3_FB_FRC_ENABLE
+	/* for frc */
 	int frc_flag;
 	int frc_frame_count;
 	unsigned long frc_timestamp;
-#endif
 
-#if K3_FB_ESD_ENABLE
+	/* for esd */
 	unsigned long esd_timestamp;
 	int esd_frame_count;
-#endif
+    struct hrtimer esd_hrtimer;
+    bool esd_hrtimer_enable;
 
 	int ldi_int_type;
 

@@ -132,6 +132,33 @@ extern int k3_bq27510_battery_technology(struct k3_bq27510_device_info *di);
 extern int k3_bq27510_battery_rm(struct k3_bq27510_device_info *di);
 extern int k3_bq27510_battery_fcc(struct k3_bq27510_device_info *di);
 extern int is_k3_bq27510_battery_reach_threshold(struct k3_bq27510_device_info *di);
+
+enum battery_id_type{
+    BAT_NO_PRESENT_STATUS = 0,
+    BAT_ID_10K_STATUS,
+    BAT_ID_22K_STATUS,
+    BAT_ID_39K_STATUS,
+    BAT_ID_68K_STATUS,
+    BAT_ID_110K_STATUS,
+    BAT_ID_200K_STATUS,
+    BAT_ID_470K_STATUS,
+    BAT_ID_2M_STATUS,
+};
+
+#define BAT_ID_VOLT_0   (0)
+#define BAT_ID_VOLT_1   (300)
+#define BAT_ID_VOLT_2   (550)
+#define BAT_ID_VOLT_3   (900)
+#define BAT_ID_VOLT_4   (1200)
+#define BAT_ID_VOLT_5   (1500)
+#define BAT_ID_VOLT_6   (2100)
+#define BAT_ID_VOLT_7   (3000)
+#define BAT_ID_VOLT_8   (3300)
+
+
+extern int bq27510_get_gpadc_conversion(int channel_no);
+extern int get_battery_id(void);
+
 #endif
 
 

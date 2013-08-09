@@ -59,6 +59,22 @@
 #endif
 
 /*--------------------------------------------------------------------------*/
+#define NDEBUG 0
+
+#if NDEBUG
+#define k3fb_logd(fmt, ...)
+#else
+#define k3fb_logd(fmt, ...) \
+	pr_debug("[k3fb]%s: "fmt, __func__, ##__VA_ARGS__)
+#endif
+#define k3fb_logi(fmt, ...) \
+	pr_info("[k3fb]%s: "fmt, __func__, ##__VA_ARGS__)
+#define k3fb_logw(fmt, ...) \
+	pr_warn("[k3fb]%s:"fmt, __func__, ##__VA_ARGS__)
+#define k3fb_loge(fmt, ...) \
+	pr_err("[k3fb]%s: "fmt, __func__, ##__VA_ARGS__)
+
+/*--------------------------------------------------------------------------*/
 
 #define outp32(addr, val) writel(val, addr)
 #define outp16(addr, val) writew(val, addr)

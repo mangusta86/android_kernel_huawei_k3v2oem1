@@ -369,6 +369,23 @@ KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
 		   -Werror-implicit-function-declaration \
 		   -Wno-format-security \
 		   -fno-delete-null-pointer-checks
+
+ifeq ($(USE_LCD_CMI_OTM1280A),true)
+	KBUILD_CFLAGS += -DCONFIG_LCD_CMI_OTM1280A
+endif
+
+ifeq ($(USE_LCD_TOSHIBA_MDW70),true)
+    KBUILD_CFLAGS += -DCONFIG_LCD_TOSHIBA_MDW70
+endif
+
+ifeq ($(USE_PRODUCT_U9508),true)
+	KBUILD_CFLAGS += -DCONFIG_PRODUCT_U9508
+endif
+
+ifeq ($(USE_PRODUCT_U9510),true)
+    KBUILD_CFLAGS += -DCONFIG_PRODUCT_U9510
+endif
+
 KBUILD_AFLAGS_KERNEL :=
 KBUILD_CFLAGS_KERNEL :=
 KBUILD_AFLAGS   := -D__ASSEMBLY__

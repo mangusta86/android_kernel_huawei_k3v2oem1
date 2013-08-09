@@ -14,6 +14,7 @@
 #include <linux/mhl/si_9244_regs.h>
 #include <linux/mhl/sii_9244_api.h>
 #include <linux/mhl/si_app_devcap.h>
+#include <linux/mhl/mhl.h>
 
 #include <linux/hrtimer.h>
 #include <linux/ktime.h>
@@ -22,7 +23,7 @@
 #ifdef HDMI_DISPLAY
 #include "k3_hdmi.h"
 #endif
-
+#include <linux/i2c.h>
 
 /*oscar 20120204, for k3 platform */
 #define D3_OPEN_USB_SWITCH
@@ -199,8 +200,14 @@ enum hrtimer_restart timer_SWWA_WRITE_STAT_callback(struct hrtimer *timer)
 #endif
 
 /*add by w00186176. set the mhl chip to lowpower state*/
+extern  struct i2c_client *mhl_Sii9244_page0;
 void SiiSwitchDisConnect(void)
 {
+	struct mhl_platform_data *pdata = NULL;
+	pdata = mhl_Sii9244_page0->dev.platform_data;
+	if (!pdata) {
+		return ;
+	}
 	SwitchToD0();
 	ForceUsbIdSwitchOpen();
 	ReleaseUsbIdSwitchOpen();

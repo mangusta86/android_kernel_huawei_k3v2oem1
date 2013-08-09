@@ -605,7 +605,11 @@ CLK_WITH_FRIEND(clk_dmac, "clk_dmac", clk_cfgaxi,
 CLK_WITH_FRIEND(clk_g3d, "clk_g3d", clk_cfgaxi,
 	0, CFGAXI_NORMAL_RATE, CFGAXI_NORMAL_RATE, CFGAXI_NORMAL_RATE, clk_ddrc_gpu,
 	clock_g3d_ops, NULL, EN_REG1, 0, NULL, 0, NULL, 0, RST_EN_REG1, 14)
-static int k3v2_edc0_clk_enable(struct clk *clk)
+CLK_WITH_FRIEND(clk_edc0, "clk_edc0", pll2_parent_clk, 1, PLL2_DIV5_RATE, PLL2_64DIV_RATE, \
+	PLL3_RATE, clk_ddrc_disp, clock_ops_cs, PLL23_DIV64, EN_REG1, 8, DIV_REG5, 0x400000, DIV_REG5,\
+	0x3F0000, RST_EN_REG1, 8)
+
+static int k3v2_edc0_rst_clk_enable(struct clk *clk)
 {
 	BUG_ON(clk == NULL);
 
@@ -618,33 +622,50 @@ static int k3v2_edc0_clk_enable(struct clk *clk)
 	/*set rate to 64 div*/
 	k3v2_clk_set_rate(clk, PLL2_64DIV_RATE);
 	/*step4:disable edc clock and ldi clock*/
-	k3v2_clk_disable_cs(clk);
-	k3v2_clk_disable_cs(&clk_ldi0);
+	if (clk_edc0.refcnt == 0)
+		k3v2_clk_disable_cs(clk);
+	if (clk_ldi0.refcnt == 0)
+		k3v2_clk_disable_cs(&clk_ldi0);
 	/*step5:disable rst*/
 	rst_disable_set(clk);
 	udelay(50);
-	/*step6:enable clock*/
-	if (clk_ldi0.refcnt > 0)
-		k3v2_clk_enable_cs(&clk_ldi0);
-	k3v2_clk_enable_cs(clk);
+
 	return 0;
 }
 
-static struct clk_ops clock_edc0_ops = {
-	.enable = k3v2_edc0_clk_enable,
-	.disable = k3v2_clk_disable_cs,
-	.round_rate = k3v2_clk_round_rate,
-	.set_rate = k3v2_clk_set_rate,
-	.set_parent = k3v2_clk_set_parent,
+static struct clk_ops clock_edc0_rst_ops = {
+	.enable = k3v2_edc0_rst_clk_enable,
+	.disable = NULL,
+	.round_rate = NULL,
+	.set_rate = NULL,
+	.set_parent = NULL,
 #ifdef CONFIG_DEBUG_FS
 	.check_enreg = k3v2_enabled_check,
 	.check_selreg = k3v2_source_check,
 	.check_divreg = k3v2_rate_check,
 #endif
 };
-CLK_WITH_FRIEND(clk_edc0, "clk_edc0", pll2_parent_clk, 1, PLL2_DIV5_RATE, PLL2_64DIV_RATE, \
-	PLL3_RATE, clk_ddrc_disp, clock_edc0_ops, PLL23_DIV64, EN_REG1, 8, DIV_REG5, 0x400000, DIV_REG5,\
-	0x3F0000, RST_EN_REG1, 8)
+
+static struct clk clk_edc0_rst = {
+	.name		= "clk_edc0_rst",
+	.parent		= NULL,
+	.refcnt		= 1,
+	.rate		= 0,
+	.min_rate	= 0,
+	.max_rate	= 0,
+	.friend	= NULL,
+	.ops		= &clock_edc0_rst_ops,
+	.sel_parents	= NULL,
+	.enable_reg	= (void __iomem	*)EN_REG1,
+	.enable_bit	= 8,
+	.clksel_reg	= (void __iomem	*)NULL,
+	.clksel_mask	= 0,
+	.clkdiv_reg	= (void __iomem	*)NULL,
+	.clkdiv_mask	= 0,
+	.reset_reg	= (void __iomem	*)RST_EN_REG1,
+	.reset_bit	= 8,
+	.cansleep	= false,
+};
 
 static void g2d_enable_softrst(struct clk *clk)
 {
@@ -1047,6 +1068,7 @@ struct clk_lookup k3v2_clk_lookups_cs[] = {
 	{_REGISTER_CLOCK(NULL,	"clk_usb2hst",	clk_usb2hst)},
 	{_REGISTER_CLOCK(NULL,	"clk_usb2dvc",	clk_usb2dvc)},
 	{_REGISTER_CLOCK(NULL,	"clk_asp",		clk_asp)},
+	{_REGISTER_CLOCK(NULL,	"clk_edc0_rst",	clk_edc0_rst)},
 	{NULL, NULL, NULL},
 };
 

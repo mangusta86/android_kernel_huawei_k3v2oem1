@@ -13,6 +13,7 @@
 
 #define MAX_KEY_LENGTH 48
 #define MAX_SENSOR_LAYOUT_LEN 10
+#define MAX_SPK_TYPE_LEN 32
 
 bool product_type(char *pname)
 {
@@ -25,12 +26,23 @@ bool product_type(char *pname)
 		return false;
 }
 
+bool get_spk_pa(char *spk_pa)
+{
+	char spk_name[MAX_KEY_LENGTH];
+	memset(spk_name, 0, sizeof(spk_name));
+	get_hw_config_string("audio/spk_pa", spk_name, MAX_SPK_TYPE_LEN, NULL);
+	if (!strncmp(spk_pa, spk_name,sizeof(spk_pa)))
+		return true;
+	else
+		return false;
+}
+
 int get_touchscreen_type(void)
 {
 	unsigned int type = 0;
 
 	bool ret = get_hw_config_int("touchscreen/touchscreen_type", &type, NULL);
-	HW_CONFIG_DEBUG("hsad: touchscreen_type = %d\n", type);
+	HW_CONFIG_DEBUG("hsad: touchscreen_type = %d, ret = %d\n", type, ret);
 	if (ret == true) {
 		return type;
 	}
@@ -43,7 +55,7 @@ int get_usbphy_tune(void)
 	unsigned int value = 0;
 
 	bool ret = get_hw_config_int("usbphy/usbphy_type", &value, NULL);
-	HW_CONFIG_DEBUG("hsad: usbphy_type = %d\n", value);
+	HW_CONFIG_DEBUG("hsad: usbphy_type = %d,  ret = %d\n", value, ret);
 	if (ret == true) {
 		return value;
 	}
@@ -56,7 +68,7 @@ int get_board_type(void)
 	unsigned int type = 0;
 
 	bool ret = get_hw_config_int("board/board_type", &type, NULL);
-	HW_CONFIG_DEBUG("hsad: board_type = %d\n", type);
+	HW_CONFIG_DEBUG("hsad: board_type = %d\n,  ret = %d", type, ret);
 	if (ret == true) {
 		return type;
 	}
@@ -64,12 +76,25 @@ int get_board_type(void)
 	return -1;
 }
 
+int get_sd_detect_type(void)
+{
+	unsigned int type = 0;
+
+	bool ret = get_hw_config_int("board/sd_detect_type", &type, NULL);
+	HW_CONFIG_DEBUG("hsad: sd_detect_type = %d, ret = %d\n", type, ret);
+	if (ret == true) {
+		return type;
+	}
+
+	return GPIO_HIGH_MEAN_DETECTED;
+}
+
 int get_sensor_type(void)
 {
 	unsigned int type = 0;
 
 	bool ret = get_hw_config_int("sensor/sensor_type", &type, NULL);
-	HW_CONFIG_DEBUG("hsad: sensor_type = %d\n", type);
+	HW_CONFIG_DEBUG("hsad: sensor_type = %d,  ret = %d\n", type, ret);
 	if (ret == true) {
 		return type;
 	}
@@ -82,7 +107,7 @@ int get_sensor_timing_type(void)
 	unsigned int type = 0;
 
 	bool ret = get_hw_config_int("camera/camera_timing_type", &type, NULL);
-	HW_CONFIG_DEBUG("hsad: camera_timing_type = %d\n", type);
+	HW_CONFIG_DEBUG("hsad: camera_timing_type = %d,  ret = %d\n", type, ret);
 	if (ret == true) {
 		return type;
 	}
@@ -95,7 +120,7 @@ int get_iomux_type(void)
 	unsigned int type = 0;
 
 	bool ret = get_hw_config_int("iomux/iomux_type", &type, NULL);
-	HW_CONFIG_DEBUG("hsad: iomux_type = %d\n", type);
+	HW_CONFIG_DEBUG("hsad: iomux_type = %d,  ret = %d\n", type, ret);
 	if (ret == true) {
 		return type;
 	}
@@ -246,7 +271,7 @@ int get_hsd_invert(void)
 	unsigned int type = 0;
 
 	bool ret = get_hw_config_int("audio/hsd_invert", &type, NULL);
-	HW_CONFIG_DEBUG("hsad: hsd_invert = %d\n", type);
+	HW_CONFIG_DEBUG("hsad: hsd_invert = %d,  ret = %d\n", type, ret);
 	if (ret == true) {
 		return type;
 	}
@@ -259,7 +284,7 @@ int get_hs_keys(void)
 	unsigned int type = 0;
 
 	bool ret = get_hw_config_int("audio/hs_keys", &type, NULL);
-	HW_CONFIG_DEBUG("hsad: hs_keys = %d\n", type);
+	HW_CONFIG_DEBUG("hsad: hs_keys = %d,  ret = %d\n", type, ret);
 	if (ret == true) {
 		return type;
 	}

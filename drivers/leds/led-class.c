@@ -56,10 +56,8 @@ static ssize_t led_brightness_store(struct device *dev,
 	if (count == size) {
 		ret = count;
                 
-         /* delete by skf57909 for blink start */
 		/*if (state == LED_OFF)
 			led_trigger_remove(led_cdev);*/
-		/* delete by skf57909 for blink end */
 			
 		led_set_brightness(led_cdev, state);
 	}
@@ -176,9 +174,7 @@ EXPORT_SYMBOL_GPL(led_classdev_suspend);
 void led_classdev_resume(struct led_classdev *led_cdev)
 {
 	led_cdev->brightness_set(led_cdev, led_cdev->brightness);
-	/* zkf56999 2012/2/7 add begin */
 	led_cdev->blink_set(led_cdev, &led_cdev->blink_delay_on, &led_cdev->blink_delay_off);
-	/* zkf56999 2012/2/7 add end */
 	led_cdev->flags &= ~LED_SUSPENDED;
 }
 EXPORT_SYMBOL_GPL(led_classdev_resume);

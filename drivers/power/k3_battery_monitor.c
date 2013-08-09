@@ -106,10 +106,13 @@ struct k3_battery_monitor_device_info {
 	struct delayed_work	k3_battery_monitor_work;
 	struct delayed_work     vbat_low_int_work;
 	int power_supply_status;
+    u32 charge_full_count;
 };
 
 BLOCKING_NOTIFIER_HEAD(notifier_list_bat);
 extern int getcalctemperature(int channel);
+
+#define CHARGE_FULL_TIME  (120)/*40min = 20s*120*/
 
 static int calc_capacity_from_voltage(void)
 {
@@ -216,6 +219,7 @@ static int k3_battery_monitor_capacity_changed(struct k3_battery_monitor_device_
 	int curr_temperature = 0;
     int low_bat_flag = is_k3_bq27510_battery_reach_threshold(&dev27510);
 	int ambient_temperature = 0;
+    int battery_voltage = 0;
 
 	di->bat_exist = is_k3_bq27510_battery_exist(&dev27510);
 
@@ -226,6 +230,21 @@ static int k3_battery_monitor_capacity_changed(struct k3_battery_monitor_device_
 		curr_capacity = k3_bq27510_battery_capacity(&dev27510);
 		curr_temperature = k3_bq27510_battery_temperature(&dev27510);
 		ambient_temperature = getcalctemperature(0x02) * 10;
+       /* Setting the capacity level only makes sense when on
+        * the battery is powering the board.
+        */
+       if (di->charge_status == POWER_SUPPLY_STATUS_DISCHARGING) {
+           if(curr_capacity <= POWEROFF_CAPACITY_2){
+               battery_voltage = k3_bq27510_battery_voltage(&dev27510);
+               if(battery_voltage >= POWEROFF_VOLTAGE_3450){
+                   curr_capacity = 3;
+               }else{
+                   dev_info(di->dev,"poweroff_capacity = %d\n" "poweroff_voltage = %d\n",
+                   curr_capacity,battery_voltage);
+                   curr_capacity = POWEROFF_CAPACITY_2;
+               }
+            }
+        }
 	}
 
    if((low_bat_flag & BQ27510_FLAG_LOCK) != BQ27510_FLAG_LOCK)
@@ -266,14 +285,20 @@ static int k3_battery_monitor_capacity_changed(struct k3_battery_monitor_device_
 	   }
 	} else if (++di->capacity_debounce_count >= 4) {
        if ((di->usb_online || di->ac_online) && curr_capacity == 100)
-
 			di->charge_status = POWER_SUPPLY_STATUS_FULL;
+
+       if((di->usb_online || di->ac_online) && (di->charge_full_count >= CHARGE_FULL_TIME)){
+         curr_capacity = 100;
+         di->charge_status = POWER_SUPPLY_STATUS_FULL;
+       }
 
 		di->capacity = curr_capacity;
 		//di->bat_capacity = curr_capacity;
 		di->amb_temperature = ambient_temperature;
 		di->temperature = curr_temperature;
 		di->capacity_debounce_count = 0;
+        if((di->usb_online || di->ac_online)&&(di->charge_status == POWER_SUPPLY_STATUS_FULL))
+             di->capacity = 100;
 		return 1;
 	}
 
@@ -295,6 +320,11 @@ static int k3_battery_monitor_charger_event(struct notifier_block *nb, unsigned 
 	int ret = 0;
 	struct k3_battery_monitor_device_info *di = container_of(nb, struct k3_battery_monitor_device_info, nb);
 
+	if (!di->bat_exist)
+		di->capacity = calc_capacity_from_voltage();
+	else
+	    di->capacity = k3_bq27510_battery_capacity(&dev27510);
+
 	switch (event) {
 	case BQ24161_START_USB_CHARGING:
 		di->usb_online = 1;
@@ -310,9 +340,11 @@ static int k3_battery_monitor_charger_event(struct notifier_block *nb, unsigned 
 		di->power_supply_status = POWER_SUPPLY_HEALTH_GOOD;
 		break;
 	case BQ24161_STOP_CHARGING:
-
+         if(di->charge_status == POWER_SUPPLY_STATUS_FULL)
+             di->capacity = 100;
 		di->usb_online = 0;
 		di->ac_online = 0;
+        di->charge_full_count = 0;
 		di->charge_status = POWER_SUPPLY_STATUS_DISCHARGING;
 	    di->power_supply_status = POWER_SUPPLY_HEALTH_UNKNOWN;
 		break;
@@ -327,6 +359,7 @@ static int k3_battery_monitor_charger_event(struct notifier_block *nb, unsigned 
 	case BQ24161_CHARGE_DONE:
 	    di->charge_status = POWER_SUPPLY_STATUS_FULL;
 		di->power_supply_status = POWER_SUPPLY_HEALTH_GOOD;
+        di->capacity = 100;
 		break;
 
 	case POWER_SUPPLY_OVERVOLTAGE:
@@ -344,14 +377,25 @@ static int k3_battery_monitor_charger_event(struct notifier_block *nb, unsigned 
 		break;
 	}
 
-	if (!di->bat_exist)
-		di->capacity = calc_capacity_from_voltage();
-	else
-	    di->capacity = k3_bq27510_battery_capacity(&dev27510);
 
 	if ((di->usb_online || di->ac_online) && di->capacity == 100)
 		di->charge_status = POWER_SUPPLY_STATUS_FULL;
 
+    if((di->charge_status == POWER_SUPPLY_STATUS_CHARGING) && (di->capacity > 96)){
+        di->charge_full_count++;
+        if(di->charge_full_count >= CHARGE_FULL_TIME){
+            dev_info(di->dev,"FORCE_CHARGE_FULL = %d\n",di->capacity);
+           di->charge_full_count = CHARGE_FULL_TIME;
+        }
+    }else if(di->charge_status == POWER_SUPPLY_STATUS_FULL){
+        di->charge_full_count = CHARGE_FULL_TIME;
+    }else {
+        di->charge_full_count = 0;
+    }
+    if(di->charge_full_count >= CHARGE_FULL_TIME){
+        di->capacity = 100;
+        di->charge_status = POWER_SUPPLY_STATUS_FULL;
+    }
         power_supply_changed(&di->bat);
 	return ret;
 }
@@ -683,7 +727,7 @@ static int __devinit k3_battery_monitor_probe(struct platform_device *pdev)
 	di->capacity = -1;
 	di->capacity_debounce_count = 0;
 	di->ac_last_refresh = jiffies;
-
+    di->charge_full_count = 0;
 
 	get_battery_info(di);
 

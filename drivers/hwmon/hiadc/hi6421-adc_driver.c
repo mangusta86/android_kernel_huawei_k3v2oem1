@@ -94,8 +94,10 @@ static unsigned short k3_adc_calc_vol(unsigned short data, int ch)
 
 	if (ADC_VOLTAGE_MOD1 == adc_table[ch].vol)
 		mod = VOLTAGE_MOD1;
-	else
+	else if (ADC_VOLTAGE_MOD2 == adc_table[ch].vol)
 		mod = VOLTAGE_MOD2;
+    else
+        mod = VOLTAGE_MOD3;
 
 	rt = (unsigned short)(((tmp_data * mod) >> CLAC_SHIFT));
 
@@ -332,9 +334,11 @@ int k3_adc_get_value(unsigned int ch, unsigned char *reserve)
 	/*choose hkadc voltage*/
 	if (ADC_VOLTAGE_MOD1 == adc_table[ch].vol) {
 	write_reg = (unsigned char)(ADC_VOLTAGE_MOD1 | ch);
-	} else {
+	} else if (ADC_VOLTAGE_MOD2 == adc_table[ch].vol){
 	write_reg = (unsigned char)(ADC_VOLTAGE_MOD2 | ch);
-	}
+	}else{
+        	write_reg = (unsigned char)(ADC_VOLTAGE_MOD3 | ch);
+    }
 
 	k3_adc_reg_write(HKADC_CONFIG_ADDR, write_reg, 0x0);
 

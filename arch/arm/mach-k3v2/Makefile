@@ -4,7 +4,7 @@
 obj-y				:= common.o lm.o k3v2_clocks_ops.o k3v2_clocks_cs.o k3v2_clocks_es.o k3v2_clocks_init_data_es.o k3v2_clocks_init_data_cs.o
 obj-y				+= timer.o io.o irq.o clock.o pmem.o k3v2_irq_affinity.o
 obj-y                           += k3v2_regulators_vcc.o regulators_vcc.o
-obj-y                           += k3v2_iomux.o iomux.o k3v2_iomux_blocks_u9508.o
+obj-y                           += k3v2_iomux.o iomux.o k3v2_iomux_blocks_u9510.o
 obj-$(CONFIG_PCI)		+= pcie.o 
 
 obj-$(CONFIG_ARCH_PROVIDES_UDELAY) += delay.o

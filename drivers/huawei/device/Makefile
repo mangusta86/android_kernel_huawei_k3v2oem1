@@ -5,3 +5,6 @@ obj-y	+= gyroscope/
 obj-y	+= light/
 obj-y	+= accelerometer/
 obj-y	+= compass/
+#obj-$(TOUCHSCREEN_RMI4_SYNAPTICS_GENERIC) += synaptics_generic.o	
+obj-y   += touchscreen/
+obj-$(CONFIG_HUAWEI_TOUCH_INPUT_INFO)+= touch_info.o

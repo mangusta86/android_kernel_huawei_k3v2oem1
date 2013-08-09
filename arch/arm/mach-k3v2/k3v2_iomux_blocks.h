@@ -173,7 +173,7 @@ struct  iomux_pin *ts_pins[] = {
  *KEYPAD_OUT6,KEYPAD_OUT7,EFUSE_CSB,RFTCXO_PWR
  */
 struct  iomux_pin *lcd_pins[] = {
-	&aj27, &af25, &af26, &k23, NULL,
+	&aj27, &af25, &af26, &k23, &b20, NULL,
 };
 
 /*pwm pins:
@@ -228,7 +228,7 @@ struct  iomux_pin *isp_i2c_pins[] = {
  *isp_gpio5 is used as gpio by charger
  */
 struct  iomux_pin *isp_pins[] = {
-	&a22, &e18, &b21, &g18, &d18, &b20, &a21, /*&a20,*/ &b19, NULL,
+	&a22, &e18, &b21, &g18, &d18, &a21, /*&a20,*/ &b19, NULL,
 };
 
 /*isp flash light:isp_strobe0, isp_strobe1, isp_gpio7*/
@@ -721,11 +721,11 @@ struct block_config ts_config[] = {
 };
 
 /*lcd pins:
- *KEYPAD_OUT6, KEYPAD_OUT7, EFUSE_CSB, RFTCXO_PWR
+ *KEYPAD_OUT6, KEYPAD_OUT7, EFUSE_CSB, RFTCXO_PWR, ISP_GPIO3
  */
-enum lowlayer_func lcd_func_array1[] = {FUNC1, FUNC1, FUNC0, FUNC1, -INVALID,};
-enum pull_updown lcd_pullud_array1[] = {NOPULL, NOPULL, NOPULL, NOPULL, -INVALID,};
-enum drive_strength lcd_drv_array1[] = {RESERVE, RESERVE, RESERVE, RESERVE, -INVALID,};
+enum lowlayer_func lcd_func_array1[] = {FUNC1, FUNC1, FUNC0, FUNC1, FUNC2, -INVALID,};
+enum pull_updown lcd_pullud_array1[] = {NOPULL, NOPULL, NOPULL, NOPULL, PULLDOWN, -INVALID,};
+enum drive_strength lcd_drv_array1[] = {RESERVE, RESERVE, RESERVE, RESERVE, RESERVE, -INVALID,};
 struct block_config lcd_config[] = {
 	[NORMAL] = {lcd_func_array1, lcd_pullud_array1, lcd_drv_array1},
 	[GPIO] = {lcd_func_array1, lcd_pullud_array1, lcd_drv_array1},
@@ -824,15 +824,15 @@ struct block_config isp_reset_config[] = {
  *isp_gpio1, isp_gpio2, isp_gpio3, isp_gpio4, isp_gpio6,
  *and isp_gpio8, isp_gpio9 are used as gpio,don't need to mux
  */
-enum lowlayer_func isp_func_normal[] = {FUNC0, FUNC0, FUNC0, FUNC0, FUNC0, FUNC0, FUNC0,\
+enum lowlayer_func isp_func_normal[] = {FUNC0, FUNC0, FUNC0, FUNC0, FUNC0, FUNC0,\
 	FUNC0, -INVALID,};
-enum lowlayer_func isp_func_gpio[] = {FUNC1, FUNC1, FUNC1, FUNC1, FUNC1, FUNC1, FUNC1, FUNC0, -INVALID,};
+enum lowlayer_func isp_func_gpio[] = {FUNC1, FUNC1, FUNC1, FUNC1, FUNC1, FUNC1, FUNC0, -INVALID,};
 enum pull_updown isp_pullud_array1[] = {NOPULL, NOPULL, NOPULL, NOPULL, NOPULL, \
-	NOPULL, NOPULL, NOPULL, -INVALID,};
+	NOPULL, NOPULL, -INVALID,};
 enum pull_updown isp_pullud_array2[] = {NOPULL, NOPULL, NOPULL, \
-	NOPULL, NOPULL, NOPULL, NOPULL, NOPULL, -INVALID,};
+	NOPULL, NOPULL, NOPULL, NOPULL, -INVALID,};
 enum drive_strength isp_drv_array1[] = {LEVEL0, LEVEL0, RESERVE, RESERVE, \
-	RESERVE, RESERVE, RESERVE, RESERVE, -INVALID,};
+	RESERVE, RESERVE, RESERVE, -INVALID,};
 struct block_config isp_config[] = {
 	[NORMAL] = {isp_func_normal, isp_pullud_array1, isp_drv_array1},
 	[GPIO] = {isp_func_gpio, isp_pullud_array2, isp_drv_array1},
@@ -1071,14 +1071,14 @@ struct block_table block_config_table_cs[] = {
 	 */
 };
 
-extern struct block_table block_config_phone_u9508_es[];
-extern struct block_table block_config_phone_u9508_cs[];
+extern struct block_table block_config_phone_u9510_es[];
+extern struct block_table block_config_phone_u9510_cs[];
 
 struct block_table *block_config_tables[] = {
 	[E_IOMUX_PALTFORM_ES] = block_config_table_es,
 	[E_IOMUX_PALTFORM_CS] = block_config_table_cs,
-	[E_IOMUX_PHONE_ES] = block_config_phone_u9508_es,
-	[E_IOMUX_PHONE_CS] = block_config_phone_u9508_cs,
+	[E_IOMUX_PHONE_ES] = block_config_phone_u9510_es,
+	[E_IOMUX_PHONE_CS] = block_config_phone_u9510_cs,
 	[E_IOMUX_MAX] = NULL,
 };
 

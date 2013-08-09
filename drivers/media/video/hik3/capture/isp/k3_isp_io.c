@@ -32,6 +32,22 @@ static isp_io_data_t isp_io_data = { false, false };
 
 /*
  **************************************************************************
+ * FunctionName: k3_ispio_reset_i2c;
+ * Description : NA;
+ * Input       : NA;
+ * Output      : NA;
+ * ReturnValue : NA;
+ * Other       : NA;
+ **************************************************************************
+ */
+void k3_ispio_reset_i2c(struct i2c_t *i2c)
+{
+    isp_sensor_reg_ctl->isp_sensor_reset_i2c(i2c);
+}
+EXPORT_SYMBOL(k3_ispio_reset_i2c);
+
+/*
+ **************************************************************************
  * FunctionName: k3_ispio_read_reg;
  * Description : NA;
  * Input       : NA;

@@ -50,13 +50,11 @@
 #include "clock.h"
 #include "k3v2_clocks_init_data.h"
 
-/*Begin:Added by g00124340 2011/09/19  for for bluetooth */
 
 #define	GPIO_BT_EN					(GPIO_20_5)
 #define	GPIO_BT_RST					(GPIO_20_4)
 #define	GPIO_BT_VDD					(GPIO_21_6)
 
-/*End:Added	by g00124340 2011/09/19	*/
 #define GPIO_LCD_RESET  (0)
 #define GPIO_LCD_POWER  (25)
 #define GPIO_LCD_ID0	(135)
@@ -81,17 +79,13 @@
 #define PLATFORM_DEVICE_LCD_NAME "mipi_toshiba_MDW70"
 */
 
-/* Added by d59977 for BCM GPS, for FPGA */
 #define GPIO_GPS_BCM_EN    (GPIO_20_6)  /*166*/
 #define GPIO_GPS_BCM_RET   (GPIO_20_7)	/*167*/
 #define GPIO_GPS_BCM_POWER (GPIO_21_5)  /*173*/
-/* End: Added by d59977 for BCM GPS */
 
-/* Begin: Added by d59977 for BCM GPS, for FPGA */
 #define GPIO_GPS_BCM_EN_NAME    "gpio_gps_bcm_enable"
 #define GPIO_GPS_BCM_RET_NAME   "gpio_gps_bcm_rest"
 #define GPIO_GPS_BCM_POWER_NAME "gpio_gps_bcm_power"
-/* End: Added by d59977 for BCM GPS */
 
 static struct resource k3_adc_resources = {
 	.start	= REG_BASE_PMUSPI,
@@ -275,7 +269,6 @@ static struct platform_device k3_lcd_device = {
 	.resource = k3_lcd_resources,
 };
 
-/* Begin: Added by d59977 for BCM GPS, for FPGA */
 static struct resource k3_gps_bcm_resources[] = {
 	[0] = {
 	.name  = GPIO_GPS_BCM_EN_NAME,
@@ -306,8 +299,6 @@ static struct platform_device k3_gps_bcm_device = {
 	.num_resources = ARRAY_SIZE(k3_gps_bcm_resources),
 	.resource = k3_gps_bcm_resources,
 };
-/* End: Added by d59977 for BCM GPS */
-/*Begin:Added by g00124340 2011/09/19  for for bluetooth */
 
 static struct resource bluepower_resources[] = {
 	{
@@ -342,7 +333,6 @@ static struct platform_device btbcm_device = {
 
 };
 
-/*End:Added	by g00124340 2011/09/19	*/
 /*  camera resources */
 static struct resource hisik3_camera_resources[] = {
 	{
@@ -563,9 +553,7 @@ static struct platform_device *k3v2fpga_public_dev[] __initdata = {
 	&hisik3_keypad_backlight_device,
 	&k3_lcd_device, 
 	&k3_gps_bcm_device, 
-/*Begin:Added by g00124340 2011/09/19  for for bluetooth */
 	&btbcm_device,
-/*End:Added	by g00124340 2011/09/19	*/
 };
 
 extern void (*k3v2_reset)(char mode, const char *cmd);

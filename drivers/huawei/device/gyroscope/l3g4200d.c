@@ -573,6 +573,70 @@ static ssize_t attr_set_selftest(struct device *dev,
 
 }
 
+static ssize_t l3g4200d_self_test(struct l3g4200d_data *gyro)
+{
+       int err, result;
+	int data;
+	struct l3g4200d_triple data_out;
+       gyro->resume_state[GYRO_RES_CTRL_REG1] = 0x6F;
+	gyro->resume_state[GYRO_RES_CTRL_REG2] = 0x00;
+	gyro->resume_state[GYRO_RES_CTRL_REG3] = 0x00;
+	gyro->resume_state[GYRO_RES_CTRL_REG4] = 0xA0;
+	gyro->resume_state[GYRO_RES_CTRL_REG5] = 0x02;
+	err = l3g4200d_device_power_on(gyro);
+          if(err){
+                     dev_err(&gyro->client->dev, "gyroscope power on failed err= %d\n", err);
+			result = ERR_SELFTEST;
+			goto TEST_RESULT;
+          }
+	l3g4200d_selftest(gyro, 1);
+	msleep(800);
+	mutex_lock(&gyro->lock);
+	err = l3g4200d_get_data(gyro, &data_out);
+	mutex_unlock(&gyro->lock);
+	if (err < 0) {
+		dev_err(&gyro->client->dev, "%s get_gyroscope_data failed err= %d\n",
+					L3G4200D_GYR_DEV_NAME, err);
+		result = ERR_SELFTEST;
+		goto TEST_RESULT;
+	}
+	data = abs(data_out.x);
+	if ((data > MAX_VAL) || (data < MIN_VAL)) {
+		dev_err(&gyro->client->dev, "selftest_gyro-------MAX-MIN--X-==%d\n", data);
+		result = ERR_SELFTEST;
+		goto TEST_RESULT;
+	}
+	data = abs(data_out.y);
+	if ((data > MAX_VAL) || (data < MIN_VAL)) {
+		dev_err(&gyro->client->dev, "selftest_gyro-------MAX-MIN--Y-==%d\n", data);
+		result = ERR_SELFTEST;
+		goto TEST_RESULT;
+	}
+	data = abs(data_out.z);
+	if ((data > MAX_VAL) || (data < MIN_VAL)) {
+		dev_err(&gyro->client->dev, "selftest_gyro-------MAX-MIN--Z-==%d\n", data);
+		result = ERR_SELFTEST;
+		goto TEST_RESULT;
+	}
+	result = TRUE_SELFTEST;
+TEST_RESULT:
+	if(result == TRUE_SELFTEST){
+		dev_info(&gyro->client->dev, "gyro self test ok---------\n");
+		err = set_gyro_selfTest_result(GYRO, "1");
+		if (err) {
+			dev_err(&gyro->client->dev, " gyro set self test result  fail\n");
+		}
+	}else {
+	       err = set_gyro_selfTest_result(GYRO, "0");
+		if (err) {
+			dev_err(&gyro->client->dev, "gyro set self test result  fail\n");
+		}
+		dev_err(&gyro->client->dev, "gyro self test fail\n");
+	}
+	l3g4200d_selftest(gyro, 0);
+	l3g4200d_device_power_off(gyro);
+	return 0;
+}
 #ifdef DEBUG
 static ssize_t attr_reg_set(struct device *dev, struct device_attribute *attr,
 				const char *buf, size_t size)
@@ -896,6 +960,10 @@ static int l3g4200d_probe(struct i2c_client *client,
 
 	dev_err(&client->dev, "Read l3g4200d chip ok, ID is 0x%x\n", chipid);
 
+	err = set_sensor_chip_info(GYRO, "ST L3G4200D");
+	if (err) {
+		dev_err(&client->dev, "set_sensor_chip_info error\n");
+	}
 
 	gyro->pdata = kzalloc(sizeof(*gyro->pdata), GFP_KERNEL);
 	if (gyro->pdata == NULL) {
@@ -972,6 +1040,7 @@ static int l3g4200d_probe(struct i2c_client *client,
 	dev_dbg(&client->dev, "%s probed: device created successfully\n",
 							L3G4200D_GYR_DEV_NAME);
 	printk("[%s] -\n", __func__);
+       l3g4200d_self_test(gyro);
 	return 0;
 
 err4:

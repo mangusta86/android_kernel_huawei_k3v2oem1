@@ -387,7 +387,7 @@ static int setup_dvc_and_phy(void)
 	case E_USBPHY_TUNE_PLATFORM:
 		reg_value |= 0x23;
 		break;
-	case E_USBPHY_TUNE_U9508:
+	case E_USBPHY_TUNE_U9510:
 		/* USB PHY config for phone */
 		reg_value |= 0x03;
 		reg_value |= (0x0A << 2);

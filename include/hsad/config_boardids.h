@@ -3,6 +3,7 @@
 #ifndef CONFIG_BOARDIDS_H
 #define CONFIG_BOARDIDS_H
 
+#define BOARD_ID_U9508   71
 #define BOARD_ID_U9510D   118
 #define BOARD_ID_U9510E   102
 #define BOARD_ID_VDCS_K3OEM   17

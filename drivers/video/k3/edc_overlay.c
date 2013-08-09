@@ -470,9 +470,11 @@ int edc_overlay_get(struct fb_info *info, struct overlay_info *req)
 int edc_overlay_set(struct fb_info *info, struct overlay_info *req)
 {
 	struct edc_overlay_pipe *pipe = NULL;
+	struct k3_fb_data_type *k3fd = NULL;
 
 	BUG_ON(info == NULL || req == NULL);
 
+	k3fd = (struct k3_fb_data_type *)info->par;
 	pipe = edc_overlay_ndx2pipe(info, req->id);
 	if (pipe == NULL) {
 		pr_err("k3fb, %s: id=%d not able to get pipe!", __func__, req->id);
@@ -481,6 +483,15 @@ int edc_overlay_set(struct fb_info *info, struct overlay_info *req)
 
 	memcpy(&pipe->req_info, req, sizeof(struct overlay_info));
 	pipe->req_info.is_pipe_used = 1;
+
+	if (k3fd->panel_info.type == PANEL_MIPI_CMD) {
+	#if CLK_SWITCH
+		/*Enable edc0 clk*/
+		clk_enable(k3fd->edc_clk);
+		/*Enable ldi clk*/
+		clk_enable(k3fd->ldi_clk);
+	#endif
+	}
 
 	return 0;
 }
@@ -568,6 +579,15 @@ int edc_overlay_unset(struct fb_info *info, int ndx)
 
 	set_EDC_DISP_CTL_cfg_ok(edc_base, EDC_CFG_OK_YES);
 	up(&k3fd->sem);
+
+	if (k3fd->panel_info.type == PANEL_MIPI_CMD) {
+	#if CLK_SWITCH
+		/*Enable edc0 clk*/
+		clk_disable(k3fd->edc_clk);
+		/*Enable ldi clk*/
+		clk_disable(k3fd->ldi_clk);
+	#endif
+	} 
 
 	return 0;
 }
@@ -865,13 +885,15 @@ int edc_fb_suspend(struct fb_info *info)
 
 	down(&k3fd->sem);
 	pipe->set_EDC_CH_CTL_ch_en(edc_base, K3_DISABLE);
+	/* mask edc int and clear int state */
+	set_EDC_INTE(edc_base, 0xFFFFFFFF);
+	set_EDC_INTS(edc_base, 0x0);
 	/* disable edc */
 	set_EDC_DISP_CTL_edc_en(edc_base, K3_DISABLE);
-
-#if K3_FB_SBL_ENABLE
-	if (get_chipid() == CS_CHIP_ID)
+	if (k3fd->panel_info.sbl_enable) {
+		/* disable sbl */
 		set_EDC_DISP_DPD_sbl_en(edc_base, K3_DISABLE);
-#endif
+	}
 	/* edc cfg ok */
 	set_EDC_DISP_CTL_cfg_ok(edc_base, EDC_CFG_OK_YES);
 
@@ -886,9 +908,11 @@ int edc_fb_suspend(struct fb_info *info)
 
 	/* edc clock gating */
 	clk_disable(k3fd->edc_clk);
-
-	/* edc1 vcc */
-	if (k3fd->index == 1) {
+	if (k3fd->index == 0) {
+		/* edc clock rst gating*/
+		clk_disable(k3fd->edc_clk_rst);
+	} else if (k3fd->index == 1) {
+		/* edc1 vcc */
 		if (regulator_disable(k3fd->edc_vcc) != 0) {
 			pr_err("k3fb, %s: failed to disable edc-vcc regulator.\n", __func__);
 		}
@@ -915,11 +939,19 @@ int edc_fb_resume(struct fb_info *info)
 	edc_base = k3fd->edc_base;
 
 	down(&k3fd->sem);
-	/* edc1 vcc */
-	if (k3fd->index == 1) {
+
+	if (k3fd->index == 0) {
+		/* enable edc clk rst */
+		if (clk_enable(k3fd->edc_clk_rst) != 0) {
+			pr_err("failed to enable edc clock rst.\n");
+		}
+	} else if (k3fd->index == 1) {
+		/* edc1 vcc */
 		if (regulator_enable(k3fd->edc_vcc) != 0) {
 			pr_err("k3fb, %s: failed to enable edc-vcc regulator.\n", __func__);
 		}
+	} else {
+		pr_err("fb%d not support now!\n", k3fd->index);
 	}
 	/* edc clock enable */
 	if (clk_enable(k3fd->edc_clk) != 0) {
@@ -934,8 +966,8 @@ int edc_fb_resume(struct fb_info *info)
 	/* edc init */
 	pipe->set_EDC_CH_CTL_secu_line(edc_base, EDC_CH_SECU_LINE);
 	pipe->set_EDC_CH_CTL_bgr(edc_base, k3fd->panel_info.bgr_fmt);
-	set_EDC_INTE(edc_base, 0xFFFFFF7F);
 	set_EDC_INTS(edc_base, 0x0);
+	set_EDC_INTE(edc_base, 0xFFFFFF3F);
 	set_EDC_DISP_DPD_disp_dpd(edc_base, 0x0);
 	set_EDC_DISP_SIZE(edc_base, k3fd->panel_info.xres, k3fd->panel_info.yres);
 	set_EDC_DISP_CTL_pix_fmt(edc_base, k3fd->panel_info.bpp);
@@ -966,19 +998,15 @@ int edc_fb_resume(struct fb_info *info)
 
 	up(&k3fd->sem);
 
-#if K3_FB_FRC_ENABLE
 	/* This spinlock will be UNLOCK in mipi_dsi_on */
 	if (k3fd->index == 0) {
 	      k3fd->panel_info.frame_rate = 60;
 	      k3fd->frc_frame_count = 0;
 	      k3fd->frc_flag = FB_FRC_FLAG_BUSY;
 	      k3fd->frc_timestamp = jiffies;
-	#if K3_FB_ESD_ENABLE
 	      k3fd->esd_timestamp = jiffies;
 	      k3fd->esd_frame_count = 0;
-	#endif
 	}
-#endif
 
 	return 0;
 }
@@ -1000,7 +1028,6 @@ int set_sbl_bkl(struct k3_fb_data_type *k3fd, u32 value)
 	return 0;
 }
 
-#if K3_FB_SBL_ENABLE
 int smartbl_ctrl_set(struct k3_fb_data_type *k3fd)
 {
 	u32 tmp = 0;
@@ -1119,7 +1146,6 @@ int smartbl_ctrl_resume(struct k3_fb_data_type *k3fd)
 
 	return 0;
 }
-#endif
 
 int edc_fb_disable(struct fb_info *info)
 {

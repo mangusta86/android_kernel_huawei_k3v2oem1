@@ -92,6 +92,7 @@
 #define MCU_CMD_TEMP_ON		(0x71)
 #define MCU_CMD_TEMP_OFF	(0x70)
 
+#define CONFIG_CPU_MAX_FREQ (2)
 
 union param {
 	struct {

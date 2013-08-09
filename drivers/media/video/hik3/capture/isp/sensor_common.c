@@ -45,8 +45,6 @@ static camera_sensor *secondary_sensor_array[CAMERA_SENSOR_NUM_MAX];
 static camera_sensor *primary_sensor;
 static camera_sensor *secondary_sensor;
 
-static int frame_rate_level;
-
 /* camera timing type
  * 0: samsung & sony sensor timing,
  * 1: ov8830 sensor timing.
@@ -127,12 +125,16 @@ vcm_info_s vcm_dw9714 = {
 	.fullRange = 1023, /* maybe different in each AF mode */
 
 	.infiniteDistance = 0x50, /* should be calibrated */
-	.normalDistanceEnd = 0x218,
-	.normalStep = 0x18, /* coarse step */
-	.videoDistanceEnd = 0x200,
 
+	.normalDistanceEnd = 0x218,
+	.normalStep = 0x20, /* coarse step */
+	.normalStrideRatio = 0x18,
+
+	.videoDistanceEnd = 0x200,
 	.videoStep = 0x10,
-	.videoStrideOffset = 0xe0, /* large stride will start at (infiniteDistance+videoStrideOffset) */
+	.videoStrideRatio = 0x20,
+
+	.strideOffset = 0xc0,  /* large stride will start at (infiniteDistance+videoStrideOffset), this value must common multiple of videoStep and normalStep*/
 
 	.vcm_bits = 9,
 	.vcm_id = 0x18,
@@ -140,15 +142,8 @@ vcm_info_s vcm_dw9714 = {
 	.moveLensAddr[0] = 0,
 	.moveLensAddr[1] = 0,
 
-	/*
-	 * fixed params
-	 * coarseStep/fineStep will be calculated by other params
-	 */
-	.motorResTime = 0x20,
-	.MotorDriveMode = 1,
-	.IfMotorCalibrate = 0,
+	.motorResTime = 7,
 
-	.frameRate = 24,
 	.moveRange = RANGE_NORMAL,
 };
 EXPORT_SYMBOL(vcm_dw9714);
@@ -159,16 +154,20 @@ EXPORT_SYMBOL(vcm_dw9714);
  */
 vcm_info_s vcm_ad5823 = {
 	.vcm_name = "AD5823",
-	.offsetInit = 0,	/* maybe different in each AF mode */
+	.offsetInit = 0, /* maybe different in each AF mode */
 	.fullRange = 1023,	/* maybe different in each AF mode */
 
-	.infiniteDistance = 0, /* default, should be calibrated */
-	.normalDistanceEnd = 0x270,
-	.normalStep = 0x18, /* coarse step */
-	.videoDistanceEnd = 0x1c0,
+	.infiniteDistance = 0x20, /* default, should be calibrated */
 
+	.normalDistanceEnd = 0x270,
+	.normalStep = 0x20, /* coarse step */
+	.normalStrideRatio = 0x18,
+
+	.videoDistanceEnd = 0x1c0,
 	.videoStep = 0x10,
-	.videoStrideOffset = 0x80, /* video large stride will start at (infiniteDistance+videoStrideOffset) */
+	.videoStrideRatio = 0x20,
+
+	.strideOffset = 0xc0, /* video large stride will start at (infiniteDistance+videoStrideOffset), this value must common multiple of videoStep and normalStep*/
 
 	.vcm_bits = 1,
 	.vcm_id = 0x18,
@@ -176,15 +175,8 @@ vcm_info_s vcm_ad5823 = {
 	.moveLensAddr[0] = 0x4,
 	.moveLensAddr[1] = 0x5,
 
-	/*
-	 * fixed params
-	 * coarseStep/fineStep will be calculated by other params
-	 */
-	.motorResTime = 0x20,
-	.MotorDriveMode = 2,
-	.IfMotorCalibrate = 0,
+	.motorResTime = 7,
 
-	.frameRate = 24,
 	.moveRange = RANGE_NORMAL,
 };
 EXPORT_SYMBOL(vcm_ad5823);
@@ -490,13 +482,13 @@ void dump_camera_sensors(void)
 	print_debug("dump primary sensors:");
 	for (i = 0; i < CAMERA_SENSOR_NUM_MAX; ++i) {
 		if (primary_sensor_array[i])
-			print_debug("[%s]", primary_sensor_array[i]->name);
+			print_debug("[%s]", primary_sensor_array[i]->info.name);
 	}
 
 	print_debug("dump secondary sensors:");
 	for (i = 0; i < CAMERA_SENSOR_NUM_MAX; ++i) {
 		if (secondary_sensor_array[i])
-			print_debug("[%s]", secondary_sensor_array[i]->name);
+			print_debug("[%s]", secondary_sensor_array[i]->info.name);
 	}
 }
 EXPORT_SYMBOL(dump_camera_sensors);
@@ -769,40 +761,6 @@ int camera_power_id_gpio(camera_power_state power)
 }
 
 EXPORT_SYMBOL(camera_power_id_gpio);
-
-/*
- **************************************************************************
- * FunctionName: camera_get_frame_rate_level;
- * Description : NA;
- * Input       : NA;
- * Output      : NA;
- * ReturnValue : NA;
- * Other       : NA;
- **************************************************************************
- */
-int camera_get_frame_rate_level()
-{
-	return frame_rate_level;
-}
-
-EXPORT_SYMBOL(camera_get_frame_rate_level);
-
-/*
- **************************************************************************
- * FunctionName: camera_set_fps_level;
- * Description : NA;
- * Input       : NA;
- * Output      : NA;
- * ReturnValue : NA;
- * Other       : NA;
- **************************************************************************
- */
-void camera_set_frame_rate_level(int level)
-{
-	frame_rate_level = level;
-}
-
-EXPORT_SYMBOL(camera_set_frame_rate_level);
 
 /*
  **************************************************************************

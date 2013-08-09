@@ -33,6 +33,8 @@
 #include <linux/power/k3_bq24161.h>
 #include <linux/power/k3_bq27510.h>
 #include <hsad/config_mgr.h>
+#include <linux/hkadc/hiadc_hal.h>
+#include <linux/hkadc/hiadc_linux.h>
 
 #define RETRY_TIME	5
 
@@ -60,6 +62,13 @@ extern struct blocking_notifier_head notifier_list_bat;
 static struct i2c_driver k3_bq27510_battery_driver;
 
 static unsigned int gBq27510DownloadFirmwareFlag = BSP_NORMAL_MODE;
+#define HAND_UPDATE_FIRMWARE_ENABLE  (1)
+#define NORMAL_UPDATE_FIRMWARE       (0)
+static bool force_update_firmware_version_flag = NORMAL_UPDATE_FIRMWARE;
+static bool calculate_battery_impedance = 0;
+
+static int battery_id_status = 0;
+
 
 /*
  * Common code for bq27510 devices
@@ -79,6 +88,7 @@ struct bq27510_context
 	unsigned int volt;
 	unsigned int bat_current;
 	unsigned int remaining_capacity;
+    unsigned int full_capacity;
 	unsigned int battery_present;
 	unsigned int battery_health;
 	unsigned char state;
@@ -94,6 +104,7 @@ struct bq27510_context gauge_context =
 	.volt = 3700,// 3.7 V
 	.bat_current = 200,// 200 mA
 	.remaining_capacity = 800,//mAH
+	.full_capacity = 1800,
     .battery_present = 1,
 	.battery_health = POWER_SUPPLY_HEALTH_GOOD,
 	.state = BQ27510_NORMAL_MODE,
@@ -241,6 +252,168 @@ static int k3_bq27510_i2c_bytes_read_and_compare(struct i2c_client *client, u8 r
 }
 /* added for Firmware upgrade end */
 
+
+int bq27510_get_gpadc_conversion(int channel_no)
+{
+    unsigned char reserve = 0;
+    int value = 0;
+    int ret = 0;
+
+    ret = k3_adc_open_channel(channel_no);
+    if (ret < 0)
+        printk("k3_adc_open_channel error\n");
+
+    value = k3_adc_get_value(channel_no, &reserve);
+
+    ret = k3_adc_close_channal(channel_no);
+    if (ret < 0)
+        printk("k3_adc_close_channal error\n");
+
+   return value;
+}
+
+int get_battery_id(void)
+{
+    int data = 0,battery_ptesent = 0;
+    int status = 0;
+    struct k3_bq27510_device_info* di = g_battery_measure_by_bq27510_device;
+
+    battery_ptesent = is_k3_bq27510_battery_exist(di);
+    if(!battery_ptesent){
+        dev_info(di->dev, " battery is no present\n");
+        return BAT_NO_PRESENT_STATUS;
+    }
+
+    data = bq27510_get_gpadc_conversion(ADC_ADCIN3);
+    if((data >= BAT_ID_VOLT_0) && (data < BAT_ID_VOLT_1)){
+        status = BAT_ID_10K_STATUS;
+    }else if((data >= BAT_ID_VOLT_1) && (data < BAT_ID_VOLT_2)){
+        status = BAT_ID_22K_STATUS;
+    }else if((data >= BAT_ID_VOLT_2) && (data < BAT_ID_VOLT_3)){
+        status = BAT_ID_39K_STATUS;
+    }else if((data >= BAT_ID_VOLT_3) && (data < BAT_ID_VOLT_4)){
+        status = BAT_ID_68K_STATUS;
+    }else if((data >= BAT_ID_VOLT_4) && (data < BAT_ID_VOLT_5)){
+        status = BAT_ID_110K_STATUS;
+    }else if((data >= BAT_ID_VOLT_5) && (data < BAT_ID_VOLT_6)){
+        status = BAT_ID_200K_STATUS;
+    }else if((data >= BAT_ID_VOLT_6) && (data < BAT_ID_VOLT_7)){
+        status = BAT_ID_470K_STATUS;
+    }else{
+        status = BAT_ID_2M_STATUS;
+    }
+
+    return status;
+}
+
+static bool bq27510_get_gas_gauge_firmware_name(char *config_name)
+{
+    bool ret = 0;
+
+    switch(battery_id_status){
+    case BAT_ID_10K_STATUS:
+        ret= get_hw_config("gas_gauge/firmware_name_10k", config_name, GAS_GAUGE_FIRMWARE_NAME, NULL);
+        break;
+    case BAT_ID_22K_STATUS:
+        ret = get_hw_config("gas_gauge/firmware_name_22k", config_name, GAS_GAUGE_FIRMWARE_NAME, NULL);
+        break;
+    case BAT_ID_39K_STATUS:
+        ret = get_hw_config("gas_gauge/firmware_name_39k", config_name, GAS_GAUGE_FIRMWARE_NAME, NULL);
+        break;
+    case BAT_ID_68K_STATUS:
+        ret = get_hw_config("gas_gauge/firmware_name_68k", config_name, GAS_GAUGE_FIRMWARE_NAME, NULL);
+        break;
+    case BAT_ID_110K_STATUS:
+        ret = get_hw_config("gas_gauge/firmware_name_110k", config_name, GAS_GAUGE_FIRMWARE_NAME, NULL);
+        break;
+    case BAT_ID_200K_STATUS:
+        ret = get_hw_config("gas_gauge/firmware_name_200k", config_name, GAS_GAUGE_FIRMWARE_NAME, NULL);
+        break;
+    case BAT_ID_470K_STATUS:
+        ret = get_hw_config("gas_gauge/firmware_name_470k", config_name, GAS_GAUGE_FIRMWARE_NAME, NULL);
+        break;
+    case BAT_ID_2M_STATUS:
+        ret = get_hw_config("gas_gauge/firmware_name_2m", config_name, GAS_GAUGE_FIRMWARE_NAME, NULL);
+        break;
+    default:
+        ret = get_hw_config("gas_gauge/firmware_name", config_name, GAS_GAUGE_FIRMWARE_NAME, NULL);
+        break;
+    }
+    return ret;
+}
+
+static bool bq27510_get_gasgauge_firmware_version_id(unsigned int* version_config)
+{
+    bool ret = 0;
+
+    switch(battery_id_status){
+    case BAT_ID_10K_STATUS:
+         ret = get_hw_config_int("gas_gauge/version_10k", version_config, NULL);
+        break;
+    case BAT_ID_22K_STATUS:
+         ret = get_hw_config_int("gas_gauge/version_22k", version_config, NULL);
+        break;
+    case BAT_ID_39K_STATUS:
+         ret = get_hw_config_int("gas_gauge/version_39k", version_config, NULL);
+        break;
+    case BAT_ID_68K_STATUS:
+         ret = get_hw_config_int("gas_gauge/version_68k", version_config, NULL);
+        break;
+    case BAT_ID_110K_STATUS:
+         ret = get_hw_config_int("gas_gauge/version_110k", version_config, NULL);
+        break;
+    case BAT_ID_200K_STATUS:
+         ret = get_hw_config_int("gas_gauge/version_200k", version_config, NULL);
+        break;
+    case BAT_ID_470K_STATUS:
+         ret = get_hw_config_int("gas_gauge/version_470k", version_config, NULL);
+        break;
+    case BAT_ID_2M_STATUS:
+         ret = get_hw_config_int("gas_gauge/version_2m", version_config, NULL);
+        break;
+    default:
+         ret = get_hw_config_int("gas_gauge/version", version_config, NULL);
+        break;
+    }
+    return ret;
+}
+
+static bool bq27510_get_gasgauge_normal_capacity(unsigned int* design_capacity)
+{
+    bool ret = 0;
+
+    switch(battery_id_status){
+    case BAT_ID_10K_STATUS:
+         ret = get_hw_config_int("gas_gauge/capacity_10k", design_capacity, NULL);
+        break;
+    case BAT_ID_22K_STATUS:
+         ret = get_hw_config_int("gas_gauge/capacity_22k", design_capacity, NULL);
+        break;
+    case BAT_ID_39K_STATUS:
+         ret = get_hw_config_int("gas_gauge/capacity_39k", design_capacity, NULL);
+        break;
+    case BAT_ID_68K_STATUS:
+         ret = get_hw_config_int("gas_gauge/capacity_68k", design_capacity, NULL);
+        break;
+    case BAT_ID_110K_STATUS:
+         ret = get_hw_config_int("gas_gauge/capacity_110k", design_capacity, NULL);
+        break;
+    case BAT_ID_200K_STATUS:
+         ret = get_hw_config_int("gas_gauge/capacity_200k", design_capacity, NULL);
+        break;
+    case BAT_ID_470K_STATUS:
+         ret = get_hw_config_int("gas_gauge/capacity_470k", design_capacity, NULL);
+        break;
+    case BAT_ID_2M_STATUS:
+         ret = get_hw_config_int("gas_gauge/capacity_2m", design_capacity, NULL);
+        break;
+    default:
+         ret = get_hw_config_int("gas_gauge/capacity", design_capacity, NULL);
+        break;
+    }
+    return ret;
+}
+
 /*
  * Return the battery temperature in Celcius degrees
  * Or < 0 if something fails.
@@ -385,12 +558,61 @@ int k3_bq27510_battery_fcc(struct k3_bq27510_device_info *di)
     data = k3_bq27510_i2c_read_word(di,BQ27510_REG_FCC);
     if(data < 0) {
         BQ27510_ERR("i2c error in reading FCC!");
-        return 0;
+        data = gauge_context.full_capacity;
+    } else{
+        gauge_context.full_capacity = data;
     }
     BQ27510_DBG("read fcc result = %d mAh\n",data);
     return data;
 }
 
+static int bq27510_get_gasgauge_qmax(struct k3_bq27510_device_info *di)
+{
+    int control_status = 0,qmax = 0,qmax1 = 0;
+    int data = 0;
+
+   if(!bq27510_is_accessible())
+       return 0;
+
+    mutex_lock(&k3_bq27510_battery_mutex);
+    i2c_smbus_write_word_data(di->client,BQ27510_REG_CTRL,BQ27510_REG_CTRS);
+    mdelay(2);
+    control_status  = i2c_smbus_read_word_data(di->client,BQ27510_REG_CTRL);
+    mdelay(2);
+    i2c_smbus_write_word_data(di->client,BQ27510_REG_DFCLS,BQ27510_REG_CLASS_ID);
+    mdelay(2);
+    qmax = i2c_smbus_read_byte_data(di->client,BQ27510_REG_QMAX);
+    mdelay(2);
+    qmax1 = i2c_smbus_read_byte_data(di->client,BQ27510_REG_QMAX1);
+    mutex_unlock(&k3_bq27510_battery_mutex);
+    data = (qmax << 8) | qmax1;
+
+    return data;
+}
+/*return 1  true, 0 = false*/
+static int bq27510_check_qmax_property(void)
+{
+    int data = 0;
+    int design_capacity = 0;
+    int status = 0;
+    struct k3_bq27510_device_info *di = g_battery_measure_by_bq27510_device;
+
+   if(!bq27510_is_accessible())
+       return 0;
+
+    data = bq27510_get_gasgauge_qmax(di);
+    if (!bq27510_get_gasgauge_normal_capacity(&design_capacity))
+        printk("design_capacity = %d,qmax = %d\n",design_capacity,data);
+
+    if (data >= (design_capacity * 4 / 5) && data <= (design_capacity * 6 / 5 )){
+         status = true;
+    }else{
+         printk("qmax error,design_capacity = %d,qmax = %d\n",design_capacity,data);
+         status = false;
+    }
+
+    return status;
+}
 /*
  * Return the battery Time to Empty
  * Or < 0 if something fails
@@ -449,6 +671,8 @@ int is_k3_bq27510_battery_full(struct k3_bq27510_device_info *di)
 	data = k3_bq27510_i2c_read_word(di, BQ27510_REG_FLAGS);
 	if (data < 0) {
 		BQ27510_DBG("is_k3_bq27510_battery_full failed!!\n");
+        data = k3_bq27510_i2c_read_word(di, BQ27510_REG_FLAGS);
+        if(data < 0)
 		return 0;
 	}
 
@@ -548,7 +772,8 @@ exit:
 	if(error)
         return sprintf(buf,"Fail to read");
     else {
-        get_hw_config_int("gas_gauge/version", &version_config, NULL);
+        battery_id_status = get_battery_id();
+        bq27510_get_gasgauge_firmware_version_id(&version_config);
         return sprintf(buf,"%x(%x)",version,version_config);
     }
 }
@@ -559,22 +784,37 @@ static ssize_t bq27510_check_firmware_version(struct device_driver *driver, char
     int version_config = 0;
     int error = -1;
 
-    if(!bq27510_is_accessible())return 0;
+    if(!bq27510_is_accessible())
+        return 0;
 
+    battery_id_status = get_battery_id();
     version = bq27510_get_firmware_version_by_i2c(g_battery_measure_by_bq27510_i2c_client);
 	if (version < 0) {
         error = -STATE_HARDWARE_ERR;
-    } else if (get_hw_config_int("gas_gauge/version", &version_config, NULL)) {
+    } else if (bq27510_get_gasgauge_firmware_version_id(&version_config)) {
             if (version == version_config)
                 error = 0;
     }
     return sprintf(buf,"%d",error);
 }
+
+/*1= true,0=false*/
+static ssize_t bq27510_check_qmax(struct device_driver *driver, char *buf)
+{
+    int error = 0;
+
+    battery_id_status = get_battery_id();
+    error = bq27510_check_qmax_property();
+
+    return sprintf(buf,"%d\n",error);
+}
+
 static ssize_t bq27510_get_capacity(struct device_driver *driver, char *buf)
 {
     int design_capacity = 2600;
 
-    if (!get_hw_config_int("gas_gauge/capacity", &design_capacity, NULL))
+    battery_id_status = get_battery_id();
+    if (!bq27510_get_gasgauge_normal_capacity(&design_capacity))
         printk(KERN_ERR "[%s,%d] gas gauge capacity required in hw_configs.xml\n",__FUNCTION__,__LINE__);
 
     return sprintf(buf,"%d\n",design_capacity);
@@ -947,17 +1187,6 @@ static int k3_bq27510_firmware_download(struct i2c_client *client, const unsigne
 	return iRet;
 }
 
-static bool get_gas_gauge_firmware_name(char *config_name)
-{
-    if(get_hw_config("gas_gauge/firmware_name", config_name, GAS_GAUGE_FIRMWARE_NAME, NULL))
-    {
-        return true;
-    }
-    else
-    {
-        return false;
-    }
-}
 #define id_lenth 12
 int get_gas_version_id(char * id, char * name)
 {
@@ -993,7 +1222,7 @@ static int k3_bq27510_update_firmware(struct i2c_client *client, const char *pFi
     char current_id[id_lenth];
     int temp;
 	/* open file */
-    if (!get_gas_gauge_firmware_name(config_name)) {
+    if (!bq27510_get_gas_gauge_firmware_name(config_name)) {
         printk(KERN_ERR "[%s,%d] gas gauge firmware name required in hw_configs.xml\n",__FUNCTION__,__LINE__);
         return -1;
     }
@@ -1057,6 +1286,10 @@ static int k3_bq27510_update_firmware(struct i2c_client *client, const char *pFi
                 sprintf(current_id, "%x", bq27510_get_firmware_version_by_i2c(client));
                 printk(KERN_ERR "gas gauge curent firmware version ID = [%s] \n",current_id);
                 if (strncasecmp(id, current_id, id_lenth) == 0) {
+                    if((force_update_firmware_version_flag)||(!bq27510_check_qmax_property())){
+                        printk(KERN_ERR "force hand update gas gauge firmware\n");
+                        break;
+                    }
                     printk(KERN_ERR "no need to update gas gauge firmware\n");
                     return 0;
                 }
@@ -1113,6 +1346,8 @@ static ssize_t k3_bq27510_attr_store(struct device_driver *driver, const char *b
 	int iRet = 0;
 	unsigned char path_image[255];
 
+    battery_id_status = get_battery_id();
+    force_update_firmware_version_flag = NORMAL_UPDATE_FIRMWARE;
 	if (NULL == buf || count >= 255 || count == 0 || strnchr(buf, count, 0x20))
 		return -1;
 
@@ -1162,61 +1397,91 @@ static ssize_t k3_bq27510_attr_show(struct device_driver *driver, char *buf)
 
 static ssize_t bq27510_show_gaugelog(struct device_driver *driver, char *buf)
 {
-    int temp, voltage, cur, capacity, rm , fcc, control_status,ttf,si;
-    u16 flag;
-    u8 qmax, qmax1;
-    if(NULL == buf)
-    {
+    int temp = 0, voltage = 0, capacity = 100, rm = 0, fcc = 0;
+    int cur = 0,ttf = 0,si = 0;
+    u16 flag = 0,control_status = 0;
+    int qmax = 0;
+    u8 RaTable[80];
+    char temp_buff[50];
+    int i = 0,j = 0;
+    int TRise = 0,TTimeConstant = 0;
+    struct k3_bq27510_device_info* di = g_battery_measure_by_bq27510_device;
+
+    if(NULL == buf){
         return -1;
     }
+
+
     if(!bq27510_is_accessible())
-	   return sprintf(buf,"bq27510 is busy because of updating(%d)",gauge_context.state);
+        return sprintf(buf,"bq27510 is busy because of updating(%d)",gauge_context.state);
 
-    temp =  k3_bq27510_battery_temperature(g_battery_measure_by_bq27510_device);
-    if(BSP_NORMAL_MODE != gBq27510DownloadFirmwareFlag)
-    {
+    if(BSP_NORMAL_MODE != gBq27510DownloadFirmwareFlag){
         return -1;
     }
-    mdelay(2);
-    voltage = k3_bq27510_battery_voltage(g_battery_measure_by_bq27510_device);
-    mdelay(2);
-    cur = k3_bq27510_i2c_read_word(g_battery_measure_by_bq27510_device,BQ27510_REG_AI);
-    mdelay(2);
-    capacity = k3_bq27510_i2c_read_word(g_battery_measure_by_bq27510_device,BQ27510_REG_SOC);
-    mdelay(2);
-    flag = k3_bq27510_i2c_read_word(g_battery_measure_by_bq27510_device,BQ27510_REG_FLAGS);
-    mdelay(2);
-    rm =  k3_bq27510_i2c_read_word(g_battery_measure_by_bq27510_device,BQ27510_REG_RM);
-    mdelay(2);
-    fcc =  k3_bq27510_i2c_read_word(g_battery_measure_by_bq27510_device,BQ27510_REG_FCC);
-    mdelay(2);
-    ttf = k3_bq27510_i2c_read_word(g_battery_measure_by_bq27510_device,BQ27510_REG_TTF);
-    mdelay(2);
-    si = k3_bq27510_i2c_read_word(g_battery_measure_by_bq27510_device,BQ27510_REG_SI);
-    mutex_lock(&k3_bq27510_battery_mutex);
-    i2c_smbus_write_word_data(g_battery_measure_by_bq27510_i2c_client,BQ27510_REG_CTRL,BQ27510_REG_CTRS);
-    mdelay(2);
-    control_status  = i2c_smbus_read_word_data(g_battery_measure_by_bq27510_i2c_client,BQ27510_REG_CTRL);
-    mdelay(2);
-    i2c_smbus_write_word_data(g_battery_measure_by_bq27510_i2c_client,BQ27510_REG_DFCLS,BQ27510_REG_CLASS_ID);
-    mdelay(2);
-    qmax = i2c_smbus_read_byte_data(g_battery_measure_by_bq27510_i2c_client,BQ27510_REG_QMAX);
-    mdelay(2);
-    qmax1 = i2c_smbus_read_byte_data(g_battery_measure_by_bq27510_i2c_client,BQ27510_REG_QMAX1);
-    mdelay(2);
-    mutex_unlock(&k3_bq27510_battery_mutex);
 
-    if(qmax < 0)
-    {
+    temp =  k3_bq27510_battery_temperature(di);
+    mdelay(2);
+    voltage = k3_bq27510_battery_voltage(di);
+    mdelay(2);
+    cur = k3_bq27510_battery_current(di);
+    mdelay(2);
+    capacity = k3_bq27510_battery_capacity(di);
+    mdelay(2);
+    flag = is_k3_bq27510_battery_reach_threshold(di);
+    mdelay(2);
+    rm =  k3_bq27510_battery_rm(di);
+    mdelay(2);
+    fcc =  k3_bq27510_battery_fcc(di);
+    mdelay(2);
+    ttf = k3_bq27510_i2c_read_word(di,BQ27510_REG_TTF);
+    mdelay(2);
+    si = k3_bq27510_i2c_read_word(di,BQ27510_REG_SI);
+
+    mutex_lock(&k3_bq27510_battery_mutex);
+    i2c_smbus_write_word_data(di->client,BQ27510_REG_CTRL,BQ27510_REG_CTRS);
+    mdelay(2);
+    control_status  = i2c_smbus_read_word_data(di->client,BQ27510_REG_CTRL);
+    mdelay(2);
+
+    mutex_unlock(&k3_bq27510_battery_mutex);
+    mdelay(2);
+    qmax = bq27510_get_gasgauge_qmax(di);
+    mdelay(2);
+
+
+
+    if(qmax < 0) {
         return sprintf(buf, "%s", "Coulometer Damaged or Firmware Error \n");
+    }else {
+      sprintf(buf, "%-9d  %-9d  %-4d  %-5d  %-6d  %-6d  %-6d  %-6d  0x%-5.4x  0x%-5.4x  %-6d  ",
+                    voltage,  (signed short)cur, capacity, rm, fcc, (signed short)ttf, (signed short)si, temp, flag, control_status, qmax);
     }
-    else
-    {
-      sprintf(buf, "%-9d  %-9d  %-4d  %-5d  %-6d  %-6d  %-6d  %-6d  0x%-5.4x  0x%-5.2x  0x%-5.2x  0x%-5.2x  ",
-                    voltage,  (signed short)cur, capacity, rm, fcc, (signed short)ttf, (signed short)si, temp, flag, control_status, qmax, qmax1 );
-        return strlen(buf);
+
+    if(calculate_battery_impedance){
+        for(j=0;j<4;j++){
+            i2c_smbus_write_word_data(di->client,BQ27510_REG_DFCLS,91+j);
+            mdelay(2);
+            for(i=0;i<19;i++){
+                RaTable[j*20+i] = i2c_smbus_read_byte_data(di->client,0x40+i);
+                mdelay(2);
+                sprintf(temp_buff,"0x%-5x     ",RaTable[j*20+i]);
+                strcat(buf,temp_buff);
+            }
+        }
+        i2c_smbus_write_word_data(di->client,BQ27510_REG_DFCLS,82);
+        mdelay(2);
+        TRise = i2c_smbus_read_word_data(di->client,0x40+24);
+        mdelay(2);
+        sprintf(temp_buff,"0x%-5x     ",TRise);
+        strcat(buf,temp_buff);
+        TTimeConstant = i2c_smbus_read_word_data(di->client,0x40+26);
+        mdelay(2);
+        sprintf(temp_buff,"0x%-5x    ",TTimeConstant);
+        strcat(buf,temp_buff);
     }
+    return strlen(buf);
 }
+
 
 static int bq27510_atoh(const char *s)
 {
@@ -1248,47 +1513,18 @@ static ssize_t bq27510_debug_show(struct device_driver *driver, char *buf)
 
 static DRIVER_ATTR(debug, S_IRUGO|S_IWUSR,bq27510_debug_show,bq27510_debug_store);
 
-static ssize_t k3_bq27510_show_voltage(struct device *dev,
-				struct device_attribute *attr, char *buf)
-{
-	int val = 0;
-	struct k3_bq27510_device_info *di = dev_get_drvdata(dev);
 
-	if (NULL == buf) {
-		BQ27510_ERR("k3_bq27510_show_voltage Error\n");
-		return -1;
-	}
-	val = k3_bq27510_i2c_read_word(di, BQ27510_REG_VOLT);
-
-	if (val < 0) {
-		BQ27510_ERR("get voltage is Error\n");
-		return -1;
-	}
-	val *=1000;
-	return sprintf(buf, "%d\n", val);
-}
-
-static DEVICE_ATTR(voltage, S_IWUSR | S_IRUGO, k3_bq27510_show_voltage, NULL);
 
 /*define a sysfs interface for firmware upgrade*/
 static DRIVER_ATTR(state, 0664, k3_bq27510_attr_show, k3_bq27510_attr_store);
 /* added for Firmware upgrade end */
-
-static struct attribute *k3_bq27150_attributes[] = {
-	&dev_attr_voltage.attr,
-	NULL,
-};
-
-static const struct attribute_group k3_bq27150_attr_group = {
-	.attrs = k3_bq27150_attributes,
-};
 
 static DRIVER_ATTR(gaugelog, S_IWUSR | S_IWGRP | S_IRUGO, bq27510_show_gaugelog,NULL);
 
 static DRIVER_ATTR(firmware_version, S_IRUGO|S_IWUSR, bq27510_get_firmware_version, NULL);
 
 static DRIVER_ATTR(firmware_check, S_IRUGO|S_IWUSR, bq27510_check_firmware_version, NULL);
-
+static DRIVER_ATTR(qmax, S_IRUGO, bq27510_check_qmax,NULL);
 static DRIVER_ATTR(capacity, S_IRUGO, bq27510_get_capacity,NULL);
 /*
  * Use BAT_LOW not BAT_GD. When battery capacity is below SOC1, BAT_LOW PIN will pull up and cause a
@@ -1350,6 +1586,169 @@ static void interrupt_notifier_work(struct work_struct *work)
     return;
 }
 
+static ssize_t bq27510_show_voltage(struct device *dev,
+                            struct device_attribute *attr, char *buf)
+{
+    int val = 0;
+    struct k3_bq27510_device_info *di = dev_get_drvdata(dev);
+
+    if (NULL == buf) {
+        BQ27510_ERR("bq27510_show_voltage Error\n");
+        return -1;
+    }
+    val = k3_bq27510_battery_voltage(di);
+    val *= 1000;
+    return sprintf(buf, "%d\n", val);
+}
+
+static ssize_t bq27510x_show_qmax(struct device *dev,
+              struct device_attribute *attr,char *buf)
+{
+    unsigned long val;
+    struct k3_bq27510_device_info *di = dev_get_drvdata(dev);
+
+    val = bq27510_get_gasgauge_qmax(di);
+    return sprintf(buf, "%lu\n", val);
+}
+
+static ssize_t bq27510x_show_normal_capacity(struct device *dev,
+              struct device_attribute *attr,char *buf)
+{
+    unsigned long val;
+    int normal_capacity = 1800;
+
+    battery_id_status = get_battery_id();
+    bq27510_get_gasgauge_normal_capacity(&normal_capacity);
+    val = normal_capacity;
+    return sprintf(buf, "%lu\n", val);
+}
+
+
+/*Firmware upgrade sysfs store interface*/
+static ssize_t bq27510_update_gasgauge_version(struct device *dev,
+                  struct device_attribute *attr,
+                  const char *buf, size_t count)
+{
+    int status = count;
+    int iRet = 0;
+    unsigned char path_image[255];
+    struct k3_bq27510_device_info *di = dev_get_drvdata(dev);
+
+    if(NULL == buf || count >255 || count == 0 || strnchr(buf, count, 0x20)){
+        dev_info(di->dev, "firmware buffer error\n");
+        return status;
+    }
+
+    battery_id_status = get_battery_id();
+    force_update_firmware_version_flag = HAND_UPDATE_FIRMWARE_ENABLE;
+
+    memcpy (path_image, buf,  count);
+    /* replace '\n' with  '\0'  */
+    if((path_image[count-1]) == '\n')
+        path_image[count-1] = '\0';
+    else
+        path_image[count] = '\0';
+
+    /*enter firmware bqfs download*/
+    gBq27510DownloadFirmwareFlag = BSP_FIRMWARE_DOWNLOAD_MODE;
+    iRet = k3_bq27510_update_firmware(g_battery_measure_by_bq27510_i2c_client, path_image);
+    gBq27510DownloadFirmwareFlag = BSP_NORMAL_MODE;
+
+    /* begin: added for refresh Qmax*/
+    i2c_smbus_write_word_data(g_battery_measure_by_bq27510_i2c_client,0x00,0x0041);
+    /* end: added for refresh Qmax*/
+
+    force_update_firmware_version_flag = NORMAL_UPDATE_FIRMWARE;
+    if(!iRet){
+        dev_info(di->dev, "firmware upgrade success\n");
+    }
+    return status;
+}
+
+/* Firmware upgrade sysfs show interface*/
+static ssize_t bq27510_show_gasgauge_version(struct device *dev,
+                  struct device_attribute *attr,
+                  char *buf)
+{
+    int iRet = 0;
+    struct k3_bq27510_device_info *di = dev_get_drvdata(dev);
+
+   if(NULL == buf)
+    {
+        return -1;
+    }
+
+   iRet = bq27510_get_firmware_version_by_i2c(di->client);
+    if(iRet < 0){
+        return sprintf(buf, "%s", "Coulometer Damaged or Firmware Error");
+    }else{
+        return sprintf(buf, "%x", iRet);
+    }
+}
+
+static ssize_t bq27510_set_calculate_impedance(struct device *dev,
+                  struct device_attribute *attr,
+                  const char *buf, size_t count)
+{
+    long val;
+    int status = count;
+
+    if ((strict_strtol(buf, 10, &val) < 0) || (val < 0) || (val > 1))
+        return -EINVAL;
+    calculate_battery_impedance = val;
+    return status;
+}
+
+static ssize_t bq27510x_show_calculate_impedance(struct device *dev,
+              struct device_attribute *attr,char *buf)
+{
+    unsigned long val;
+
+    val = calculate_battery_impedance;
+    return sprintf(buf, "%lu\n", val);
+}
+
+static ssize_t bq27510x_show_battery_id(struct device *dev,
+              struct device_attribute *attr,char *buf)
+{
+    unsigned long val;
+
+    val = bq27510_get_gpadc_conversion(ADC_ADCIN3);
+
+    return sprintf(buf, "%lu\n", val);
+}
+
+static DEVICE_ATTR(voltage, S_IWUSR | S_IRUGO, bq27510_show_voltage, NULL);
+static DEVICE_ATTR(qmax, S_IWUSR | S_IRUGO,
+                 bq27510x_show_qmax,
+                 NULL);
+static DEVICE_ATTR(normal_capacity, S_IWUSR | S_IRUGO,
+                  bq27510x_show_normal_capacity,
+                  NULL);
+static DEVICE_ATTR(state, S_IWUSR | S_IRUGO,
+                  bq27510_show_gasgauge_version,
+                  bq27510_update_gasgauge_version);
+static DEVICE_ATTR(battery_impedance, S_IWUSR | S_IRUGO,
+                  bq27510x_show_calculate_impedance,
+                  bq27510_set_calculate_impedance);
+static DEVICE_ATTR(battery_id, S_IWUSR | S_IRUGO,
+                  bq27510x_show_battery_id,
+                  NULL);
+
+static struct attribute *k3_bq27150_attributes[] = {
+    &dev_attr_voltage.attr,
+    &dev_attr_qmax.attr,
+    &dev_attr_normal_capacity.attr,
+    &dev_attr_state.attr,
+    &dev_attr_battery_impedance.attr,
+    &dev_attr_battery_id.attr,
+    NULL,
+};
+
+static const struct attribute_group k3_bq27150_attr_group = {
+   .attrs = k3_bq27150_attributes,
+};
+
 static int k3_bq27510_battery_probe(struct i2c_client *client,
 				 const struct i2c_device_id *id)
 {
@@ -1403,6 +1802,11 @@ static int k3_bq27510_battery_probe(struct i2c_client *client,
     retval = driver_create_file(&(k3_bq27510_battery_driver.driver), &driver_attr_firmware_check);
     if (0 != retval) {
         printk("failed to create sysfs entry(firmware_check): %d\n", retval);
+    }
+
+    retval = driver_create_file(&(k3_bq27510_battery_driver.driver), &driver_attr_qmax);
+    if (0 != retval) {
+        printk("failed to create sysfs entry(qmax): %d\n", retval);
     }
     retval = driver_create_file(&(k3_bq27510_battery_driver.driver), &driver_attr_capacity);
     if (0 != retval) {
@@ -1496,6 +1900,7 @@ static int k3_bq27510_battery_probe(struct i2c_client *client,
 
 	g_battery_measure_by_bq27510_i2c_client = client;
 	g_battery_measure_by_bq27510_device = di;
+    battery_id_status = get_battery_id();
 
 	retval = sysfs_create_group(&client->dev.kobj, &k3_bq27150_attr_group);
 

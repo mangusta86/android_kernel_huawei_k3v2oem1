@@ -102,6 +102,9 @@ int k3_isp_hw_init_regs(camera_sensor *sensor);
 int k3_isp_set_camera(camera_sensor *sensor, camera_sensor *close_sensor, sensor_known_t known_sensor);
 int k3_isp_enum_fmt(struct v4l2_fmtdesc *f, camera_state state);
 int k3_isp_stream_on(struct v4l2_pix_format *pixfmt, enum v4l2_buf_type buf_type, camera_state state);
+#ifdef READ_BACK_RAW
+void k3_isp_update_read_ready(u8 buf_used);
+#endif
 int k3_isp_stream_off(camera_state state);
 int k3_isp_start_process(struct v4l2_pix_format *pixfmt, ipp_mode mode);
 int k3_isp_stop_process(ipp_mode mode);
@@ -183,6 +186,8 @@ int k3_isp_get_focus_code(void);
 int k3_isp_get_focus_rect(camera_rect_s *rect);
 int k3_isp_get_expo_line(void);
 int k3_isp_get_sensor_vts(void);
+int k3_isp_get_current_ccm_rgain(void);
+int k3_isp_get_current_ccm_bgain(void);
 /*AndroidK3 added by y36721 end*/
 
 int k3_isp_set_flash_mode(camera_flash flash_mode);
@@ -202,6 +207,9 @@ void k3_isp_set_fps_lock(int);
 void k3_isp_set_shoot_mode(camera_shoot_mode shoot_mode);
 
 void k3_isp_set_pm_mode(u8 pm_mode);
+
+int k3_isp_get_sensor_aperture(void);
+int k3_isp_get_equivalent_focus(void);
 
 #endif /*__K3_V4L2_CAPTURE_H__ */
 

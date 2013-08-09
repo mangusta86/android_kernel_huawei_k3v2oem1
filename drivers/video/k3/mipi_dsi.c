@@ -234,6 +234,15 @@ static void mipi_init(struct k3_fb_data_type *k3fd)
 	edc_base = k3fd->edc_base;
 	get_dsi_phy_ctrl(k3fd->panel_info.mipi.dsi_bit_clk, &phy_ctrl);
 
+	/*Config TE*/
+	if (k3fd->panel_info.type == PANEL_MIPI_CMD) {
+		set_reg(edc_base + MIPIDSI_CMD_MOD_CTRL_OFFSET, 0x1, 32, 0);
+		set_reg(edc_base + MIPIDSI_TE_CTRL_OFFSET, 0x4001, 32, 0);
+		set_reg(edc_base + MIPIDSI_TE_HS_NUM_OFFSET, 0x0, 32, 0);
+		set_reg(edc_base + MIPIDSI_TE_HS_WD_OFFSET, 0x8002, 32, 0);
+		set_reg(edc_base + MIPIDSI_TE_VS_WD_OFFSET, 0x1001, 32, 0);
+	}
+
 	/*--------------configuring the DPI packet transmission----------------*/
 	/*
 	** 1. Global configuration
@@ -262,7 +271,7 @@ static void mipi_init(struct k3_fb_data_type *k3fd)
 	** This defines how the processor requires the video line to be
 	** transported through the DSI link.
 	*/
-	if (k3fd->panel_info.type == MIPI_VIDEO_PANEL) {
+	if (k3fd->panel_info.type == PANEL_MIPI_VIDEO) {
 		set_MIPIDSI_VID_MODE_CFG_en_lp_vsa(edc_base, 1);
 		set_MIPIDSI_VID_MODE_CFG_en_lp_vbp(edc_base, 1);
 		set_MIPIDSI_VID_MODE_CFG_en_lp_vfp(edc_base, 1);
@@ -324,7 +333,10 @@ static void mipi_init(struct k3_fb_data_type *k3fd)
 	** 3. Configure the TX_ESC clock frequency to a frequency lower than 20 MHz
 	** that is the maximum allowed frequency for D-PHY ESCAPE mode.
 	*/
-	set_MIPIDSI_CLKMGR_CFG(edc_base, phy_ctrl.clk_division);
+	if (k3fd->panel_info.type == PANEL_MIPI_CMD)
+		set_MIPIDSI_CLKMGR_CFG(edc_base, /*phy_ctrl.clk_division*/5);
+	else
+		set_MIPIDSI_CLKMGR_CFG(edc_base, phy_ctrl.clk_division);
 
 	/*
 	** 4. Configure the DPHY PLL clock frequency through the TEST Interface to
@@ -404,6 +416,12 @@ static void mipi_init(struct k3_fb_data_type *k3fd)
 	set_MIPIDSI_PHY_TST_CTRL0(edc_base, 0x00000000);
 	set_MIPIDSI_PHY_RSTZ(edc_base, 0x00000007);
 
+	/* Enable EOTP TX; Enable EDPI, ALLOWED_CMD_SIZE = 720*/
+	if (k3fd->panel_info.type == PANEL_MIPI_CMD) {
+		set_reg(edc_base + MIPIDSI_EDPI_CFG, 0x102D0, 17, 0);
+		set_MIPIDSI_PCKHDL_CFG_en_eotp_tx(edc_base, 0x00000001);
+	}
+
 	is_ready = false;
 	dw_jiffies = jiffies + HZ / 2;
 	do {
@@ -470,10 +488,15 @@ static int mipi_dsi_on(struct platform_device *pdev)
 	ret = panel_next_on(pdev);
 
 	set_reg(edc_base + MIPIDSI_PWR_UP_OFFSET, 0x0, 1, 0);
-	if (k3fd->panel_info.type == MIPI_VIDEO_PANEL) {
+	if (k3fd->panel_info.type == PANEL_MIPI_VIDEO) {
 		/* switch to video mode */
 		set_reg(edc_base + MIPIDSI_CMD_MODE_CFG_OFFSET, 0x0, 1, 0);
 		set_reg(edc_base + MIPIDSI_VID_MODE_CFG_OFFSET, 0x1, 1, 0);
+	}
+
+	if (k3fd->panel_info.type == PANEL_MIPI_CMD) {
+		/* switch to cmd mode */
+		set_reg(edc_base + MIPIDSI_CMD_MODE_CFG_OFFSET, 0x1, 13, 0);
 	}
 
 	#ifdef CONFIG_LCD_PANASONIC_VVX10F002A00
@@ -656,7 +679,6 @@ static int mipi_dsi_set_playvideo(struct platform_device *pdev, int gamma)
 	return ret;
 }
 
-#if K3_FB_FRC_ENABLE
 static int mipi_dsi_set_frc(struct platform_device *pdev, int target_fps)
 {
 	struct k3_fb_data_type *k3fd = NULL;
@@ -713,7 +735,11 @@ static int mipi_dsi_set_frc(struct platform_device *pdev, int target_fps)
 
 	return ret;
 }
-#endif
+static int mipi_dsi_check_esd(struct platform_device *pdev)
+{
+	BUG_ON(pdev == NULL);
+	return panel_next_check_esd(pdev);
+}
 
 static int mipi_dsi_probe(struct platform_device *pdev)
 {
@@ -774,9 +800,8 @@ static int mipi_dsi_probe(struct platform_device *pdev)
 	pdata->set_backlight = mipi_dsi_set_backlight;
 	pdata->set_timing = mipi_dsi_set_timing;
 	pdata->set_playvideo = mipi_dsi_set_playvideo;
-#if K3_FB_FRC_ENABLE
+	pdata->check_esd = mipi_dsi_check_esd;
 	pdata->set_frc = mipi_dsi_set_frc;
-#endif
 	pdata->next = pdev;
 
 	/* get/set panel info */

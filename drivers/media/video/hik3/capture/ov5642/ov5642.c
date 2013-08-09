@@ -873,6 +873,9 @@ static void ov5642_set_default(void)
 	ov5642_sensor.sensor_gain_to_iso = ov5642_gain_to_iso;
 	ov5642_sensor.sensor_iso_to_gain = ov5642_iso_to_gain;
 
+	ov5642_sensor.get_sensor_aperture = NULL;
+	ov5642_sensor.get_equivalent_focus = NULL;
+
 	ov5642_sensor.isp_location = CAMERA_USE_K3ISP;
 	ov5642_sensor.sensor_tune_ops = NULL;
 

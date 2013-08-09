@@ -317,7 +317,6 @@ static struct k3v2_cmdword k3v2_map[] =
 	{"usbupdate", 0x09},
 
 	{"panic", 0x11},
-
 };
 
 static unsigned long find_rebootmap(const char* str)

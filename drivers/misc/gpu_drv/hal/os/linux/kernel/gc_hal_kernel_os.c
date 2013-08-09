@@ -812,7 +812,8 @@ _NonContiguousAlloc(
 
     size = NumPages * sizeof(struct page *);
 
-    pages = kmalloc(size, GFP_KERNEL | __GFP_NOWARN);
+    pages = 0;
+    //pages = kmalloc(size, GFP_KERNEL | __GFP_NOWARN);
 
     if (!pages)
     {

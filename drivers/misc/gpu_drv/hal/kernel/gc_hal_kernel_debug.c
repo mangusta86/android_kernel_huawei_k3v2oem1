@@ -571,7 +571,6 @@ _PrintString(
     len += gcmkVSPRINTF(buffer + len, gcmSIZEOF(buffer) - len, Message, Data);
     buffer[len] = '\0';
 
-    /* Add end-of-line if missing. */
     if (buffer[len - 1] != '\n')
     {
         buffer[len++] = '\n';

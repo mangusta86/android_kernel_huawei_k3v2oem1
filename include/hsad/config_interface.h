@@ -6,10 +6,12 @@
 #include <linux/types.h>
 
 extern bool product_type(char *pname);
-
+extern bool get_spk_pa(char *spk_pa);
+	
 extern int get_touchscreen_type(void);
 extern int get_usbphy_tune(void);
 extern int get_board_type(void);
+extern int get_sd_detect_type(void);
 extern int get_sensor_type(void);
 extern int get_iomux_type(void);
 extern int get_sensor_timing_type();
@@ -21,11 +23,12 @@ typedef enum _config_touchscreen_type {
 
 typedef enum _config_usbphy_tune {
 	E_USBPHY_TUNE_PLATFORM = 0,
-	E_USBPHY_TUNE_U9508
+	E_USBPHY_TUNE_U9510
 } config_usbphy_tune;
 
 typedef enum _config_board_type {
 	E_BOARD_TYPE_PLATFORM = 0,
+	E_BOARD_TYPE_U9510,
 	E_BOARD_TYPE_U9508
 } config_board_type;
 
@@ -41,6 +44,13 @@ typedef enum _config_iomux_type {
 	E_IOMUX_PHONE_CS,
 	E_IOMUX_MAX
 } config_iomux_type;
+
+typedef enum _sd_detect_type
+{
+	GPIO_LOW_MEAN_DETECTED =0,
+	GPIO_HIGH_MEAN_DETECTED,
+	SD_DETECT_TYPE_MAX
+}sd_detect_type;
 
 #ifdef CONFIG_HUAWEI_GPIO_UNITE
 

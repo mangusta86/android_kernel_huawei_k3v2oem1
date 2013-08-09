@@ -2414,6 +2414,13 @@ config LCD_PANASONIC_VVX10F002A00
 		Panasonic 1080p LCD support on K3 platform.	If you are using S10 Pad,
 		please choose it.
 
+config LCD_CMI_OTM1280A
+	tristate "CMI 720p LCD support on K3 platform"
+	depends on FB_K3_CLCD
+	help
+	  CMI 720p LCD support on K3 platform. If you are using U9508,
+	  please choose it.
+
 config LCD_1080P
     tristate "1080p LCD support on K3 platform"
 	depends on FB_K3_CLCD

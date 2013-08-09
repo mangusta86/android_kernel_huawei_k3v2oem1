@@ -29,6 +29,51 @@
 #define LOG_TAG "K3_CAM_UTIL"
 #include "cam_log.h"
 
+#ifdef READ_BACK_RAW
+ int load_raw_file(char *filename, u8 * addr)
+{
+	struct kstat stat;
+	mm_segment_t fs;
+	struct file *fp = NULL;
+	int file_flag = O_RDONLY;
+	ssize_t ret = 0;
+
+	if (NULL == filename || NULL == addr) {
+		print_error("%s param error", __func__);
+		return -EINVAL;
+	}
+
+	print_debug("enter %s", __func__);
+
+	/* must have the following 2 statement */
+	fs = get_fs();
+	set_fs(KERNEL_DS);
+
+	fp = filp_open(filename, file_flag, 0666);
+	if (IS_ERR_OR_NULL(fp)) {
+		print_error("open file error!\n");
+		return -1;
+	}
+
+	if (0 != vfs_stat(filename, &stat)) {
+		print_error("failed to get file state!");
+		goto ERROR;
+	}
+	print_debug("file size : %d", (u32) stat.size);
+	ret = vfs_read(fp, (char *)addr, (u32) stat.size - 24, &fp->f_pos);
+	if (ret < 0)
+		print_error("read file error!, %s , ret=%d\n", filename, ret);
+
+	/* must have the following 1 statement */
+	set_fs(fs);
+
+ERROR:
+	if (NULL != fp)
+		filp_close(fp, 0);
+	return ret;
+}
+#endif
+
 /*
  **************************************************************************
  * FunctionName: load_file;

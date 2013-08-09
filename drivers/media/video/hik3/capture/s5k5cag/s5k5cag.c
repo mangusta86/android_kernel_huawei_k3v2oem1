@@ -70,20 +70,6 @@
 #define S5K5CAG_EXPOSURE_REG	0x3012
 #define S5K5CAG_GAIN_REG		0x305e
 
-#define S5K5CAG_EFFECT		(\
-					(1 << CAMERA_EFFECT_NONE)      | \
-					(1 << CAMERA_EFFECT_MONO)      | \
-					(1 << CAMERA_EFFECT_NEGATIVE)  | \
-					(1 << CAMERA_EFFECT_SEPIA)   \
-				)
-
-#define S5K5CAG_AUTO_WHITE_BALANCE (1 << CAMERA_WHITEBALANCE_AUTO)
-#define S5K5CAG_WHITE_BALANCE	( \
-					(1 << CAMERA_WHITEBALANCE_INCANDESCENT)	| \
-					(1 << CAMERA_WHITEBALANCE_FLUORESCENT)	| \
-					(1 << CAMERA_WHITEBALANCE_DAYLIGHT)	| \
-					(1 << CAMERA_WHITEBALANCE_CLOUDY_DAYLIGHT) \
-				)
 
 #define S5K5CAG_HFLIP		((1 << CAMERA_H_FLIP) |\
 					(1 << CAMERA_V_FLIP))
@@ -92,44 +78,33 @@
 					(1 << CAMERA_NO_FLIP) | \
 					(1 << CAMERA_H_FLIP) \
 				)
-#define S5K5CAG_BRIGHTNESS (\
-				(1 << CAMERA_BRIGHTNESS_L2) | \
-				(1 << CAMERA_BRIGHTNESS_L1) | \
-				(1 << CAMERA_BRIGHTNESS_H0) | \
-				(1 << CAMERA_BRIGHTNESS_H1) | \
-				(1 << CAMERA_BRIGHTNESS_H2)   \
-			)
-#define S5K5CAG_CONTRAST (\
-				(1 << CAMERA_CONTRAST_L2) | \
-				(1 << CAMERA_CONTRAST_L1) | \
-				(1 << CAMERA_CONTRAST_H0) | \
-				(1 << CAMERA_CONTRAST_H1) | \
-				(1 << CAMERA_CONTRAST_H2)   \
-			)
-#define S5K5CAG_SATURATION	(\
-				(1 << CAMERA_SATURATION_L2) | \
-				(1 << CAMERA_SATURATION_L1) | \
-				(1 << CAMERA_SATURATION_H0) | \
-				(1 << CAMERA_SATURATION_H1) | \
-				(1 << CAMERA_SATURATION_H2)   \
-			)
+
+#define S5K5CAG_ISO		(\
+					(1 << CAMERA_ISO_AUTO) | \
+					(1 << CAMERA_ISO_100) | \
+					(1 << CAMERA_ISO_200) | \
+					(1 << CAMERA_ISO_400)  \
+				)
 
 static camera_capability 	s5k5cag_cap[] = {
-	{V4L2_CID_AUTO_WHITE_BALANCE, S5K5CAG_AUTO_WHITE_BALANCE},
-	{V4L2_CID_DO_WHITE_BALANCE, S5K5CAG_WHITE_BALANCE},
-	{V4L2_CID_EFFECT, S5K5CAG_EFFECT},
+	{V4L2_CID_AUTO_WHITE_BALANCE, THIS_AUTO_WHITE_BALANCE},
+	{V4L2_CID_DO_WHITE_BALANCE, THIS_WHITE_BALANCE},
+	{V4L2_CID_EFFECT, THIS_EFFECT},
 	{V4L2_CID_HFLIP, S5K5CAG_HFLIP},
 	{V4L2_CID_VFLIP, S5K5CAG_VFLIP},
-	{V4L2_CID_BRIGHTNESS, S5K5CAG_BRIGHTNESS},
-	{V4L2_CID_CONTRAST, S5K5CAG_CONTRAST},
-	{V4L2_CID_SATURATION, S5K5CAG_SATURATION},
+	{V4L2_CID_BRIGHTNESS, THIS_BRIGHTNESS},
+	{V4L2_CID_CONTRAST, THIS_CONTRAST},
+	{V4L2_CID_SATURATION, THIS_SATURATION},
+	{V4L2_CID_ISO, S5K5CAG_ISO},
+	{V4L2_CID_EXPOSURE_MAX, THIS_EXPOSURE},
+	{V4L2_CID_EXPOSURE_STEP, THIS_EXPOSURE_STEP},
 };
 
 const struct isp_reg_t isp_init_regs_s5k5cag[] = {
-    {0x63022,0x98},
-    {0x63c12,0x04},
-    //{0x63b34,0x03},
-    //{0x6502f,0x21},
+	{0x63022,0x98},
+	{0x63c12,0x04},
+	//{0x63b34,0x03},
+	//{0x6502f,0x21},
 };
 
 /* Fixme: 50/60Hz anti-banding params should be calibrated. */
@@ -151,9 +126,17 @@ static camera_sensor s5k5cag_sensor;
 static bool sensor_inited = false;
 static camera_effects sensor_effect = CAMERA_EFFECT_NONE;
 static camera_white_balance sensor_awb_mode = CAMERA_WHITEBALANCE_AUTO;
+static camera_iso sensor_iso = CAMERA_ISO_AUTO;
+static int sensor_ev = 0;
+static int sensor_brightness = CAMERA_BRIGHTNESS_H0;
+static int sensor_saturation = CAMERA_SATURATION_H0;
+static int sensor_contrast = CAMERA_CONTRAST_H0;
 static void s5k5cag_set_default(void);
 static void s5k5cag_change_frame_rate(camera_frame_rate_mode fps_mode);
 static void s5k5cag_update_frame_rate(void);
+static int s5k5cag_set_brightness(camera_brightness brightness);
+static int s5k5cag_set_contrast(camera_contrast contrast);
+static int s5k5cag_set_saturation(camera_saturation saturation);
 /*
  **************************************************************************
  * FunctionName: s5k5cag_read_reg;
@@ -244,7 +227,6 @@ static int s5k5cag_enum_frame_intervals(struct v4l2_frmivalenum *fi)
 	fi->discrete.denominator = (fi->index+1);
 	return 0;
 }
-
 
 /*
  **************************************************************************
@@ -422,7 +404,7 @@ static int s5k5cag_get_framesizes(camera_state state,
 	return 0;
 }
 
-void s5k5cag_set_effect(camera_effects effect)
+static int s5k5cag_set_effect(camera_effects effect)
 {
 	print_debug("%s, effect:%d", __func__, effect);
 	if (false == sensor_inited) {
@@ -467,11 +449,12 @@ void s5k5cag_set_effect(camera_effects effect)
 }
 
 
-void s5k5cag_set_awb(camera_white_balance awb_mode)
+static int s5k5cag_set_awb(camera_white_balance awb_mode)
 {
+	print_debug("enter %s", __func__);
 	if (false == sensor_inited) {
 		sensor_awb_mode = awb_mode;
-		return;
+		return -1;
 	}
 
 	switch (awb_mode) {
@@ -545,25 +528,119 @@ void s5k5cag_set_awb(camera_white_balance awb_mode)
 
 	default:
 		print_error("%s, Unsupport awb_mode:%d", __func__, awb_mode);
-	return;
+		return -1;
 	}
 	sensor_awb_mode = awb_mode;
+	return 0;
 }
 
-#if 0   //zhangjun
-static void s5k5cag_check_state(u8 mask)
+static int s5k5cag_set_iso(camera_iso iso)
 {
-	u16 val = 0;
-	int count = 0;
-	do {
-		msleep(5);
-		s5k5cag_read_reg(0x0080, &val);
-		if (count++ > 20)
-			break;
-	} while (val & mask);
-}
-#endif
+	print_info("enter %s", __func__);
+	if (false == sensor_inited) {
+		sensor_awb_mode = iso;
+		return -1;
+	}
 
+	switch (iso) {
+	case CAMERA_ISO_AUTO:
+		print_info("ISO AUTO");
+		s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x002A, 0X04B4, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x0F12, 0x0000, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x002A, 0X0000, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x0F12, 0x0001, I2C_16BIT, 0x00);
+		break;
+
+	case CAMERA_ISO_100:
+		print_info("ISO 100");
+		s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x002A, 0X04B4, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x0F12, 0x0001, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x002A, 0X0064, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x0F12, 0x0001, I2C_16BIT, 0x00);
+		break;
+
+	case CAMERA_ISO_200:
+		print_info("ISO 200");
+		s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x002A, 0X04B4, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x0F12, 0x0001, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x002A, 0X00C8, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x0F12, 0x0001, I2C_16BIT, 0x00);
+		break;
+
+	case CAMERA_ISO_400:
+		print_info("ISO 300");
+		s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x002A, 0X04B4, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x0F12, 0x0001, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x002A, 0X012C, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x0F12, 0x0001, I2C_16BIT, 0x00);
+		break;
+
+	default:
+		print_error("%s, Unsupport ISO value:%d", __func__, iso);
+		return -1;
+	}
+	print_info("exit %s", __func__);
+	sensor_iso = iso;
+	return 0;
+}
+
+
+static int s5k5cag_set_ev(int ev)
+{
+	print_info("enter %s", __func__);
+	if (false == sensor_inited) {
+		sensor_ev = ev;
+		return -1;
+	}
+
+	switch(ev) {
+
+	case -2:
+		s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x002A, 0x0F70, I2C_16BIT, 0x00);	//#TVAR_ae_BrAve //ae target
+		s5k5cag_write_reg(0x0F12, 0x003D - (2 * 12), I2C_16BIT, 0x00);
+		mdelay(50);
+		break;
+
+	case -1:
+		s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x002A, 0x0F70, I2C_16BIT, 0x00);	//#TVAR_ae_BrAve //ae target
+		s5k5cag_write_reg(0x0F12, 0x003D - 12, I2C_16BIT, 0x00);
+		mdelay(50);
+		break;
+
+	case 0:
+		s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x002A, 0x0F70, I2C_16BIT, 0x00);	//#TVAR_ae_BrAve //ae target
+		s5k5cag_write_reg(0x0F12, 0x003D, I2C_16BIT, 0x00);
+		mdelay(50);
+		break;
+
+	case 1:
+		s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x002A, 0x0F70, I2C_16BIT, 0x00);	//#TVAR_ae_BrAve //ae target
+		s5k5cag_write_reg(0x0F12, 0x003D + 12, I2C_16BIT, 0x00);
+		mdelay(50);
+		break;
+
+	case 2:
+		s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x002A, 0x0F70, I2C_16BIT, 0x00);	//#TVAR_ae_BrAve //ae target
+		s5k5cag_write_reg(0x0F12, 0x003D + (2 * 12), I2C_16BIT, 0x00);
+		mdelay(50);
+		break;
+
+	default:
+		print_error("%s, Unsupport ev:%d", __func__, ev);
+		return -1;
+	}
+	sensor_ev = ev;
+	return 0;
+}
 /*
  **************************************************************************
  * FunctionName: s5k5cag_init_reg;
@@ -576,46 +653,25 @@ static void s5k5cag_check_state(u8 mask)
 */
 static int s5k5cag_init_reg(void)
 {
-    int size = 0;
+	int size = 0;
 	int i = 0;
 
-    u16 id = 0;
+	u16 id = 0;
 
-    //struct sensor_reg const * reg_init;
+	//struct sensor_reg const * reg_init;
 
 	print_info("Enter Function:%s  Line:%d, initsize=%d",
-	    __func__, __LINE__, sizeof(s5k5cag_sunny_init_regs));
-
+		__func__, __LINE__, sizeof(s5k5cag_sunny_init_regs));
+	msleep(10);
 /////////////////////////////////////////////////////////////////////
 
-/* Read the Model ID of the sensor */
-s5k5cag_write_reg(0x002c, 0x0000, I2C_16BIT, 0x00);
-s5k5cag_write_reg(0x002e, 0x0040, I2C_16BIT, 0x00);
+	/* Read the Model ID of the sensor */
+	s5k5cag_write_reg(0x002c, 0x0000, I2C_16BIT, 0x00);
+	s5k5cag_write_reg(0x002e, 0x0040, I2C_16BIT, 0x00);
+	s5k5cag_read_reg(0x0f12, &id);
+	print_info("=========>s5k5cag product id:0x%x", id);
 
-s5k5cag_read_reg(0x0f12, &id);
-
-print_info("======\\\\\\\\\\\\\\\\\\\\\\\\\======>s5k5cag product id:0x%x", id);
-
-
-/////////////////////////////////////////////////////////////////////
-
-
-#if 0
-    size = sizeof(s5k5cag_sunny_init_regs)/sizeof(s5k5cag_sunny_init_regs[0]);
-    reg_init=&(s5k5cag_sunny_init_regs[0]);
-
-
-    for (i = 0; i < size; i++) {
-
-		if(0==reg_init[i].subaddr) {
-			mdelay(reg_init[i].value);
-		} else {
-		    s5k5cag_write_reg(reg_init[i].subaddr, reg_init[i].value, I2C_16BIT, 0x00);
-		}
-	}
-#else
-    size = sizeof(s5k5cag_sunny_init_regs)/sizeof(s5k5cag_sunny_init_regs[0]);
-    //reg_init=&(s5k5cag_sunny_init_regs[0]);
+	size = sizeof(s5k5cag_sunny_init_regs)/sizeof(s5k5cag_sunny_init_regs[0]);
 
 	for(i = 0; i < size; i++) {
 		if (0 == s5k5cag_sunny_init_regs[i].subaddr) {
@@ -627,98 +683,20 @@ print_info("======\\\\\\\\\\\\\\\\\\\\\\\\\======>s5k5cag product id:0x%x", id);
 				break;
 			case 2:
 				s5k5cag_write_reg(s5k5cag_sunny_init_regs[i].subaddr, s5k5cag_sunny_init_regs[i].value & 0xffff, I2C_16BIT, 0x00);
-                break;
+				break;
 			case 4:
 				s5k5cag_write_reg(s5k5cag_sunny_init_regs[i].subaddr, (s5k5cag_sunny_init_regs[i].value >> 16) & 0xffff, I2C_16BIT, 0x00);
 				s5k5cag_write_reg(s5k5cag_sunny_init_regs[i].subaddr + 2, s5k5cag_sunny_init_regs[i].value & 0xffff, I2C_16BIT, 0x00);
 				break;
+			default:
+				print_error("%s, Unsupport reg size:%d", __func__, s5k5cag_sunny_init_regs[i].size);
+				return -EFAULT;
 			}
 		}
 	}
 
-
-////////////////////////////////////////////////////
-    #if 0
-
-/* Read the Model reg of the sensor */
-    s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
-    s5k5cag_write_reg(0x002A, 0x026C, I2C_16BIT, 0x00);
-    s5k5cag_read_reg(0x0f12, &id);
-    print_info("============>s5k5cag read reg[0x026C]: 0x%x", id);
-
-    s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
-    s5k5cag_write_reg(0x002A, 0x026E, I2C_16BIT, 0x00);
-    s5k5cag_read_reg(0x0f12, &id);
-    print_info("============>s5k5cag read reg[0x026E]: 0x%x", id);
-
-    s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
-    s5k5cag_write_reg(0x002A, 0x0272, I2C_16BIT, 0x00);
-    s5k5cag_read_reg(0x0f12, &id);
-    print_info("============>s5k5cag read reg[0x0272]: 0x%x", id);
-
-    s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
-    s5k5cag_write_reg(0x002A, 0x0274, I2C_16BIT, 0x00);
-    s5k5cag_read_reg(0x0f12, &id);
-    print_info("============>s5k5cag read reg[0x0274]: 0x%x", id);
-
-    s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
-    s5k5cag_write_reg(0x002A, 0x0288, I2C_16BIT, 0x00);
-    s5k5cag_read_reg(0x0f12, &id);
-    print_info("============>s5k5cag read reg[0x0288]: 0x%x", id);
-
-    s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
-    s5k5cag_write_reg(0x002A, 0x028A, I2C_16BIT, 0x00);
-    s5k5cag_read_reg(0x0f12, &id);
-    print_info("============>s5k5cag read reg[0x028A]: 0x%x", id);
-
-    s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
-    s5k5cag_write_reg(0x002A, 0x023C, I2C_16BIT, 0x00);
-    s5k5cag_read_reg(0x0f12, &id);
-    print_info("============>s5k5cag read reg[0x023C]: 0x%x", id);
-
-    s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
-    s5k5cag_write_reg(0x002A, 0x035E, I2C_16BIT, 0x00);
-    s5k5cag_read_reg(0x0f12, &id);
-    print_info("============>s5k5cag read reg[0x035E]: 0x%x", id);
-
-    s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
-    s5k5cag_write_reg(0x002A, 0x0360, I2C_16BIT, 0x00);
-    s5k5cag_read_reg(0x0f12, &id);
-    print_info("============>s5k5cag read reg[0x0360]: 0x%x", id);
-
-    s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
-    s5k5cag_write_reg(0x002A, 0x01CC, I2C_16BIT, 0x00);
-    s5k5cag_read_reg(0x0f12, &id);
-    print_info("============>s5k5cag read reg[0x01CC]: 0x%x", id);
-
-    s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
-    s5k5cag_write_reg(0x002A, 0x01F0, I2C_16BIT, 0x00);
-    s5k5cag_read_reg(0x0f12, &id);
-    print_info("============>s5k5cag read reg[0x01F0]: 0x%x", id);
-
-    s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
-    s5k5cag_write_reg(0x002A, 0x01F6, I2C_16BIT, 0x00);
-    s5k5cag_read_reg(0x0f12, &id);
-    print_info("============>s5k5cag read reg[0x01F6]: 0x%x", id);
-
-    s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
-    s5k5cag_write_reg(0x002A, 0x01F8, I2C_16BIT, 0x00);
-    s5k5cag_read_reg(0x0f12, &id);
-    print_info("============>s5k5cag read reg[0x01F8]: 0x%x", id);
-
-    s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
-    s5k5cag_write_reg(0x002A, 0x01FA, I2C_16BIT, 0x00);
-    s5k5cag_read_reg(0x0f12, &id);
-    print_info("============>s5k5cag read reg[0x01FA]: 0x%x", id);
-    #endif
-/////////////////////////////////////////////////////
-
-
-
-#endif
-
-    if (0 != k3_ispio_init_csi(s5k5cag_sensor.mipi_index,
-				 s5k5cag_sensor.mipi_lane_count, s5k5cag_sensor.lane_clk)) {
+	if (0 != k3_ispio_init_csi(s5k5cag_sensor.mipi_index,
+			s5k5cag_sensor.mipi_lane_count, s5k5cag_sensor.lane_clk)) {
 		print_error("fail to init csi");
 		return -EFAULT;
 	}
@@ -729,8 +707,12 @@ print_info("======\\\\\\\\\\\\\\\\\\\\\\\\\======>s5k5cag product id:0x%x", id);
 
 	if (CAMERA_EFFECT_NONE != sensor_effect)
 		s5k5cag_set_effect(sensor_effect);
-		s5k5cag_set_awb(sensor_awb_mode);
-
+	s5k5cag_set_awb(sensor_awb_mode);
+	s5k5cag_set_iso(sensor_iso);
+	s5k5cag_set_ev(sensor_ev);
+	s5k5cag_set_brightness(sensor_brightness);
+	s5k5cag_set_contrast(sensor_contrast);
+	s5k5cag_set_saturation(sensor_saturation);
 	return 0;
 }
 
@@ -804,10 +786,10 @@ static u32 s5k5cag_get_exposure(void)
 */
 static int s5k5cag_framesize_switch(camera_state state)
 {
-       print_info("the capture index is %d ", s5k5cag_sensor.capture_frmsize_index);
+	print_info("the capture index is %d ", s5k5cag_sensor.capture_frmsize_index);
 	u32 size = 0;
 	u8 next_frmsize_index;
-       int i =0;
+	int i =0;
 
 	if (state == STATE_PREVIEW)
 		next_frmsize_index = s5k5cag_sensor.preview_frmsize_index;
@@ -865,18 +847,18 @@ static int s5k5cag_stream_on(camera_state state)
 ***************************************************************************/
 static int s5k5cag_check_sensor(void)
 {
-    u16 id = 0;
+	u16 id = 0;
 
-    /* Read the Model ID of the sensor */
-    s5k5cag_write_reg(0x002c, 0x0000, I2C_16BIT, 0x00);
-    s5k5cag_write_reg(0x002e, 0x0040, I2C_16BIT, 0x00);
+	/* Read the Model ID of the sensor */
+	s5k5cag_write_reg(0x002c, 0x0000, I2C_16BIT, 0x00);
+	s5k5cag_write_reg(0x002e, 0x0040, I2C_16BIT, 0x00);
 
-    s5k5cag_read_reg(0x0f12, &id);
+	s5k5cag_read_reg(0x0f12, &id);
 
-    print_info("============>s5k5cag product id:0x%x", id);
+	print_info("============>s5k5cag product id:0x%x", id);
 
 	if (id != S5K5CAG_CHIP_ID) {
-        print_error("Invalid product id ,Could not load sensor s5k5cag");
+		print_error("Invalid product id ,Could not load sensor s5k5cag");
 		return -EFAULT;
 	}
 
@@ -895,17 +877,11 @@ int s5k5cag_power(camera_power_state power)
 {
 	int ret = 0;
 
-#if 0
 	if (power == POWER_ON) {
-        k3_ispgpio_power_sensor(&s5k5cag_sensor, POWER_OFF);
-        udelay(100);
 		k3_ispldo_power_sensor(power,"pri-cameralog-vcc");  // 2.8V 模拟电压
 		k3_ispldo_power_sensor(power,"camera-vcc");         // 1.8V 数字电压
 		k3_ispio_ioconfig(&s5k5cag_sensor, power);
 		ret = camera_power_core_ldo(power);                 // 1.2V核电压
-		udelay(300);
-		k3_ispgpio_power_sensor(&s5k5cag_sensor, POWER_ON);
-        udelay(100);
 		//k3_ispldo_power_sensor(power,"cameravcm-vcc");      //马达电压
 		k3_ispldo_power_sensor(power,"sec-cameralog-vcc");  //前置模拟电压 2.8v
 	} else {
@@ -913,34 +889,13 @@ int s5k5cag_power(camera_power_state power)
 		k3_ispldo_power_sensor(power,"sec-cameralog-vcc");
 		//k3_ispldo_power_sensor(power,"cameravcm-vcc");      //马达电压
 		camera_power_core_ldo(power);
+		udelay(200);
 		k3_ispio_ioconfig(&s5k5cag_sensor, power);
-		k3_ispgpio_power_sensor(&s5k5cag_sensor, POWER_OFF);
-        k3_ispldo_power_sensor(power,"camera-vcc");
+		k3_ispldo_power_sensor(power,"camera-vcc");
+		udelay(10);
 		k3_ispldo_power_sensor(power,"pri-cameralog-vcc");
-        sensor_inited = false;
+		sensor_inited = false;
 	}
-#else
-    if (power == POWER_ON) {
-
-        k3_ispldo_power_sensor(power,"pri-cameralog-vcc");  // 2.8V 模拟电压
-        k3_ispldo_power_sensor(power,"camera-vcc");         // 1.8V 数字电压
-        k3_ispio_ioconfig(&s5k5cag_sensor, power);
-        ret = camera_power_core_ldo(power);                 // 1.2V核电压
-        //k3_ispldo_power_sensor(power,"cameravcm-vcc");      //马达电压
-        k3_ispldo_power_sensor(power,"sec-cameralog-vcc");  //前置模拟电压 2.8v
-    } else {
-        k3_ispio_deinit_csi(s5k5cag_sensor.mipi_index);
-        k3_ispldo_power_sensor(power,"sec-cameralog-vcc");
-        //k3_ispldo_power_sensor(power,"cameravcm-vcc");      //马达电压
-        camera_power_core_ldo(power);
-        udelay(200);
-        k3_ispio_ioconfig(&s5k5cag_sensor, power);
-        k3_ispldo_power_sensor(power,"camera-vcc");
-        udelay(10);
-        k3_ispldo_power_sensor(power,"pri-cameralog-vcc");
-        sensor_inited = false;
-    }
-#endif
 
 	return ret;
 
@@ -980,23 +935,23 @@ void s5k5cag_set_exposure(u32 exposure)
 */
 static int s5k5cag_reset( camera_power_state power_state)
 {
-    print_debug("%s  ", __func__);
+	print_debug("%s  ", __func__);
 
-    if (POWER_ON == power_state) {
-        k3_isp_io_enable_mclk(MCLK_ENABLE, s5k5cag_sensor.sensor_index);
-        k3_ispgpio_reset_sensor(s5k5cag_sensor.sensor_index, power_state,
-                          s5k5cag_sensor.power_conf.reset_valid);
+	if (POWER_ON == power_state) {
+		k3_isp_io_enable_mclk(MCLK_ENABLE, s5k5cag_sensor.sensor_index);
+		k3_ispgpio_reset_sensor(s5k5cag_sensor.sensor_index, power_state,
+				s5k5cag_sensor.power_conf.reset_valid);
 
-        k3_ispgpio_power_sensor(&s5k5cag_sensor, POWER_ON);
-        udelay(500);
-        k3_ispgpio_power_sensor(&s5k5cag_sensor, POWER_OFF);
-    } else {
-        k3_ispgpio_reset_sensor(s5k5cag_sensor.sensor_index, power_state,
-                  s5k5cag_sensor.power_conf.reset_valid);
-        k3_isp_io_enable_mclk(MCLK_DISABLE, s5k5cag_sensor.sensor_index);
-    }
+		k3_ispgpio_power_sensor(&s5k5cag_sensor, POWER_ON);
+		udelay(500);
+		k3_ispgpio_power_sensor(&s5k5cag_sensor, POWER_OFF);
+	} else {
+		k3_ispgpio_reset_sensor(s5k5cag_sensor.sensor_index, power_state,
+				s5k5cag_sensor.power_conf.reset_valid);
+		k3_isp_io_enable_mclk(MCLK_DISABLE, s5k5cag_sensor.sensor_index);
+	}
 
-    return 0;
+	return 0;
 }
 
 /*
@@ -1093,6 +1048,50 @@ static int s5k5cag_set_saturation(camera_saturation saturation)
 {
 	print_debug("enter %s", __func__);
 
+	if (false == sensor_inited) {
+		sensor_saturation = saturation;
+		return -1;
+	}
+	switch (saturation) {
+	case CAMERA_SATURATION_L2:
+		//CAM_saturation_NEG_5_3:
+		s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x002a, 0x0210, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x0f12, 0xFF9C, I2C_16BIT, 0x00);
+		break;
+
+	case CAMERA_SATURATION_L1:
+		//CAM_saturation_NEG_2_3:
+		s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x002a, 0x0210, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x0f12, 0xFFD8, I2C_16BIT, 0x00);
+		break;
+
+	case CAMERA_SATURATION_H0:
+		//CAM_saturation_ZERO:
+		s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x002a, 0x0210, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x0f12, 0x0000, I2C_16BIT, 0x00);
+		break;
+
+	case CAMERA_SATURATION_H1:
+		//CAM_saturation_POS_2_3:
+		s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x002a, 0x0210, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x0f12, 0x0028, I2C_16BIT, 0x00);
+		break;
+
+	case CAMERA_SATURATION_H2:
+		//CAM_saturation_POS_5_3:
+		s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x002a, 0x0210, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x0f12, 0x0064, I2C_16BIT, 0x00);
+		break;
+	default:
+		print_error("%s, Unsupport saturation: %d", __func__, saturation);
+		return -1;
+	}
+	sensor_saturation = saturation;
 	return 0;
 }
 
@@ -1100,12 +1099,100 @@ static int s5k5cag_set_contrast(camera_contrast contrast)
 {
 	print_debug("enter %s", __func__);
 
+	if (false == sensor_inited) {
+		sensor_contrast = contrast;
+		return -1;
+	}
+	switch (contrast) {
+	case CAMERA_CONTRAST_L2:
+		//CAM_contrast_NEG_5_3:
+		s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x002a, 0x020E, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x0f12, 0xFF9C, I2C_16BIT, 0x00);
+		break;
+
+	case CAMERA_CONTRAST_L1:
+		//CAM_contrast_NEG_2_3:
+		s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x002a, 0x020E, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x0f12, 0xFFD8, I2C_16BIT, 0x00);
+		break;
+
+	case CAMERA_CONTRAST_H0:
+		//CAM_contrast_ZERO:
+		s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x002a, 0x020E, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x0f12, 0x0000, I2C_16BIT, 0x00);
+		break;
+
+	case CAMERA_CONTRAST_H1:
+		//CAM_contrast_POS_2_3:
+		s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x002a, 0x020E, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x0f12, 0x0028, I2C_16BIT, 0x00);
+		break;
+
+	case CAMERA_CONTRAST_H2:
+		//CAM_contrast_POS_5_3:
+		s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x002a, 0x020E, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x0f12, 0x0064, I2C_16BIT, 0x00);
+		break;
+	default:
+		print_error("%s, Unsupport contrast:%d", __func__, contrast);
+		return -1;
+	}
+	sensor_contrast = contrast;
 	return 0;
 }
 static int s5k5cag_set_brightness(camera_brightness brightness)
 {
 	print_debug("enter %s", __func__);
 
+	if (false == sensor_inited) {
+		sensor_brightness = brightness;
+		return -1;
+	}
+	switch (brightness) {
+	case CAMERA_BRIGHTNESS_L2:
+		//CAM_sharpness_NEG_5_3:
+		s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x002a, 0x0212, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x0f12, 0xFF9C, I2C_16BIT, 0x00);
+		break;
+
+	case CAMERA_BRIGHTNESS_L1:
+		//CAM_sharpness_NEG_2_3:
+		s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x002a, 0x0212, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x0f12, 0xFFD8, I2C_16BIT, 0x00);
+		break;
+
+	case CAMERA_BRIGHTNESS_H0:
+		//CAM_sharpness_ZERO:
+		s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x002a, 0x0212, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x0f12, 0x0000, I2C_16BIT, 0x00);
+		break;
+
+	case CAMERA_BRIGHTNESS_H1:
+		//CAM_sharpness_POS_2_3:
+		s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x002a, 0x0212, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x0f12, 0x0028, I2C_16BIT, 0x00);
+		break;
+
+	case CAMERA_BRIGHTNESS_H2:
+		//CAM_sharpness_POS_5_3:
+		s5k5cag_write_reg(0x0028, 0x7000, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x002a, 0x0212, I2C_16BIT, 0x00);
+		s5k5cag_write_reg(0x0f12, 0x0064, I2C_16BIT, 0x00);
+		break;
+	default:
+		print_error("%s, Unsupport brightness:%d", __func__, brightness);
+		return -1;
+	}
+	sensor_brightness = brightness;
 	return 0;
 }
 
@@ -1184,6 +1271,7 @@ static void s5k5cag_set_default(void)
 
 	s5k5cag_sensor.aec_addr[0] = 0;
 	s5k5cag_sensor.aec_addr[1] = 0;
+	s5k5cag_sensor.aec_addr[2] = 0;
 	s5k5cag_sensor.agc_addr[0] = 0;
 	s5k5cag_sensor.agc_addr[1] = 0;
 
@@ -1195,9 +1283,10 @@ static void s5k5cag_set_default(void)
 
 	s5k5cag_sensor.sensor_gain_to_iso = NULL;
 	s5k5cag_sensor.sensor_iso_to_gain = NULL;
+	s5k5cag_sensor.get_ccm_pregain = NULL;
 
-	s5k5cag_sensor.set_effect = s5k5cag_set_effect;
-	s5k5cag_sensor.set_awb = s5k5cag_set_awb;
+	s5k5cag_sensor.get_sensor_aperture = NULL;
+	s5k5cag_sensor.get_equivalent_focus = NULL;
 
 	s5k5cag_sensor.isp_location = CAMERA_USE_SENSORISP;
 	s5k5cag_sensor.sensor_tune_ops = (isp_tune_ops *)kmalloc(sizeof(isp_tune_ops), GFP_KERNEL);
@@ -1227,9 +1316,15 @@ static void s5k5cag_set_default(void)
 	s5k5cag_sensor.vflip = 0;
 	s5k5cag_sensor.old_flip = 0;
 
-	s5k5cag_sensor.sensor_tune_ops->isp_set_saturation	= s5k5cag_set_saturation;
-	s5k5cag_sensor.sensor_tune_ops->isp_set_contrast = s5k5cag_set_contrast;
-	s5k5cag_sensor.sensor_tune_ops->isp_set_brightness = s5k5cag_set_brightness;
+	memset(s5k5cag_sensor.sensor_tune_ops, 0, sizeof(isp_tune_ops));
+	s5k5cag_sensor.sensor_tune_ops->set_saturation	= s5k5cag_set_saturation;
+	s5k5cag_sensor.sensor_tune_ops->set_contrast 	= s5k5cag_set_contrast;
+	s5k5cag_sensor.sensor_tune_ops->set_brightness 	= s5k5cag_set_brightness;
+	s5k5cag_sensor.sensor_tune_ops->set_iso 		= s5k5cag_set_iso;
+	s5k5cag_sensor.sensor_tune_ops->set_ev 		= s5k5cag_set_ev;
+	s5k5cag_sensor.sensor_tune_ops->set_effect		= s5k5cag_set_effect;
+	s5k5cag_sensor.sensor_tune_ops->set_awb		= s5k5cag_set_awb;
+	s5k5cag_sensor.sensor_tune_ops->set_anti_banding = NULL;
 }
 
 /*

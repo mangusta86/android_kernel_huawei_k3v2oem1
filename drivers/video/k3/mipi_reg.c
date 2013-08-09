@@ -533,6 +533,25 @@ typedef union {
 	u32 ul32;
 } MIPIDSI_PHY_TST_CTRL1;
 
+/**
+ * @union
+ * @brief Name: DSI TE CTRL.
+ */
+typedef union {
+	struct {
+		u32 dsi_te_hard_en:1;
+		u32 dsi_te0_pin_p:1;
+		u32 dsi_te1_pin_p:1;
+		u32 dsi_te_hard_sel:1;
+		u32 dsi_te_pin_hd_sel:1;
+		u32 dsi_te_mask_en:1;
+		u32 dsi_te_mask_dis:4;
+		u32 dsi_te_mask_und:4;
+		u32 dsi_te_pin_en:1;
+		u32 reserved:17;
+	} bits;
+	u32 ul32;
+} MIPIDSI_TE_CTRL;
 
 /******************************************************************************
 ** FUNCTIONS IMPLEMENTATIONS
@@ -1336,4 +1355,40 @@ void set_MIPIDSI_PHY_TST_CTRL1(u32 edc_base, u32 nVal)
 {
 	u32 addr = edc_base + MIPIDSI_PHY_TST_CTRL1_OFFSET;
 	outp32(addr, nVal);
+}
+
+void set_MIPIDSI_TE_CTRL(u32 edc_base, u32 nVal)
+{
+	u32 addr = edc_base + MIPIDSI_TE_CTRL_OFFSET;
+	outp32(addr, nVal);
+}
+
+void set_MIPIDSI_TE_CTRL_te_hard_en(u32 edc_base, u32 nVal)
+{
+	u32 addr = edc_base + MIPIDSI_TE_CTRL_OFFSET;
+	MIPIDSI_TE_CTRL mipidsi_te_ctrl;
+
+	mipidsi_te_ctrl.ul32 = inp32(addr);
+	mipidsi_te_ctrl.bits.dsi_te_hard_en = nVal;
+	outp32(addr, mipidsi_te_ctrl.ul32);
+}
+
+void set_MIPIDSI_TE_CTRL_te_mask_en(u32 edc_base, u32 nVal)
+{
+	u32 addr = edc_base + MIPIDSI_TE_CTRL_OFFSET;
+	MIPIDSI_TE_CTRL mipidsi_te_ctrl;
+
+	mipidsi_te_ctrl.ul32 = inp32(addr);
+	mipidsi_te_ctrl.bits.dsi_te_mask_en = nVal;
+	outp32(addr, mipidsi_te_ctrl.ul32);
+}
+
+void set_MIPIDSI_TE_CTRL_te_pin_en(u32 edc_base, u32 nVal)
+{
+	u32 addr = edc_base + MIPIDSI_TE_CTRL_OFFSET;
+	MIPIDSI_TE_CTRL mipidsi_te_ctrl;
+
+	mipidsi_te_ctrl.ul32 = inp32(addr);
+	mipidsi_te_ctrl.bits.dsi_te_pin_en = nVal;
+	outp32(addr, mipidsi_te_ctrl.ul32);
 }

@@ -35,8 +35,10 @@
 #define MAX_FRAME_NR            6
 
 /* using for ovisp debug added by j00212990*/
-/*#define OVISP_DEBUG_MODE*/
-/*#define OVISP_OFFLINE_MODE*/
+//#define OVISP_DEBUG_MODE
+//#define OVISP_OFFLINE_MODE
+/* used for offine tuning added by y00231328*/
+//#define READ_BACK_RAW
 
 typedef struct _camera_frame_buf {
 	int index;
@@ -68,9 +70,12 @@ typedef struct _data_queue {
 	spinlock_t queue_lock;
 } data_queue_t;
 
+#ifdef READ_BACK_RAW
+int load_raw_file(char *filename, u8 *addr);
+#endif
 int load_file(char *filename, u8 *addr);
-inline void add_to_queue(camera_frame_buf *f, struct list_head *l, u32 flag);
-inline void del_from_queue(camera_frame_buf *f, u32 flag);
+void add_to_queue(camera_frame_buf *f, struct list_head *l, u32 flag);
+void del_from_queue(camera_frame_buf *f, u32 flag);
 int get_queue_size(struct list_head *l);
 void reset_buffer(camera_frame_buf *buf, int count);
 void camera_init_buffer(buffer_arr_t *pbuf);

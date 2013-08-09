@@ -563,7 +563,14 @@ _AllocateMemory(
 #if gcdSIZE_ALLOW_TO_CONTIGUOUS
             if (Bytes <= gcdSIZE_ALLOW_TO_CONTIGUOUS)
             {
-                status = gckVIDMEM_ConstructVirtual(Kernel, gcvTRUE, Bytes, &node);
+                tileStatusInVirtual =
+                    gckHARDWARE_IsFeatureAvailable(Kernel->hardware,
+                                                   gcvFEATURE_MC20);
+
+                if (Type == gcvSURF_TILE_STATUS && tileStatusInVirtual != gcvTRUE)
+                {
+                    status = gckVIDMEM_ConstructVirtual(Kernel, gcvTRUE, Bytes, &node);
+                }
             }
 #endif
 

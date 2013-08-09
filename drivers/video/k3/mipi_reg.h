@@ -35,6 +35,7 @@
 
 
 #define MIPIDSI_OFFSET				(0x900)
+#define MIPIDSI_OFFSET_2			(0x800)
 #define MIPIDSI_VERSION_OFFSET		(MIPIDSI_OFFSET + 0x0)
 #define MIPIDSI_PWR_UP_OFFSET		(MIPIDSI_OFFSET + 0x4)
 #define MIPIDSI_CLKMGR_CFG_OFFSET	(MIPIDSI_OFFSET + 0x8)
@@ -63,7 +64,12 @@
 #define MIPIDSI_PHY_STATUS_OFFSET	(MIPIDSI_OFFSET + 0x60)
 #define MIPIDSI_PHY_TST_CTRL0_OFFSET	(MIPIDSI_OFFSET + 0x64)
 #define MIPIDSI_PHY_TST_CTRL1_OFFSET	(MIPIDSI_OFFSET + 0x68)
-
+#define MIPIDSI_EDPI_CFG						(MIPIDSI_OFFSET + 0x6C)
+#define MIPIDSI_CMD_MOD_CTRL_OFFSET		(MIPIDSI_OFFSET_2 + 0x3C)
+#define MIPIDSI_TE_CTRL_OFFSET			(MIPIDSI_OFFSET_2 + 0x40)
+#define MIPIDSI_TE_HS_NUM_OFFSET		(MIPIDSI_OFFSET_2 + 0x44)
+#define MIPIDSI_TE_HS_WD_OFFSET			(MIPIDSI_OFFSET_2 + 0x48)
+#define MIPIDSI_TE_VS_WD_OFFSET			(MIPIDSI_OFFSET_2 + 0x4C)
 
 /******************************************************************************
 ** FUNCTIONS PROTOTYPES
@@ -157,6 +163,9 @@ void set_MIPIDSI_PHY_IF_CTRL_txexitulpslan(u32 edc_base, u32 nVal);
 void set_MIPIDSI_PHY_IF_CTRL_tx_tiggers(u32 edc_base, u32 nVal);
 void set_MIPIDSI_PHY_TST_CTRL0(u32 edc_base, u32 nVal);
 void set_MIPIDSI_PHY_TST_CTRL1(u32 edc_base, u32 nVal);
-
+void set_MIPIDSI_TE_CTRL(u32 edc_base, u32 nVal);
+void set_MIPIDSI_TE_CTRL_te_hard_en(u32 edc_base, u32 nVal);
+void set_MIPIDSI_TE_CTRL_te_mask_en(u32 edc_base, u32 nVal);
+void set_MIPIDSI_TE_CTRL_te_pin_en(u32 edc_base, u32 nVal);
 
 #endif  /* MIPI_REG_H */

@@ -33,6 +33,11 @@ static long lmdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		u32 dgamma;
 		u32 cabc;
 		/* END:   Added by huohua, 2012/02/14 */
+
+        /* BEGIN: Added by wugao 00190753 */
+        /* the color temperature vlaue */
+        u32 ctValue[9];
+        /* END:   Added by wugao 00190753 */
 	}par;
 
 	ltd = &lmdev->ltd;
@@ -93,6 +98,22 @@ static long lmdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		}
 		break;
 		/* END:   Added by huohua, 2012/02/14 */
+
+        /* BEGIN: Added by wugao 00190753 */
+        case LCD_TUNING_DCPR:
+        {
+            if(ltd->ops->set_color_temperature)
+            {
+                r = copy_from_user((void *)&par, ptr, sizeof(par.ctValue));
+                if(r)
+                {
+                    goto out;
+                }
+            ltd->ops->set_color_temperature(ltd, par.ctValue);
+            }
+        }
+        break;
+        /* END:   Added by wugao 00190753 */
 
 		default:
 		{

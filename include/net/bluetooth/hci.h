@@ -37,9 +37,7 @@
 #define HCI_DEV_DOWN			4
 #define HCI_DEV_SUSPEND			5
 #define HCI_DEV_RESUME			6
-/*Begin:Added by g00124340 2011/09/03  for bluetooth low power */
 #define HCI_DEV_WRITE			7
-/*End:Added by g00124340 2011/09/03 */
 
 
 /* HCI notify events */

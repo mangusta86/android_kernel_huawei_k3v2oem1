@@ -499,10 +499,8 @@ struct adxl34x {
 	unsigned model;
 	unsigned int_mask;
 
-	/* zkf55108 2011/12/14 add begin */
 	struct iomux_block *gpio_block;
 	struct block_config *gpio_block_config;
-	/* zkf55108 2011/12/14 add end */
 
 	int (*read) (bus_device *, unsigned char);
 	int (*read_block) (bus_device *, unsigned char, int, unsigned char *);

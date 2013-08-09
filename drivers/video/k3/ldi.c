@@ -235,7 +235,6 @@ static int ldi_set_playvideo(struct platform_device *pdev, int gamma)
 	return ret;
 }
 
-#if K3_FB_FRC_ENABLE
 static int ldi_set_frc(struct platform_device *pdev, int target_fps)
 {
 	int ret = 0;
@@ -245,7 +244,12 @@ static int ldi_set_frc(struct platform_device *pdev, int target_fps)
 
 	return 0;
 }
-#endif
+static int ldi_check_esd(struct platform_device *pdev)
+{
+	BUG_ON(pdev == NULL);
+
+	return panel_next_check_esd(pdev);
+}
 
 static int ldi_probe(struct platform_device *pdev)
 {
@@ -305,9 +309,8 @@ static int ldi_probe(struct platform_device *pdev)
 	pdata->set_backlight = ldi_set_backlight;
 	pdata->set_timing = ldi_set_timing;
 	pdata->set_playvideo = ldi_set_playvideo;
-#if K3_FB_FRC_ENABLE
+	pdata->check_esd = ldi_check_esd;
 	pdata->set_frc = ldi_set_frc;
-#endif
 	pdata->next = pdev;
 
 	/* get/set panel info */

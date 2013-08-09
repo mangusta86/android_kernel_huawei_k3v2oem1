@@ -28,7 +28,10 @@
 #define LDO_VOLTAGE_18V  1800000
 #define LDO_VOLTAGE_28V  2850000
 
-#define CAMERA_MAX_FRAMERATE 		30
+#define CAMERA_MAX_FRAMERATE		30
+#define CAMERA_MIN_FRAMERATE		15
+
+#define CAMERA_MIN_CAP_FRAMERATE		8
 
 #define ISP_RUNNING_CLOCK		(131000000L)
 #define ISP_MCLK_DIVIDER		(8)
@@ -273,10 +276,15 @@ typedef enum {
 } camera_shoot_mode;
 
 typedef enum {
-	CAMERA_AUTO_FRAME_RATE_UP = 0,
-	CAMERA_AUTO_FRAME_RATE_DOWN,
-	CAMERA_AUTO_FRAME_RATE_UNCHANGE,
-} camera_auto_frame_rate;
+	CAMERA_FRAME_RATE_HIGH = 0,
+	CAMERA_FRAME_RATE_LOW,
+	CAMERA_EXPO_PRE_REDUCE,
+} camera_frame_rate_state;
+
+typedef enum {
+	CAMERA_FRAME_RATE_UP = 0,
+	CAMERA_FRAME_RATE_DOWN,
+} camera_frame_rate_dir;
 
 typedef struct _sensor_reg_t {
 	u32 subaddr;
@@ -358,6 +366,7 @@ typedef struct _axis_triple {
 	int x;
 	int y;
 	int z;
+	struct timeval time;
 } axis_triple;
 
 /* For focus start or stop command */
@@ -403,31 +412,28 @@ typedef struct _vcm_info_s {
 	u32 vcm_bits;		/* 16bits or 8bits */
 	u32 vcm_id;		/* for example, "DW9714" is 0x18 */
 	u32 moveLensAddr[2];
-	/* unsigned char motor_type; */
 
 	u32 offsetInit;		/* should be calibrated by focus at infinite distance */
 	u32 fullRange;		/* should be calibrated by focus at an macro distance */
 
 	u32 infiniteDistance;	/* should be calibrated by focus at infinite distance */
+
 	u32 normalDistanceEnd;
 	u32 normalStep;
+	u32 normalStrideRatio; /* 0x10 is 1:1, 0x18 is 1:1.5, 0x20 is 1:2 */
+
 	u32 videoDistanceEnd;
 	u32 videoStep;
+	u32 videoStrideRatio;
 
-	u32 videoStrideOffset;
+	u32 strideOffset;
 
 	u32 coarseStep;
 	u32 fineStep; /* half of coarseStep */
 
-	u32 frameRate;		/* should same as sensor's fps */
 	u32 motorResTime;	/* response time, in unit of ms */
 
-	/* 0x01cddc 01, 0: 16bit register address; 1: no address and 16bit data (e.g. AD5820) */
-	u32 MotorDriveMode;
-	/* 0x01cddd 01, when set a new mode, should set it */
-	u32 IfMotorCalibrate;
 	FOCUS_RANGE moveRange;/*0:Auto; 1:Infinite; 2:Macro*/
-
 
 	void (*get_vcm_otp) (u16 *vcm_start, u16 *vcm_end);
 } vcm_info_s;
@@ -445,8 +451,9 @@ typedef struct {
 	/*
 	 * param: focus_area_s *area, rects definition;
 	 */
-	int (*isp_set_focus_area) (focus_area_s *area);
+	int (*isp_set_focus_area) (focus_area_s *area, u32 zoom);	
 	int (*isp_get_focus_result) (focus_result_s *result);
+	int (*isp_set_focus_zoom) (u32 zoom);
 
 	/* For anti-shaking */
 	int (*isp_set_anti_shaking) (camera_anti_shaking flag);
@@ -454,25 +461,25 @@ typedef struct {
 	int (*isp_get_anti_shaking_coordinate) (coordinate_s *coordinate);
 
 	/* For other functions */
-	int (*isp_set_iso) (camera_iso iso);
-	int (*isp_set_ev) (int ev);
-	int (*isp_set_metering_mode) (camera_metering mode);
-	int (*isp_set_metering_area) (metering_area_s *area);
+	int (*set_iso) (camera_iso iso);
+	int (*set_ev) (int ev);
+	int (*set_metering_mode) (camera_metering mode);
+	int (*set_metering_area) (metering_area_s *area);
 
-	int (*isp_set_gsensor_stat) (axis_triple *xyz);
+	int (*set_gsensor_stat) (axis_triple *xyz);
 
-	int (*isp_set_bracket_info) (int *ev);
+	int (*set_bracket_info) (int *ev);
 
-	int (*isp_set_anti_banding) (camera_anti_banding banding);
-	int (*isp_get_anti_banding) (void);
-	int (*isp_set_awb) (camera_white_balance awb_mode);
+	int (*set_anti_banding) (camera_anti_banding banding);
+	int (*get_anti_banding) (void);
+	int (*set_awb) (camera_white_balance awb_mode);
 
-	int (*isp_set_sharpness) (camera_sharpness sharpness);
-	int (*isp_set_saturation) (camera_saturation saturation);
-	int (*isp_set_contrast) (camera_contrast contrast);
-	int (*isp_set_scene) (camera_scene scene);
-	int (*isp_set_brightness) (camera_brightness brightness);
-	int (*isp_set_effect) (camera_effects effect);
+	int (*set_sharpness) (camera_sharpness sharpness);
+	int (*set_saturation) (camera_saturation saturation);
+	int (*set_contrast) (camera_contrast contrast);
+	int (*set_scene) (camera_scene scene);
+	int (*set_brightness) (camera_brightness brightness);
+	int (*set_effect) (camera_effects effect);
 	int (*isp_get_actual_iso) (void);
 	int (*isp_get_exposure_time) (void);
 
@@ -483,6 +490,10 @@ typedef struct {
 	u32 (*isp_get_focus_rect)(camera_rect_s *rect);
 	u32 (*isp_get_expo_line)(void);
 	u32 (*isp_get_sensor_vts)(void);
+
+	u32 (*isp_get_current_ccm_rgain)(void);
+	u32 (*isp_get_current_ccm_bgain)(void);
+
 } isp_tune_ops;
 
 typedef enum {
@@ -534,6 +545,16 @@ typedef enum {
 	FLASH_MA_MAX = 0x20,
 } flash_value;
 
+
+typedef enum {
+	TOUCH_100MA = 0x12,
+	TOUCH_150MA = 0x1b,
+	TOUCH_200MA = 0x24,
+	TOUCH_250MA = 0x2d,
+	TOUCH_300MA = 0x36,
+	TOUCH_MA_MAX = 0x36,
+} touch_value;
+
 typedef enum {
 	FLASH_ON = 0,
 	FLASH_OFF,
@@ -563,9 +584,16 @@ typedef enum {
 } offline_state_t;
 
 typedef enum {
+	FRAMESIZE_NOBINNING = 0,
+	FRAMESIZE_BINNING,
+	FRAMESIZE_BINNING_MAX,
+} binning_t;
+
+typedef enum {
 	FLASH_PLATFORM_U9510 = 0,
 	FLASH_PLATFORM_9510E,
 	FLASH_PLATFORM_S10,
+	FLASH_PLATFORM_U9508,
 	FLASH_PLATFORM_MAX,
 } flash_platform_t;
 
@@ -586,12 +614,18 @@ typedef struct _image_setting {
 	u8 *awb_param;
 } image_setting_t;
 
-typedef struct _awb_gain{
+typedef struct _awb_gain {
 	u16 b_gain;
 	u16 gb_gain;
 	u16 gr_gain;
 	u16 r_gain;
 } awb_gain_t;
+
+typedef struct _ccm_gain {
+	u16 b_gain;
+	u16 g_gain;
+	u16 r_gain;
+} ccm_gain_t;
 
 typedef struct _camera_sensor {
 	/* init and exit function */
@@ -674,6 +708,7 @@ typedef struct _camera_sensor {
 	u32 (*sensor_gain_to_iso) (int gain);
 	u32 (*sensor_iso_to_gain) (int iso);
 	void (*get_ccm_pregain) (camera_state state, u32 frame_index, u8 *bgain, u8 *rgain);
+	void(*get_flash_awb)(flash_platform_t type, awb_gain_t *flash_awb);
 
 	/*set ISP gain and exposure to sensor */
 	void (*set_gain) (u32 gain);
@@ -693,6 +728,11 @@ typedef struct _camera_sensor {
 
 	/* update_framerate*/
 	void (*update_framerate) (camera_frame_rate_mode mode);
+
+	void (*awb_dynamic_ccm_gain) (u32 frame_index, u32 ae, awb_gain_t  *awb_gain, ccm_gain_t *ccm_gain);
+
+	int (*get_sensor_aperture)(void);
+	int (*get_equivalent_focus)(void);
 
 	u32 fmt[STATE_MAX];
 	u32 preview_frmsize_index;
@@ -773,8 +813,7 @@ int get_camera_count(void);
 /* power core ldo */
 int camera_power_core_ldo(camera_power_state power);
 int camera_power_id_gpio(camera_power_state power);
-int camera_get_frame_rate_level(void);
-void camera_set_frame_rate_level(int level);
+
 int camera_get_i2c_speed(unsigned int chip_id, i2c_speed_t i2c_speed_idx);
 int camera_timing_is_match(int type);
 camera_sensor **get_camera_sensor_array(sensor_index_t sensor_index);

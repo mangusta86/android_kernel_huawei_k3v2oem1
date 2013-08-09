@@ -20,8 +20,10 @@ Problem NO.         Name        Time         Reason
 #include "../../accelerometer/gs_mma8452.h"
 #include "../../gyroscope/l3g4200d.h"
 #include "../../compass/akm8975.h"
+#include "../../compass/akm8963.h"
 #include "../../light/apds990x.h"
-
+#include "../../compass/yas.h"
+#include "../../compass/yas_cfg.h"
 #include <linux/board_sensors.h>
 #include <hsad/config_interface.h>
 
@@ -40,8 +42,8 @@ static struct lis3dh_acc_platform_data gs_platform_data = {
 	.axis_map_y = 1,
 	.axis_map_z = 2,
 
-	.negate_x = 1,	/* modified by zkf55108 2011/10/26 */
-	.negate_y = 1,	/* modified by zkf55108 2011/10/26 */
+	.negate_x = 1,	
+	.negate_y = 1,	
 	.negate_z = 0,
 
 	.gpio_int1 = -1, /* if used this irq,set gpio_int1=GPIO_18_4 */
@@ -52,17 +54,23 @@ struct mma8452_acc_platform_data mma8452_platform_data = {
 };
 
 static struct akm8975_platform_data compass_platform_data = {
-	.gpio_DRDY = GPIO_15_5 ,/* GPIO-125	*/ /* modified by zkf55108 2011/10/26 */
+	.gpio_DRDY = GPIO_15_5 ,/* GPIO-125	*/ 
 };
-
+#ifdef CONFIG_HUAWEI_FEATURE_SENSORS_AKM8963
+static struct akm8963_platform_data compass_akm8963_platform_data = {
+	.outbit = 1,
+	.gpio_DRDY = GPIO_15_5 ,/* GPIO-125	*/
+	.gpio_RST = 0,
+};
+#endif
 static struct l3g4200d_gyr_platform_data l3g4200d_gyr_platform_data = {
 	.poll_interval = 10,
 	.min_interval = 10,
 
 	.fs_range = 0x30,
 
-	.axis_map_x = 1,	/* modified by zkf55108 2011/10/26 */
-	.axis_map_y = 0,	/* modified by zkf55108 2011/10/26 */
+	.axis_map_x = 1,	
+	.axis_map_y = 0,
 	.axis_map_z = 2,
 
 	.negate_x = 1,
@@ -101,6 +109,14 @@ static struct adxl34x_platform_data adxl34x_default_init = {
 
 struct apds990x_platform_data apds990x_light_platform_data = {
 };
+#ifdef CONFIG_HUAWEI_FEATURE_SENSORS_YAMAHA_COMPASS
+static struct yamaha_platform_data yamaha_compass_platform_data = {
+	.gpio_DRDY = GPIO_15_5,
+	.gpio_RST = 48,
+	.layout = 3,
+	.outbit = 1,
+};
+#endif
 
 static struct i2c_board_info  k3v2oem1_i2c_0_boardinfo[] = {
 
@@ -111,7 +127,20 @@ static struct i2c_board_info  k3v2oem1_i2c_0_boardinfo[] = {
 		.irq = IRQ_GPIO(COMPASS_INT_GPIO),
 	},
 #endif
-
+#ifdef CONFIG_HUAWEI_FEATURE_SENSORS_AKM8963
+	{
+		I2C_BOARD_INFO(AKM8963_I2C_NAME, AKM8963_I2C_ADDR),
+		.platform_data = &compass_akm8963_platform_data,
+		.irq = IRQ_GPIO(COMPASS_INT_GPIO),
+	},
+#endif
+#ifdef CONFIG_HUAWEI_FEATURE_SENSORS_YAMAHA_COMPASS
+    {
+        I2C_BOARD_INFO("yamaha_geomagnetic", 0x2e),//7 bit addr, no write bit
+        .platform_data = &yamaha_compass_platform_data,
+		.irq = IRQ_GPIO(COMPASS_INT_GPIO),
+	},
+#endif
 #ifdef CONFIG_HUAWEI_FEATURE_SENSORS_ACCELEROMETER_ST_LIS3XH
 	{
 		I2C_BOARD_INFO(LIS3DH_I2C_NAME, LIS3DH_I2C_ADDR),
@@ -164,6 +193,9 @@ void sensor_layout_init(void)
 		mma8452_platform_data.config_mxc_mma_position = 1;
 		adxl34x_default_init.config_adxl34x_position = 0;
 		compass_platform_data.config_akm_position = 3;
+		#ifdef CONFIG_HUAWEI_FEATURE_SENSORS_AKM8963
+		compass_akm8963_platform_data.layout = 3;
+		#endif
 		l3g4200d_gyr_platform_data.negate_x = 1;
 		l3g4200d_gyr_platform_data.negate_y = 1;
 		break;

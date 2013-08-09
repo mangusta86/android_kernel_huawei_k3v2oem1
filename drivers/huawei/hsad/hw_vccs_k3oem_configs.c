@@ -8,6 +8,7 @@ config_pair  hw_vccs_k3oem_configs [] = {
     {"audio/hs_keys", (unsigned int)1, E_CONFIG_DATA_TYPE_INT },
     {"audio/hs_pa", (const unsigned int)(unsigned int*)"TPA6132", E_CONFIG_DATA_TYPE_STRING },
     {"audio/hsd_invert", (unsigned int)1, E_CONFIG_DATA_TYPE_INT },
+    {"audio/ril_type", (const unsigned int)(unsigned int*)"NONE", E_CONFIG_DATA_TYPE_STRING },
     {"audio/spk_pa", (const unsigned int)(unsigned int*)"TPA2028", E_CONFIG_DATA_TYPE_STRING },
     {"audio/spk_route", (const unsigned int)(unsigned int*)"LINEOUT_L", E_CONFIG_DATA_TYPE_STRING },
     {"battery/battery_type", (unsigned int)0, E_CONFIG_DATA_TYPE_INT },

@@ -37,12 +37,13 @@
 #include "k3_fb_def.h"
 
 /* panel type list */
-#define NO_PANEL			0xffff	/* No Panel */
-#define LDI_PANEL			1	/* internal LCDC type */
-#define HDMI_PANEL			2	/* HDMI TV */
-#define MIPI_VIDEO_PANEL	3	/* MIPI */
-#define MIPI_CMD_PANEL		4	/* MIPI */
-#define DP_PANEL			5	/* Display Port */
+#define NO_PANEL                       0xffff  /* No Panel */
+#define LDI_PANEL                      1       /* internal LCDC type */
+#define HDMI_PANEL                     2       /* HDMI TV */
+#define PANEL_MIPI_VIDEO	3	/* MIPI */
+#define PANEL_MIPI_CMD	4	/* MIPI */
+#define DP_PANEL                       5       /* Display Port */
+
 
 /* LCD init step */
 enum {
@@ -114,6 +115,10 @@ struct k3_panel_info {
 	volatile bool display_on;
 	u8 lcd_init_step;
 
+	u8 sbl_enable;
+	u8 frc_enable;
+	u8 esd_enable;
+
 	struct ldi_panel_info ldi;
 	struct mipi_panel_info mipi;
 	struct sbl_panel_info sbl;
@@ -122,6 +127,7 @@ struct k3_panel_info {
 	u32 gpio_power;
 	u32 gpio_lcd_id0;
 	u32 gpio_lcd_id1;
+	u32 gpio_lcd_te;
 	struct regulator *lcdio_vcc;
 	struct regulator *lcdanalog_vcc;
 	struct iomux_block *lcd_block;
@@ -150,8 +156,9 @@ struct k3_fb_panel_data {
 	int (*set_timing) (struct platform_device *pdev);
 	int (*set_playvideo) (struct platform_device *pdev, int gamma);
 	int (*set_fastboot) (struct platform_device *pdev);
-	int (*set_frc)(struct platform_device *pdev, int target_fps);
-	int (*set_cabc)(struct platform_device *pdev, int value);
+	int (*set_frc) (struct platform_device *pdev, int target_fps);
+	int (*set_cabc) (struct platform_device *pdev, int value);
+	int (*check_esd) (struct platform_device *pdev);
 	struct platform_device *next;
 };
 
@@ -171,7 +178,9 @@ int panel_next_set_backlight(struct platform_device *pdev);
 int panel_next_set_timing(struct platform_device *pdev);
 int panel_next_set_playvideo(struct platform_device *pdev, int gamma);
 int panel_next_set_frc(struct platform_device *pdev, int target_fps);
+int panel_next_check_esd(struct platform_device *pdev);
 int pwm_set_backlight(int bl_lvl, struct k3_panel_info *pinfo);
+u32 square_point_six(u32);
 
 /******************************************************************************/
 
@@ -181,6 +190,7 @@ int pwm_set_backlight(int bl_lvl, struct k3_panel_info *pinfo);
 #define CLK_LDI0_NAME	"clk_ldi0"
 #define CLK_LDI1_NAME	"clk_ldi1"
 #define CLK_EDC0_NAME	"clk_edc0"
+#define CLK_EDC0_RST_NAME	"clk_edc0_rst"
 #define CLK_EDC1_NAME	"clk_edc1"
 #define CLK_G2D_NAME	"clk_g2d"
 
@@ -203,6 +213,7 @@ int pwm_set_backlight(int bl_lvl, struct k3_panel_info *pinfo);
 #define GPIO_LCD_PWM1_NAME	"gpio_pwm1"
 #define GPIO_LCD_ID0_NAME	"gpio_lcd_id0"
 #define GPIO_LCD_ID1_NAME	"gpio_lcd_id1"
+#define GPIO_LCD_TE_NAME	"gpio_lcd_te"
 
 #define IOMUX_LCD_NAME	"block_lcd"
 #define IOMUX_PWM_NAME	"block_pwm"
