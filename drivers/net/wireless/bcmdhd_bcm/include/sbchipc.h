@@ -5,7 +5,7 @@
  * JTAG, 0/1/2 UARTs, clock frequency control, a watchdog interrupt timer,
  * GPIO interface, extbus, and support for serial and parallel flashes.
  *
- * $Id: sbchipc.h,v 13.169.2.14 2011-02-10 23:43:55 Exp $
+ * $Id: sbchipc.h 333924 2012-05-18 04:48:52Z $
  *
  * Copyright (C) 1999-2011, Broadcom Corporation
  * 
@@ -197,19 +197,19 @@ typedef volatile struct {
 	uint32	prog_waitcount;
 	uint32	flash_config;
 	uint32	flash_waitcount;
-	uint32  SECI_config;
+	uint32  SECI_config;		
 	uint32	SECI_status;
 	uint32	SECI_statusmask;
 	uint32	SECI_rxnibchanged;
 
 	uint32	PAD[20];
 
-
-	uint32	sromcontrol;
+	
+	uint32	sromcontrol;		
 	uint32	sromaddress;
 	uint32	sromdata;
-	uint32	PAD[9];
-	uint32  seci_uart_data;
+	uint32	PAD[9];		
+	uint32  seci_uart_data;		
 	uint32  seci_uart_bauddiv;
 	uint32  seci_uart_fcr;
 	uint32  seci_uart_lcr;
@@ -217,8 +217,8 @@ typedef volatile struct {
 	uint32  seci_uart_lsr;
 	uint32  seci_uart_msr;
 	uint32  seci_uart_baudadj;
-
-	uint32	clk_ctl_st;
+	
+	uint32	clk_ctl_st;		
 	uint32	hw_war;
 	uint32	PAD[70];
 
@@ -1420,7 +1420,7 @@ typedef volatile struct {
 #define	CST43239_RES_INIT_MODE_SHIFT	7
 #define	CST43239_RES_INIT_MODE_MASK		0x000001f0
 #define CST43239_CHIPMODE_SDIOD(cs)	((cs) & (1 << 15))	
-#define CST43239_CHIPMODE_USB20D(cs)	(~(cs) & (1 << 15))
+#define CST43239_CHIPMODE_USB20D(cs)	(~(cs) & (1 << 15))	
 #define CST43239_CHIPMODE_SDIO(cs)	(((cs) & (1 << 0)) == 0)	
 #define CST43239_CHIPMODE_GSPI(cs)	(((cs) & (1 << 0)) == (1 << 0))	
 
@@ -1436,26 +1436,26 @@ typedef volatile struct {
 #define RES4331_HT_SI_AVAIL		5
 
 
-#define CCTRL4331_BT_COEXIST		(1<<0)
-#define CCTRL4331_SECI			(1<<1)
-#define CCTRL4331_EXT_LNA_G		(1<<2)
-#define CCTRL4331_SPROM_GPIO13_15       (1<<3)
-#define CCTRL4331_EXTPA_EN		(1<<4)
-#define CCTRL4331_GPIOCLK_ON_SPROMCS	<1<<5)
-#define CCTRL4331_PCIE_MDIO_ON_SPROMCS	(1<<6)
-#define CCTRL4331_EXTPA_ON_GPIO2_5	(1<<7)
-#define CCTRL4331_OVR_PIPEAUXCLKEN	(1<<8)
-#define CCTRL4331_OVR_PIPEAUXPWRDOWN	(1<<9)
-#define CCTRL4331_PCIE_AUXCLKEN		<1<<10)
-#define CCTRL4331_PCIE_PIPE_PLLDOWN	<1<<11)
-#define CCTRL4331_EXTPA_EN2		(1<<12)
-#define CCTRL4331_EXT_LNA_A		(1<<13)
-#define CCTRL4331_BT_SHD0_ON_GPIO4	<1<<16)
-#define CCTRL4331_BT_SHD1_ON_GPIO5	<1<<17)
-#define CCTRL4331_EXTPA_ANA_EN		(1<<24)
+#define CCTRL4331_BT_COEXIST		(1<<0)	
+#define CCTRL4331_SECI			(1<<1)	
+#define CCTRL4331_EXT_LNA_G		(1<<2)	
+#define CCTRL4331_SPROM_GPIO13_15       (1<<3)  
+#define CCTRL4331_EXTPA_EN		(1<<4)	
+#define CCTRL4331_GPIOCLK_ON_SPROMCS	(1<<5)	
+#define CCTRL4331_PCIE_MDIO_ON_SPROMCS	(1<<6)	
+#define CCTRL4331_EXTPA_ON_GPIO2_5	(1<<7)	
+#define CCTRL4331_OVR_PIPEAUXCLKEN	(1<<8)	
+#define CCTRL4331_OVR_PIPEAUXPWRDOWN	(1<<9)	
+#define CCTRL4331_PCIE_AUXCLKEN		(1<<10)	
+#define CCTRL4331_PCIE_PIPE_PLLDOWN	(1<<11)	
+#define CCTRL4331_EXTPA_EN2		(1<<12)	
+#define CCTRL4331_EXT_LNA_A		(1<<13)	
+#define CCTRL4331_BT_SHD0_ON_GPIO4	(1<<16)	
+#define CCTRL4331_BT_SHD1_ON_GPIO5	(1<<17)	
+#define CCTRL4331_EXTPA_ANA_EN		(1<<24)	
 
 
-#define	CST4331_XTAL_FREQ		0x00000001
+#define	CST4331_XTAL_FREQ		0x00000001	
 #define	CST4331_SPROM_OTP_SEL_MASK	0x00000006
 #define	CST4331_SPROM_OTP_SEL_SHIFT	1
 #define	CST4331_SPROM_PRESENT		0x00000002
@@ -1464,77 +1464,77 @@ typedef volatile struct {
 #define	CST4331_LDO_PAR			0x00000010
 
 
-#define RES4315_CBUCK_LPOM		1
-#define RES4315_CBUCK_BURST		2
-#define RES4315_CBUCK_PWM		3
-#define RES4315_CLDO_PU			4
-#define RES4315_PALDO_PU		5
-#define RES4315_ILP_REQUEST		6
-#define RES4315_LNLDO1_PU		9
-#define RES4315_OTP_PU			10
-#define RES4315_LNLDO2_PU		12
-#define RES4315_XTAL_PU			13
-#define RES4315_ALP_AVAIL		14
-#define RES4315_RX_PWRSW_PU		15
-#define RES4315_TX_PWRSW_PU		16
-#define RES4315_RFPLL_PWRSW_PU		17
-#define RES4315_LOGEN_PWRSW_PU		18
-#define RES4315_AFE_PWRSW_PU		19
-#define RES4315_BBPLL_PWRSW_PU		20
-#define RES4315_HT_AVAIL		21
+#define RES4315_CBUCK_LPOM		1	
+#define RES4315_CBUCK_BURST		2	
+#define RES4315_CBUCK_PWM		3	
+#define RES4315_CLDO_PU			4	
+#define RES4315_PALDO_PU		5	
+#define RES4315_ILP_REQUEST		6	
+#define RES4315_LNLDO1_PU		9	
+#define RES4315_OTP_PU			10	
+#define RES4315_LNLDO2_PU		12	
+#define RES4315_XTAL_PU			13	
+#define RES4315_ALP_AVAIL		14	
+#define RES4315_RX_PWRSW_PU		15	
+#define RES4315_TX_PWRSW_PU		16	
+#define RES4315_RFPLL_PWRSW_PU		17	
+#define RES4315_LOGEN_PWRSW_PU		18	
+#define RES4315_AFE_PWRSW_PU		19	
+#define RES4315_BBPLL_PWRSW_PU		20	
+#define RES4315_HT_AVAIL		21	
 
 
-#define CST4315_SPROM_OTP_SEL_MASK	0x00000003
-#define CST4315_DEFCIS_SEL		0x00000000
-#define CST4315_SPROM_SEL		0x00000001
-#define CST4315_OTP_SEL			0x00000002
-#define CST4315_OTP_PWRDN		0x00000003
-#define CST4315_SDIO_MODE		0x00000004
+#define CST4315_SPROM_OTP_SEL_MASK	0x00000003	
+#define CST4315_DEFCIS_SEL		0x00000000	
+#define CST4315_SPROM_SEL		0x00000001	
+#define CST4315_OTP_SEL			0x00000002	
+#define CST4315_OTP_PWRDN		0x00000003	
+#define CST4315_SDIO_MODE		0x00000004	
 #define CST4315_RCAL_VALID		0x00000008
 #define CST4315_RCAL_VALUE_MASK		0x000001f0
 #define CST4315_RCAL_VALUE_SHIFT	4
-#define CST4315_PALDO_EXTPNP		0x00000200
+#define CST4315_PALDO_EXTPNP		0x00000200	
 #define CST4315_CBUCK_MODE_MASK		0x00000c00
 #define CST4315_CBUCK_MODE_BURST	0x00000400
 #define CST4315_CBUCK_MODE_LPBURST	0x00000c00
 
 
-#define RES4319_CBUCK_LPOM		1
-#define RES4319_CBUCK_BURST		2
-#define RES4319_CBUCK_PWM		3
-#define RES4319_CLDO_PU			4
-#define RES4319_PALDO_PU		5
-#define RES4319_ILP_REQUEST		6
-#define RES4319_LNLDO1_PU		9
-#define RES4319_OTP_PU			10
-#define RES4319_LNLDO2_PU		12
-#define RES4319_XTAL_PU			13
-#define RES4319_ALP_AVAIL		14
-#define RES4319_RX_PWRSW_PU		15
-#define RES4319_TX_PWRSW_PU		16
-#define RES4319_RFPLL_PWRSW_PU		17
-#define RES4319_LOGEN_PWRSW_PU		18
-#define RES4319_AFE_PWRSW_PU		19
-#define RES4319_BBPLL_PWRSW_PU		20
-#define RES4319_HT_AVAIL		21
+#define RES4319_CBUCK_LPOM		1	
+#define RES4319_CBUCK_BURST		2	
+#define RES4319_CBUCK_PWM		3	
+#define RES4319_CLDO_PU			4	
+#define RES4319_PALDO_PU		5	
+#define RES4319_ILP_REQUEST		6	
+#define RES4319_LNLDO1_PU		9	
+#define RES4319_OTP_PU			10	
+#define RES4319_LNLDO2_PU		12	
+#define RES4319_XTAL_PU			13	
+#define RES4319_ALP_AVAIL		14	
+#define RES4319_RX_PWRSW_PU		15	
+#define RES4319_TX_PWRSW_PU		16	
+#define RES4319_RFPLL_PWRSW_PU		17	
+#define RES4319_LOGEN_PWRSW_PU		18	
+#define RES4319_AFE_PWRSW_PU		19	
+#define RES4319_BBPLL_PWRSW_PU		20	
+#define RES4319_HT_AVAIL		21	
 
 
 #define	CST4319_SPI_CPULESSUSB		0x00000001
 #define	CST4319_SPI_CLK_POL		0x00000002
 #define	CST4319_SPI_CLK_PH		0x00000008
-#define	CST4319_SPROM_OTP_SEL_MASK	0x000000c0
+#define	CST4319_SPROM_OTP_SEL_MASK	0x000000c0	
 #define	CST4319_SPROM_OTP_SEL_SHIFT	6
-#define	CST4319_DEFCIS_SEL		0x00000000
-#define	CST4319_SPROM_SEL		0x00000040
-#define	CST4319_OTP_SEL			0x00000080
-#define	CST4319_OTP_PWRDN		0x000000c0
-#define	CST4319_SDIO_USB_MODE		0x00000100
+#define	CST4319_DEFCIS_SEL		0x00000000	
+#define	CST4319_SPROM_SEL		0x00000040	
+#define	CST4319_OTP_SEL			0x00000080      
+#define	CST4319_OTP_PWRDN		0x000000c0      
+#define	CST4319_SDIO_USB_MODE		0x00000100	
 #define	CST4319_REMAP_SEL_MASK		0x00000600
 #define	CST4319_ILPDIV_EN		0x00000800
 #define	CST4319_XTAL_PD_POL		0x00001000
 #define	CST4319_LPO_SEL			0x00002000
 #define	CST4319_RES_INIT_MODE		0x0000c000
-#define	CST4319_PALDO_EXTPNP		0x00010000
+#define	CST4319_PALDO_EXTPNP		0x00010000	
 #define	CST4319_CBUCK_MODE_MASK		0x00060000
 #define CST4319_CBUCK_MODE_BURST	0x00020000
 #define CST4319_CBUCK_MODE_LPBURST	0x00060000
@@ -1628,16 +1628,16 @@ typedef volatile struct {
 #define	RES4330_5g_LOGEN_PWRSW_PU	27
 
 
-#define CST4330_CHIPMODE_SDIOD(cs)	(((cs) & 0x7) < 6)
-#define CST4330_CHIPMODE_USB20D(cs)	(((cs) & 0x7) >= 6)
-#define CST4330_CHIPMODE_SDIO(cs)	(((cs) & 0x4) == 0)
-#define CST4330_CHIPMODE_GSPI(cs)	(((cs) & 0x6) == 4)
-#define CST4330_CHIPMODE_USB(cs)	(((cs) & 0x7) == 6)
-#define CST4330_CHIPMODE_USBDA(cs)	(((cs) & 0x7) == 7)
+#define CST4330_CHIPMODE_SDIOD(cs)	(((cs) & 0x7) < 6)	
+#define CST4330_CHIPMODE_USB20D(cs)	(((cs) & 0x7) >= 6)	
+#define CST4330_CHIPMODE_SDIO(cs)	(((cs) & 0x4) == 0)	
+#define CST4330_CHIPMODE_GSPI(cs)	(((cs) & 0x6) == 4)	
+#define CST4330_CHIPMODE_USB(cs)	(((cs) & 0x7) == 6)	
+#define CST4330_CHIPMODE_USBDA(cs)	(((cs) & 0x7) == 7)	
 #define	CST4330_OTP_PRESENT		0x00000010
 #define	CST4330_LPO_AUTODET_EN		0x00000020
 #define	CST4330_ARMREMAP_0		0x00000040
-#define	CST4330_SPROM_PRESENT		0x00000080
+#define	CST4330_SPROM_PRESENT		0x00000080	
 #define	CST4330_ILPDIV_EN		0x00000100
 #define	CST4330_LPO_SEL			0x00000200
 #define	CST4330_RES_INIT_MODE_SHIFT	10
@@ -1653,11 +1653,14 @@ typedef volatile struct {
 #define PCTL_4330_SERIAL_ENAB	(1  << 24)
 
 
-#define CCTRL_4330_GPIO_SEL		0x00000001
-#define CCTRL_4330_ERCX_SEL		0x00000002
-#define CCTRL_4330_SDIO_HOST_WAKE	0x00000004
-#define CCTRL_4330_JTAG_DISABLE	0x00000008
+#define CCTRL_4330_GPIO_SEL		0x00000001    
+#define CCTRL_4330_ERCX_SEL		0x00000002    
+#define CCTRL_4330_SDIO_HOST_WAKE	0x00000004    
+#define CCTRL_4330_JTAG_DISABLE	0x00000008    
 
+
+#define CCTRL_43239_GPIO_SEL		0x00000002    
+#define CCTRL_43239_SDIO_HOST_WAKE	0x00000004    
 
 #define	RES4313_BB_PU_RSRC		0
 #define	RES4313_ILP_REQ_RSRC		1
@@ -1683,7 +1686,7 @@ typedef volatile struct {
 #define	CST4313_SPROM_OTP_SEL_SHIFT		0
 
 
-#define CCTRL_4313_12MA_LED_DRIVE    0x00000007
+#define CCTRL_4313_12MA_LED_DRIVE    0x00000007    
 
 
 #define RES43228_NOT_USED		0
@@ -1720,7 +1723,7 @@ typedef volatile struct {
 #define SECI_ENAB_SECI_ECI	(1 << 2)
 #define SECI_ENAB_SECIOUT_DIS	(1 << 3)
 #define SECI_MODE_MASK		0x7
-#define SECI_MODE_SHIFT		4
+#define SECI_MODE_SHIFT		4 
 #define SECI_UPD_SECI		(1 << 7)
 
 
@@ -1733,11 +1736,11 @@ typedef volatile struct {
 #define SECI_UART_SECI_IN2_STATE	(1 << 3)
 
 
-#define SECI_UART_LCR_STOP_BITS		(1 << 0)
+#define SECI_UART_LCR_STOP_BITS		(1 << 0) 
 #define SECI_UART_LCR_PARITY_EN		(1 << 1)
-#define SECI_UART_LCR_PARITY		(1 << 2)
+#define SECI_UART_LCR_PARITY		(1 << 2) 
 #define SECI_UART_LCR_RX_EN		(1 << 3)
-#define SECI_UART_LCR_LBRK_CTRL		(1 << 4)
+#define SECI_UART_LCR_LBRK_CTRL		(1 << 4) 
 #define SECI_UART_LCR_TXO_EN		(1 << 5)
 #define SECI_UART_LCR_RTSO_EN		(1 << 6)
 #define SECI_UART_LCR_SLIPMODE_EN	(1 << 7)

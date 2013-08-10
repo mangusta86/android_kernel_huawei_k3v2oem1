@@ -369,5 +369,22 @@ int ipps_set_mode(struct ipps_client *client, unsigned int object,
 	return ipps_command(client, IPPS_SET_MODE, object, (void *)mode);
 }
 
+int ipps_get_func(struct ipps_client *client, unsigned int object,
+			unsigned int *func)
+{
+	return ipps_command(client, IPPS_GET_FUNC, object, (void *)func);
+}
+
+int ipps_set_func(struct ipps_client *client, unsigned int object,
+			unsigned int *func)
+{
+	return ipps_command(client, IPPS_SET_FUNC, object, (void *)func);
+}
+
+int ipps_update_power_capacity(struct ipps_client *client, unsigned int object,
+			int *param)
+{
+	return ipps_command(client, IPPS_UPDATE_POWER_CAPACITY, object, (void *)param);
+}
 
 MODULE_LICENSE("GPL");

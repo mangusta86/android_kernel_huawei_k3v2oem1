@@ -57,8 +57,19 @@ static int ldi_init(struct k3_fb_data_type *k3fd)
 	set_LDI_CTRL_bpp(edc_base, k3fd->panel_info.bpp);
 	set_LDI_CTRL_disp_mode(edc_base, k3fd->panel_info.ldi.disp_mode);
 	set_LDI_CTRL_corlorbar_width(edc_base, 0x3C);
-	set_LDI_CTRL_ldi_en(edc_base, K3_ENABLE);
+
+	if (k3fd->panel_info.type == PANEL_MIPI_CMD) {
+		set_LDI_CTRL_ldi_en(edc_base, K3_DISABLE);
+	} else {
+		set_LDI_CTRL_ldi_en(edc_base, K3_ENABLE);
+	}
 	set_LDI_INT_CLR(edc_base, 0xFFFFFFFF);
+
+	if (k3fd->panel_info.type == PANEL_HDMI) {
+		/* dsi pixel off */
+		set_reg(edc_base + LDI_HDMI_DSI_GT, 0x1, 1, 0);
+	}
+
 	if (!(k3fd->panel_info.bl_set_type & BL_SET_BY_PWM)) {
 		set_reg(edc_base + LDI_DE_SPACE_LOW, 0x1, 1, 1);
 	}
@@ -79,7 +90,7 @@ static int ldi_on(struct platform_device *pdev)
 	/* ldi clock enable */
 	ret = clk_enable(k3fd->ldi_clk);
 	if (ret != 0) {
-		dev_err(&pdev->dev, "k3fb, %s: failed to enable ldi_clk!\n", __func__);
+		k3fb_loge("failed to enable ldi_clk, error=%d!\n", ret);
 		return ret;
 	}
 
@@ -87,6 +98,10 @@ static int ldi_on(struct platform_device *pdev)
 	ldi_init(k3fd);
 
 	ret = panel_next_on(pdev);
+
+	if (k3fd->panel_info.type == PANEL_MIPI_CMD) {
+		set_LDI_CTRL_ldi_en(k3fd->edc_base, K3_ENABLE);
+	}
 
 	return ret;
 }
@@ -120,12 +135,11 @@ static int ldi_remove(struct platform_device *pdev)
 	int ret = 0;
 	struct k3_fb_data_type *k3fd = NULL;
 
-	pr_info("k3fb, %s: enter!\n", __func__);
-
 	BUG_ON(pdev == NULL);
-
 	k3fd = platform_get_drvdata(pdev);
 	BUG_ON(k3fd == NULL);
+
+	k3fb_logi("index=%d, enter!\n", k3fd->index);
 
 	if (!IS_ERR(k3fd->ldi_clk)) {
 		clk_put(k3fd->ldi_clk);
@@ -133,7 +147,7 @@ static int ldi_remove(struct platform_device *pdev)
 
 	ret = panel_next_remove(pdev);
 	
-	pr_info("k3fb, %s: exit!\n", __func__);
+	k3fb_logi("index=%d, exit!\n", k3fd->index);
 	
 	return ret;
 }
@@ -142,41 +156,13 @@ static int ldi_set_backlight(struct platform_device *pdev)
 {
 	int ret = 0;
 	struct k3_fb_data_type *k3fd = NULL;
-	u32 tmp = 0;
 
 	BUG_ON(pdev == NULL);
 
 	k3fd = (struct k3_fb_data_type *)platform_get_drvdata(pdev);
 	BUG_ON(k3fd == NULL);
 
-	if (k3fd->panel_info.bl_set_type & BL_SET_BY_MIPI_ECO) {
-		if (k3fd->bl_enable_mipi_eco == 1) {
-			/*check last_line interrupt*/
-			tmp = inp32(k3fd->edc_base + LDI_ORG_INT_OFFSET);
-			if ((tmp & 0x20) != 0x20) {
-				return IRQ_HANDLED;
-			}
-
-			/* disable ldi */
-			/* set_reg(k3fd->edc_base + LDI_CTRL_OFFSET, 0x0, 1, 0);*/
-
-			ret = panel_next_set_backlight(pdev);
-
-			/* clear vfp_last_int */
-			set_reg(k3fd->edc_base + LDI_INT_CLR_OFFSET, 0x1, 1, 5);
-			/* mask vfp_last_line_int */
-			set_reg(k3fd->edc_base + LDI_INT_EN_OFFSET, 0x0, 1, 5);
-
-			/* enable ldi */
-			set_reg(k3fd->edc_base + LDI_ORG_INT_OFFSET, 0x1, 1, 0);
-
-			set_reg(k3fd->edc_base + LDI_DE_SPACE_LOW, 0x1, 1, 1);
-
-			k3fd->bl_enable_mipi_eco = 0;
-		}
-	} else {
-		ret = panel_next_set_backlight(pdev);
-	}
+	ret = panel_next_set_backlight(pdev);
 
 	return ret;
 }
@@ -210,27 +196,10 @@ static int ldi_set_timing(struct platform_device *pdev)
 	set_LDI_PLR_CTRL_vsync(edc_base, k3fd->panel_info.ldi.vsync_plr);
 
 	if (clk_set_rate(k3fd->ldi_clk, k3fd->panel_info.clk_rate) != 0) {
-		pr_err("k3fb, %s: failed to set ldi clk rate(%d).\n", __func__, k3fd->panel_info.clk_rate);
+		k3fb_loge("failed to set ldi clk rate(%d).\n", k3fd->panel_info.clk_rate);
 	}
 
 	ret = panel_next_set_timing(pdev);
-
-	return ret;
-}
-
-static int ldi_set_playvideo(struct platform_device *pdev, int gamma)
-{
-	int ret = 0;
-	struct k3_fb_data_type *k3fd = NULL;
-	u32 edc_base = 0;
-
-	BUG_ON(pdev == NULL);
-	k3fd = (struct k3_fb_data_type *)platform_get_drvdata(pdev);
-	BUG_ON(k3fd == NULL);
-
-	edc_base = k3fd->edc_base;
-
-	ret = panel_next_set_playvideo(pdev, gamma);
 
 	return ret;
 }
@@ -244,6 +213,7 @@ static int ldi_set_frc(struct platform_device *pdev, int target_fps)
 
 	return 0;
 }
+
 static int ldi_check_esd(struct platform_device *pdev)
 {
 	BUG_ON(pdev == NULL);
@@ -263,30 +233,33 @@ static int ldi_probe(struct platform_device *pdev)
 	BUG_ON(k3fd == NULL);
 
 	/* ldi clock */
-	if (k3fd->edc_base == k3fd_reg_base_edc0) {
+	if (k3fd->index == 0) {
 		k3fd->ldi_clk = clk_get(NULL, CLK_LDI0_NAME);
-	} else {
+	} else if (k3fd->index == 1) {
 		k3fd->ldi_clk = clk_get(NULL, CLK_LDI1_NAME);
+	} else {
+		k3fb_loge("fb%d not support now!\n", k3fd->index);
+		return EINVAL;
 	}
 
 	if (IS_ERR(k3fd->ldi_clk)) {
-		dev_err(&pdev->dev, "k3fb, %s: failed to get ldi_clk!\n", __func__);
+		k3fb_loge("failed to get ldi_clk!\n");
 		return PTR_ERR(k3fd->ldi_clk);
 	}
 
 	/* set ldi clock rate */
 	ret = clk_set_rate(k3fd->ldi_clk, k3fd->panel_info.clk_rate);
 	if (ret != 0) {
-		pr_err("k3fb, %s: failed to set ldi clk rate(%d).\n", __func__, k3fd->panel_info.clk_rate);
+		k3fb_loge("failed to set ldi clk rate(%d).\n", k3fd->panel_info.clk_rate);
 	#ifndef CONFIG_MACH_TC45MSU3
 		return ret;
 	#endif
 	}
 
 	/* k3_fb device */
-	k3_fb_dev = platform_device_alloc("k3_fb", pdev->id);
+	k3_fb_dev = platform_device_alloc(DEV_NAME_FB, pdev->id);
 	if (!k3_fb_dev) {
-		pr_err("k3fb, %s: k3_fb platform_device_alloc failed!\n", __func__);
+		k3fb_loge("failed to k3_fb platform_device_alloc!\n");
 		return -ENOMEM;
 	}
 
@@ -296,7 +269,7 @@ static int ldi_probe(struct platform_device *pdev)
 	/* alloc panel device data */
 	if (platform_device_add_data(k3_fb_dev, pdev->dev.platform_data,
 		sizeof(struct k3_fb_panel_data))) {
-		pr_err("k3fb, %s: platform_device_add_data failed!\n", __func__);
+		k3fb_loge("failed to platform_device_add_data!\n");
 		platform_device_put(k3_fb_dev);
 		return -ENOMEM;
 	}
@@ -308,9 +281,8 @@ static int ldi_probe(struct platform_device *pdev)
 	pdata->remove = ldi_remove;
 	pdata->set_backlight = ldi_set_backlight;
 	pdata->set_timing = ldi_set_timing;
-	pdata->set_playvideo = ldi_set_playvideo;
-	pdata->check_esd = ldi_check_esd;
 	pdata->set_frc = ldi_set_frc;
+	pdata->check_esd = ldi_check_esd;
 	pdata->next = pdev;
 
 	/* get/set panel info */
@@ -332,7 +304,7 @@ static int ldi_probe(struct platform_device *pdev)
 	ret = platform_device_add(k3_fb_dev);
 	if (ret) {
 		platform_device_put(k3_fb_dev);
-		pr_err("k3fb, %s: platform_device_add failed!\n", __func__);
+		k3fb_loge("failed to platform_device_add!\n");
 		return ret;
 	}
 
@@ -346,7 +318,7 @@ static struct platform_driver this_driver = {
 	.resume = NULL,
 	.shutdown = NULL,
 	.driver = {
-		.name = "ldi",
+		.name = DEV_NAME_LDI,
 		},
 };
 
@@ -356,7 +328,7 @@ static int __init ldi_driver_init(void)
 
 	ret = platform_driver_register(&this_driver);
 	if (ret) {
-		pr_err("k3fb, %s not able to register the driver\n", __func__);
+		k3fb_loge("not able to register the driver, error=%d!\n", ret);
 		return ret;
 	}
 

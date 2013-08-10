@@ -40,6 +40,7 @@ static void get_dsi_phy_ctrl(u32 dsi_bit_clk,
 	struct mipi_dsi_phy_ctrl *phy_ctrl)
 {
 	u32 range = 0;
+	u32 m_pll = 0;
 
 	BUG_ON(phy_ctrl == NULL);
 	range = dsi_bit_clk * 2;
@@ -47,10 +48,16 @@ static void get_dsi_phy_ctrl(u32 dsi_bit_clk,
 	/* Step 1: Determine PLL Input divider ratio (N)
 	  *  Refernce frequency is 26MHz, so N is set to 13 for easy to get any frequency we want.
 	  */
+#ifdef CONFIG_LCD_1080P
+	phy_ctrl->n_pll = 0x1;
+#else
 	phy_ctrl->n_pll = 0xD;
+#endif
+
+	phy_ctrl->pll_unlocking_filter = 0xFF;
 
 	/* Step 2: Calculate PLL loop divider ratio (M) */
-	u32 m_pll = range *  phy_ctrl->n_pll / (DEFAULT_MIPI_CLK_RATE / 1000000);
+	m_pll = range *  phy_ctrl->n_pll / (DEFAULT_MIPI_CLK_RATE / 1000000);
 	phy_ctrl->m_pll_1 = (m_pll - 1) & 0x1F;
 	phy_ctrl->m_pll_2 = ((m_pll - 1) >> 5) | 0x80;
 
@@ -77,8 +84,7 @@ static void get_dsi_phy_ctrl(u32 dsi_bit_clk,
 		phy_ctrl->cp_current = 0x2;
 		phy_ctrl->lpf_ctrl = 0x01;
 	} else {
-		pr_err("k3fb, %s: Unsurport the value of PLL loop divider ratio (M) (%d)!",
-			__func__, m_pll);
+		k3fb_loge("Unsurport the value of PLL loop divider ratio (M) (%d)!\n", m_pll);
 		return;
 	}
 
@@ -206,7 +212,7 @@ static void get_dsi_phy_ctrl(u32 dsi_bit_clk,
 		phy_ctrl->hs2lp_time = 40;
 		phy_ctrl->hsfreqrange = 0x00000074; /* 1110100 */
 	} else {
-		pr_err("k3fb, %s: Unsurport this range(%d)!", __func__, range);
+		k3fb_loge("Unsurport this range(%d)!\n", range);
 		return;
 	}
 
@@ -234,7 +240,7 @@ static void mipi_init(struct k3_fb_data_type *k3fd)
 	edc_base = k3fd->edc_base;
 	get_dsi_phy_ctrl(k3fd->panel_info.mipi.dsi_bit_clk, &phy_ctrl);
 
-	/*Config TE*/
+	/* config TE */
 	if (k3fd->panel_info.type == PANEL_MIPI_CMD) {
 		set_reg(edc_base + MIPIDSI_CMD_MOD_CTRL_OFFSET, 0x1, 32, 0);
 		set_reg(edc_base + MIPIDSI_TE_CTRL_OFFSET, 0x4001, 32, 0);
@@ -271,14 +277,13 @@ static void mipi_init(struct k3_fb_data_type *k3fd)
 	** This defines how the processor requires the video line to be
 	** transported through the DSI link.
 	*/
-	if (k3fd->panel_info.type == PANEL_MIPI_VIDEO) {
-		set_MIPIDSI_VID_MODE_CFG_en_lp_vsa(edc_base, 1);
-		set_MIPIDSI_VID_MODE_CFG_en_lp_vbp(edc_base, 1);
-		set_MIPIDSI_VID_MODE_CFG_en_lp_vfp(edc_base, 1);
-		set_MIPIDSI_VID_MODE_CFG_en_lp_vact(edc_base, 1);
-		set_MIPIDSI_VID_MODE_CFG_en_lp_hbp(edc_base, 1);
-		set_MIPIDSI_VID_MODE_CFG_en_lp_hfp(edc_base, 1);
-	}
+	set_MIPIDSI_VID_MODE_CFG_en_lp_vsa(edc_base, 1);
+	set_MIPIDSI_VID_MODE_CFG_en_lp_vbp(edc_base, 1);
+	set_MIPIDSI_VID_MODE_CFG_en_lp_vfp(edc_base, 1);
+	set_MIPIDSI_VID_MODE_CFG_en_lp_vact(edc_base, 1);
+	set_MIPIDSI_VID_MODE_CFG_en_lp_hbp(edc_base, 1);
+	set_MIPIDSI_VID_MODE_CFG_en_lp_hfp(edc_base, 1);
+
 	set_MIPIDSI_VID_MODE_CFG_frame_bta_ack(edc_base, 0);
 	set_MIPIDSI_VID_MODE_CFG_vid_mode_type(edc_base, phy_ctrl.burst_mode);
 
@@ -315,15 +320,9 @@ static void mipi_init(struct k3_fb_data_type *k3fd)
 	set_MIPIDSI_VTIMING_CFG_v_active_lines(edc_base, k3fd->panel_info.yres);
 
 	/* Configure core's phy parameters */
-	if (get_chipid() == DI_CHIP_ID) {
-		set_MIPIDSI_PHY_TMR_CFG_bta_time(edc_base, 4095);
-		set_MIPIDSI_PHY_TMR_CFG_phy_lp2hs_time(edc_base, phy_ctrl.lp2hs_time);
-		set_MIPIDSI_PHY_TMR_CFG_phy_hs2lp_time(edc_base, phy_ctrl.hs2lp_time);
-	} else {
-		set_MIPIDSI_PHY_TMR_CFG_bta_time_CS(edc_base, 4095);
-		set_MIPIDSI_PHY_TMR_CFG_phy_lp2hs_time_CS(edc_base, phy_ctrl.lp2hs_time);
-		set_MIPIDSI_PHY_TMR_CFG_phy_hs2lp_time_CS(edc_base, phy_ctrl.hs2lp_time);
-	}
+	set_MIPIDSI_PHY_TMR_CFG_bta_time(edc_base, 4095);
+	set_MIPIDSI_PHY_TMR_CFG_phy_lp2hs_time(edc_base, phy_ctrl.lp2hs_time);
+	set_MIPIDSI_PHY_TMR_CFG_phy_hs2lp_time(edc_base, phy_ctrl.hs2lp_time);
 
 	/*------------DSI and D-PHY Initialization-----------------*/
 	/* 1. Waking up Core */
@@ -333,10 +332,11 @@ static void mipi_init(struct k3_fb_data_type *k3fd)
 	** 3. Configure the TX_ESC clock frequency to a frequency lower than 20 MHz
 	** that is the maximum allowed frequency for D-PHY ESCAPE mode.
 	*/
-	if (k3fd->panel_info.type == PANEL_MIPI_CMD)
-		set_MIPIDSI_CLKMGR_CFG(edc_base, /*phy_ctrl.clk_division*/5);
-	else
+	if (k3fd->panel_info.type == PANEL_MIPI_CMD) {
+		set_MIPIDSI_CLKMGR_CFG(edc_base, 5);
+	} else {
 		set_MIPIDSI_CLKMGR_CFG(edc_base, phy_ctrl.clk_division);
+	}
 
 	/*
 	** 4. Configure the DPHY PLL clock frequency through the TEST Interface to
@@ -411,15 +411,16 @@ static void mipi_init(struct k3_fb_data_type *k3fd)
 	set_MIPIDSI_PHY_TST_CTRL1(edc_base, 0x00010016);
 	set_MIPIDSI_PHY_TST_CTRL0(edc_base, 0x00000002);
 	set_MIPIDSI_PHY_TST_CTRL0(edc_base, 0x00000000);
-	set_MIPIDSI_PHY_TST_CTRL1(edc_base, 0xFF);
+	set_MIPIDSI_PHY_TST_CTRL1(edc_base, phy_ctrl.pll_unlocking_filter);
 	set_MIPIDSI_PHY_TST_CTRL0(edc_base, 0x00000002);
 	set_MIPIDSI_PHY_TST_CTRL0(edc_base, 0x00000000);
+
 	set_MIPIDSI_PHY_RSTZ(edc_base, 0x00000007);
 
-	/* Enable EOTP TX; Enable EDPI, ALLOWED_CMD_SIZE = 720*/
+	/* Enable EDPI, ALLOWED_CMD_SIZE = 720*/
 	if (k3fd->panel_info.type == PANEL_MIPI_CMD) {
-		set_reg(edc_base + MIPIDSI_EDPI_CFG, 0x102D0, 17, 0);
-		set_MIPIDSI_PCKHDL_CFG_en_eotp_tx(edc_base, 0x00000001);
+		set_MIPIDSI_EDPI_CFG_edpi_allowed_cmd_size(edc_base, k3fd->panel_info.xres);
+		set_MIPIDSI_EDPI_CFG_edpi_en(edc_base, K3_ENABLE);
 	}
 
 	is_ready = false;
@@ -433,7 +434,7 @@ static void mipi_init(struct k3_fb_data_type *k3fd)
 	} while (time_after(dw_jiffies, jiffies));
 
 	if (!is_ready) {
-		pr_info("k3fb, %s: phylock is not ready", __func__);
+		k3fb_logi("phylock is not ready.\n");
 	}
 
 	is_ready = false;
@@ -447,7 +448,7 @@ static void mipi_init(struct k3_fb_data_type *k3fd)
 	} while (time_after(dw_jiffies, jiffies));
 
 	if (!is_ready) {
-		pr_info("k3fb, %s: phystopstateclklane is not ready", __func__);
+		k3fb_logi("phystopstateclklane is not ready.\n");
 	}
 }
 
@@ -470,7 +471,7 @@ static int mipi_dsi_on(struct platform_device *pdev)
 	/* mipi dphy clock enable */
 	ret = clk_enable(k3fd->mipi_dphy_clk);
 	if (ret != 0) {
-		dev_err(&pdev->dev, "k3fb, %s: failed to enable mipi_dphy_clk!\n", __func__);
+		k3fb_loge("failed to enable mipi_dphy_clk, error=%d!\n", ret);
 		return ret;
 	}
 
@@ -487,7 +488,11 @@ static int mipi_dsi_on(struct platform_device *pdev)
 
 	ret = panel_next_on(pdev);
 
+	/* To ensure that LCD init commands were sent correctly. */
+	msleep(10);
+
 	set_reg(edc_base + MIPIDSI_PWR_UP_OFFSET, 0x0, 1, 0);
+
 	if (k3fd->panel_info.type == PANEL_MIPI_VIDEO) {
 		/* switch to video mode */
 		set_reg(edc_base + MIPIDSI_CMD_MODE_CFG_OFFSET, 0x0, 1, 0);
@@ -499,12 +504,19 @@ static int mipi_dsi_on(struct platform_device *pdev)
 		set_reg(edc_base + MIPIDSI_CMD_MODE_CFG_OFFSET, 0x1, 13, 0);
 	}
 
-	#ifdef CONFIG_LCD_PANASONIC_VVX10F002A00
+#ifdef CONFIG_LCD_PANASONIC_VVX10F002A00
 	msleep(50);
-	#endif
+#endif
+
 	/* enable generate High Speed clock */
 	set_reg(edc_base + MIPIDSI_PHY_IF_CTRL_OFFSET, 0x1, 1, 0);
+
 	set_reg(edc_base + MIPIDSI_PWR_UP_OFFSET, 0x1, 1, 0);
+
+	if (k3fd->panel_info.type == PANEL_MIPI_CMD) {
+		/* Eable EOTp after switching to HS*/
+		set_MIPIDSI_PCKHDL_CFG_en_eotp_tx(edc_base, 0x00000001);
+	}
 
 	return ret;
 }
@@ -546,12 +558,11 @@ static int mipi_dsi_remove(struct platform_device *pdev)
 	int ret = 0;
 	struct k3_fb_data_type *k3fd = NULL;
 
-	pr_info("k3fb, %s: enter!\n", __func__);
-
 	BUG_ON(pdev == NULL);
-
 	k3fd = platform_get_drvdata(pdev);
 	BUG_ON(k3fd == NULL);
+
+	k3fb_logi("index=%d, enter!\n", k3fd->index);
 
 	if (!IS_ERR(k3fd->mipi_dphy_clk)) {
 		clk_put(k3fd->mipi_dphy_clk);
@@ -559,7 +570,7 @@ static int mipi_dsi_remove(struct platform_device *pdev)
 
 	ret = panel_next_remove(pdev);
 
-	pr_info("k3fb, %s: exit!\n", __func__);
+	k3fb_logi("index=%d, exit!\n", k3fd->index);
 	
 	return ret;
 }
@@ -568,53 +579,13 @@ static int mipi_dsi_set_backlight(struct platform_device *pdev)
 {
 	int ret = 0;
 	struct k3_fb_data_type *k3fd = NULL;
-	u32 tmp = 0;
 
 	BUG_ON(pdev == NULL);
 
 	k3fd = (struct k3_fb_data_type *)platform_get_drvdata(pdev);
 	BUG_ON(k3fd == NULL);
 
-	if (k3fd->panel_info.bl_set_type & BL_SET_BY_MIPI_ECO) {
-		if (k3fd->bl_enable_mipi_eco == 1) {
-			/* check dsi stop state */
-			while (1) {
-				tmp = inp32(k3fd->edc_base + MIPIDSI_PHY_STATUS_OFFSET);
-				if ((tmp & 0x90) == 0x90) {
-					break;
-				}
-			}
-
-			/* disable video mode, enable command mode */
-			set_reg(k3fd->edc_base + MIPIDSI_VID_MODE_CFG_OFFSET, 0x0, 1, 0);
-			set_reg(k3fd->edc_base + MIPIDSI_CMD_MODE_CFG_OFFSET, 0x1, 1, 0);
-
-			/* do something here */
-			panel_next_set_backlight(pdev);
-
-			/* check payload write empty */
-			while (1) {
-				tmp = inp32(k3fd->edc_base + MIPIDSI_CMD_PKT_STATUS_OFFSET);
-				if ((tmp & 0x00000005) == 0x00000005) {
-					break;
-				}
-			}
-
-			/* check dsi stop state */
-			while (1) {
-				tmp = inp32(k3fd->edc_base + MIPIDSI_PHY_STATUS_OFFSET);
-				if ((tmp & 0x90) == 0x90) {
-					break;
-				}
-			}
-
-			/* disable command mode, enable video mode */
-			set_reg(k3fd->edc_base + MIPIDSI_CMD_MODE_CFG_OFFSET, 0x0, 1, 0);
-			set_reg(k3fd->edc_base + MIPIDSI_VID_MODE_CFG_OFFSET, 0x1, 1, 0);
-		}
-	} else {
-		ret = panel_next_set_backlight(pdev);
-	}
+	ret = panel_next_set_backlight(pdev);
 
 	return ret;
 }
@@ -662,23 +633,6 @@ static int mipi_dsi_set_timing(struct platform_device *pdev)
 	return ret;
 }
 
-static int mipi_dsi_set_playvideo(struct platform_device *pdev, int gamma)
-{
-	int ret = 0;
-	struct k3_fb_data_type *k3fd = NULL;
-	u32 edc_base = 0;
-
-	BUG_ON(pdev == NULL);
-	k3fd = (struct k3_fb_data_type *)platform_get_drvdata(pdev);
-	BUG_ON(k3fd == NULL);
-
-	edc_base = k3fd->edc_base;
-
-	ret = panel_next_set_playvideo(pdev, gamma);
-
-	return ret;
-}
-
 static int mipi_dsi_set_frc(struct platform_device *pdev, int target_fps)
 {
 	struct k3_fb_data_type *k3fd = NULL;
@@ -693,15 +647,7 @@ static int mipi_dsi_set_frc(struct platform_device *pdev, int target_fps)
 	k3fd = (struct k3_fb_data_type *)platform_get_drvdata(pdev);
 	BUG_ON(k3fd == NULL);
 
-	if (target_fps == k3fd->panel_info.frame_rate) {
-		/*
-		pr_info("k3fb, %s: current fps is already %d, need't to change\n",
-			__func__, k3fd->panel_info.frame_rate);
-		*/
-		return 0;
-	}
-
-	/*Calculate new HFP based on target_fps*/
+	/* calculate new HFP based on target_fps */
 	vertical_timing = k3fd->panel_info.yres + k3fd->panel_info.ldi.v_back_porch
 		+ k3fd->panel_info.ldi.v_front_porch + k3fd->panel_info.ldi.v_pulse_width;
 	horizontal_timing = k3fd->panel_info.clk_rate / (vertical_timing * target_fps);
@@ -715,26 +661,23 @@ static int mipi_dsi_set_frc(struct platform_device *pdev, int target_fps)
 		-k3fd->panel_info.ldi.h_back_porch - k3fd->panel_info.ldi.h_pulse_width;
 
 	pixel_clk = k3fd->panel_info.clk_rate / 1000000;
-	/*update hline_time*/
+	/* update hline_time */
 	hline_time = (k3fd->panel_info.ldi.h_pulse_width + k3fd->panel_info.ldi.h_back_porch +
-		k3fd->panel_info.xres + h_front_porch/*k3fd->panel_info.ldi.h_front_porch*/) *
+		k3fd->panel_info.xres + h_front_porch) * 
 		(k3fd->panel_info.mipi.dsi_bit_clk / 4) / pixel_clk;
 
-	/* remember current fps*/
 	k3fd->panel_info.frame_rate = target_fps;
 
-	/* Reset DSI core */
+	/* reset dsi core */
 	set_MIPIDSI_PWR_UP(k3fd->edc_base, 0);
-
 	set_MIPIDSI_TMR_LINE_CFG_hline_time(k3fd->edc_base, hline_time);
-
 	set_LDI_HRZ_CTRL0_hfp(k3fd->edc_base, h_front_porch);
-
-	/*power on DSI core */
+	/* power on dsi core */
 	set_MIPIDSI_PWR_UP(k3fd->edc_base, 1);
 
 	return ret;
 }
+
 static int mipi_dsi_check_esd(struct platform_device *pdev)
 {
 	BUG_ON(pdev == NULL);
@@ -752,14 +695,17 @@ static int mipi_dsi_probe(struct platform_device *pdev)
 	BUG_ON(k3fd == NULL);
 
 	/* mipi dphy clock */
-	if (k3fd->edc_base == k3fd_reg_base_edc0) {
+	if (k3fd->index == 0) {
 		k3fd->mipi_dphy_clk = clk_get(NULL, CLK_MIPI_DPHY0_NAME);
-	} else {
+	} else if (k3fd->index == 1) {
 		k3fd->mipi_dphy_clk = clk_get(NULL, CLK_MIPI_DPHY1_NAME);
+	} else {
+		k3fb_loge("fb%d not support now!\n", k3fd->index);
+		return EINVAL;
 	}
 
 	if (IS_ERR(k3fd->mipi_dphy_clk)) {
-		dev_err(&pdev->dev, "k3fb, %s: failed to get mipi_dphy_clk!\n", __func__);
+		k3fb_loge("failed to get mipi_dphy_clk!\n");
 		return PTR_ERR(k3fd->mipi_dphy_clk);
 	}
 
@@ -767,7 +713,7 @@ static int mipi_dsi_probe(struct platform_device *pdev)
 	/* set mipi dphy clock rate */
 	ret = clk_set_rate(k3fd->mipi_dphy_clk, DEFAULT_MIPI_CLK_RATE);
 	if (ret != 0) {
-		pr_err("k3fb, %s: failed to set mipi dphy clk rate(%d).\n", __func__, DEFAULT_MIPI_CLK_RATE);
+		k3fb_loge("failed to set mipi dphy clk rate, error=%d!\n", DEFAULT_MIPI_CLK_RATE);
 	#ifndef CONFIG_MACH_TC45MSU3
 		return ret;
 	#endif
@@ -775,9 +721,9 @@ static int mipi_dsi_probe(struct platform_device *pdev)
 #endif
 
 	/* alloc ldi device */
-	ldi_dev = platform_device_alloc("ldi", pdev->id);
+	ldi_dev = platform_device_alloc(DEV_NAME_LDI, pdev->id);
 	if (!ldi_dev) {
-		pr_err("k3fb, %s: ldi platform_device_alloc failed!\n", __func__);
+		k3fb_loge("ldi platform_device_alloc failed!\n");
 		return -ENOMEM;
 	}
 
@@ -787,7 +733,7 @@ static int mipi_dsi_probe(struct platform_device *pdev)
 	/* alloc panel device data */
 	if (platform_device_add_data(ldi_dev, pdev->dev.platform_data,
 		sizeof(struct k3_fb_panel_data))) {
-		pr_err("k3fb, %s: platform_device_add_data failed!\n", __func__);
+		k3fb_loge("failed to platform_device_add_data, error=%d!\n", ret);
 		platform_device_put(ldi_dev);
 		return -ENOMEM;
 	}
@@ -799,9 +745,8 @@ static int mipi_dsi_probe(struct platform_device *pdev)
 	pdata->remove = mipi_dsi_remove;
 	pdata->set_backlight = mipi_dsi_set_backlight;
 	pdata->set_timing = mipi_dsi_set_timing;
-	pdata->set_playvideo = mipi_dsi_set_playvideo;
-	pdata->check_esd = mipi_dsi_check_esd;
 	pdata->set_frc = mipi_dsi_set_frc;
+	pdata->check_esd = mipi_dsi_check_esd;
 	pdata->next = pdev;
 
 	/* get/set panel info */
@@ -812,7 +757,7 @@ static int mipi_dsi_probe(struct platform_device *pdev)
 	/* register in ldi driver */
 	ret = platform_device_add(ldi_dev);
 	if (ret) {
-		pr_err("k3fb, %s: platform_device_add failed!\n", __func__);
+		k3fb_loge("failed to platform_device_add, error=%d!\n", ret);
 		platform_device_put(ldi_dev);
 		return ret;
 	}
@@ -827,7 +772,7 @@ static struct platform_driver this_driver = {
 	.resume = NULL,
 	.shutdown = NULL,
 	.driver = {
-		.name = "mipi_dsi",
+		.name = DEV_NAME_MIPIDSI,
 		},
 };
 
@@ -837,7 +782,7 @@ static int __init mipi_dsi_driver_init(void)
 
 	ret = platform_driver_register(&this_driver);
 	if (ret) {
-		pr_err("k3fb, %s not able to register the driver\n", __func__);
+		k3fb_loge("not able to register the driver, error=%d!\n", ret);
 		return ret;
 	}
 

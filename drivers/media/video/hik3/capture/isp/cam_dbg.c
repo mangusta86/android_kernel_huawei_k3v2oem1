@@ -162,7 +162,7 @@ void dump_file(char *filename, u32 addr, u32 size)
  */
 void dump_cmd_reg(void)
 {
-#ifdef	DUMP_CMD_REG
+#ifdef DUMP_CMD_REG
 	int i = 0;
 
 	/* command set register range : 0x1e900 ~ 0x1e9ff */
@@ -175,6 +175,9 @@ void dump_cmd_reg(void)
 	print_info("0x63905=%#x", DBG_GETREG8(0x63905));
 	print_info("0x63906=%#x", DBG_GETREG8(0x63906));
 	print_info("0x63907=%#x", DBG_GETREG8(0x63907));
+	print_info("0x63908=%#x", DBG_GETREG8(0x63908));
+	print_info("0x63909=%#x", DBG_GETREG8(0x63909));
+	print_info("0x6390a=%#x", DBG_GETREG8(0x6390a));
 #endif
 }
 

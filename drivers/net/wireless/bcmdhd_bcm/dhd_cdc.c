@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: dhd_cdc.c,v 1.51.6.31 2011-02-09 14:31:43 Exp $
+ * $Id: dhd_cdc.c 324280 2012-03-28 19:01:17Z $
  *
  * BDC is like CDC, except it includes a header for data packets to convey
  * packet priority over the bus, and flags (e.g. to indicate checksum status
@@ -77,6 +77,8 @@ typedef struct dhd_prot {
 	cdc_ioctl_t msg;
 	unsigned char buf[WLC_IOCTL_MAXLEN + ROUND_UP_MARGIN];
 } dhd_prot_t;
+
+extern int dhd_dbus_txdata(dhd_pub_t *dhdp, void *pktbuf);
 
 static int
 dhdcdc_msg(dhd_pub_t *dhd)
@@ -283,11 +285,25 @@ dhd_prot_ioctl(dhd_pub_t *dhd, int ifidx, wl_ioctl_t * ioc, void * buf, int len)
 	dhd_prot_t *prot = dhd->prot;
 	int ret = -1;
 	uint8 action;
-
+#if defined(BCMNDIS6)
+	bool acquired = FALSE;
+#endif /* BCMNDIS6 */
 	if ((dhd->busstate == DHD_BUS_DOWN) || dhd->hang_was_sent) {
 		DHD_ERROR(("%s : bus is down. we have nothing to do\n", __FUNCTION__));
 		goto done;
 	}
+#if defined(BCMNDIS6)
+	if (dhd_os_proto_block(dhd))
+	{
+		acquired = TRUE;
+	}
+	else
+	{
+		/* attempt to acquire protocol mutex timed out. */
+		ret = -1;
+		return ret;
+	}
+#endif /* BCMNDIS6 */
 
 	DHD_TRACE(("%s: Enter\n", __FUNCTION__));
 
@@ -338,6 +354,10 @@ dhd_prot_ioctl(dhd_pub_t *dhd, int ifidx, wl_ioctl_t * ioc, void * buf, int len)
 	prot->pending = FALSE;
 
 done:
+#if defined(BCMNDIS6)
+	if (acquired)
+	   dhd_os_proto_unblock(dhd);
+#endif /* BCMNDIS6 */
 	return ret;
 }
 
@@ -2174,6 +2194,7 @@ dhd_wlfc_init(dhd_pub_t *dhd)
 		WLFC_FLAGS_CREDIT_STATUS_SIGNALS |
 		WLFC_FLAGS_HOST_PROPTXSTATUS_ACTIVE : 0;
 
+	dhd->wlfc_state  = NULL;
 
 	/*
 	try to enable/disable signaling by sending "tlv" iovar. if that fails,
@@ -2460,10 +2481,10 @@ dhd_prot_attach(dhd_pub_t *dhd)
 	return 0;
 
 fail:
-#ifndef DHD_USE_STATIC_BUF
+#ifndef CONFIG_DHD_USE_STATIC_BUF
 	if (cdc != NULL)
 		MFREE(dhd->osh, cdc, sizeof(dhd_prot_t));
-#endif
+#endif /* CONFIG_DHD_USE_STATIC_BUF */
 	return BCME_NOMEM;
 }
 
@@ -2474,9 +2495,9 @@ dhd_prot_detach(dhd_pub_t *dhd)
 #ifdef PROP_TXSTATUS
 	dhd_wlfc_deinit(dhd);
 #endif
-#ifndef DHD_USE_STATIC_BUF
+#ifndef CONFIG_DHD_USE_STATIC_BUF
 	MFREE(dhd->osh, dhd->prot, sizeof(dhd_prot_t));
-#endif
+#endif /* CONFIG_DHD_USE_STATIC_BUF */
 	dhd->prot = NULL;
 }
 
@@ -2514,8 +2535,8 @@ dhd_prot_init(dhd_pub_t *dhd)
 
 #if defined(WL_CFG80211)
 	if (dhd_download_fw_on_driverload)
-#endif /* WL_CFG80211 */
-		ret = dhd_preinit_ioctls(dhd);
+#endif /* defined(WL_CFG80211) */
+	ret = dhd_preinit_ioctls(dhd);
 
 	/* Always assumes wl for now */
 	dhd->iswl = TRUE;

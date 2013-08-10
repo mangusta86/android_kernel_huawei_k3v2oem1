@@ -89,6 +89,8 @@
 #define HDMI_CORE_CTRL1_BSEL_24BITBUS      0x1ul
 #define HDMI_CORE_CTRL1_EDGE_RISINGEDGE    0x1ul
 
+#define HDMI_CORE_SYS_TMDS_CTRL4           0x214ul
+
 #define HDMI_CORE_SYS_HDCP_CTRL            0x3cul
 #define   BIT_ENC_EN                        (0x01)
 #define   BIT_RiREADY                       (0x02)
@@ -310,6 +312,7 @@
 
 #define HDMI_CONNECT            0x01
 #define HDMI_DISCONNECT         0x02
+#define HDMI_INT_CEC            0x04
 #define HDMI_FIRST_HPD          0x08
 #define HDMI_BCAP               0x40
 #define HDMI_RI_ERR             0x80
@@ -322,6 +325,7 @@
 
 #define HDMI_AV_REG_OFFSET      0x400
 #define HDMI_PHY_REG_OFFSET     0x1800
+#define HDMI_CEC_REG_OFFSET     0x800
 
 #define HDMI_CLK_NAME       "clk_hdmi"
 #define HDMI_M_CLK_NAME     "clk_hdmi_m"
@@ -336,6 +340,7 @@
 #define HDMI_EDC1_VCC_NAME      "vcc_edc1"
 #define HDMI_APB_CLK_NAME       "clk_pciphy"
 #define HDMI_CHARGE_PUMP_NAME   "hdmi-chg-pump"
+#define HDMI_CEC_CLK_NAME	    "clk_cec"
 
 typedef enum _hdmi_core_inputbus_width {
     HDMI_INPUT_8BIT  = 0,   /* input bus width with 8 bit */
@@ -736,6 +741,7 @@ typedef enum _hdmi_clock {
     HDMI_CLK     = 1 << 0,
     HDMI_CLK_EDC1= 1 << 3,
     HDMI_CLK_LDI1= 1 << 4,
+    HDMI_CLK_CEC = 1 << 5,
 } hdmi_clock;
 
 /* hdmi hardware resource */
@@ -743,13 +749,15 @@ typedef struct _hdmi_hw_res {
     /* reg addr */
     u32 base_core;              /* base address of hdmi ip core */
     u32 base_core_av;           /* base address of hdmi ip core audio and video */
-    u32 base_phy;               /* base address of hdmi ip core phy */
+    u32 base_phy;               /* base address of hdmi ip phy */
+    u32 base_cec;               /* base address of hdmi ip cec */
 
     /* clk */
     struct clk *clk_hdmi;       /* clock of hdmi */
     struct clk *clk_edc1;       /* clock of edc1 */
     struct clk *clk_ldi1;       /* clock of ldi1 */
-    struct clk *clk_pclk_hdmi;       /* clock of pclk hdmi */
+    struct clk *clk_pclk_hdmi;  /* clock of pclk hdmi */
+    struct clk *clk_cec;        /* clock of cec */
     struct regulator *charge_pump;  /* regulator of charge_pump*/
     struct regulator *edc_vcc;  /* regulator of edc1*/
     struct iomux_block *iomux_block;
@@ -762,10 +770,11 @@ extern hdmi_hw_res hw_res;
 #define HDMI_CORE_SYS        hw_res.base_core//0xFA204000             /* HDMI IP Core System */
 #define HDMI_CORE_AV         hw_res.base_core_av  /* HDMI IP Core audio and video */
 #define HDMI_PHY_BASE        hw_res.base_phy /* HDMI PHY */
+#define HDMI_CEC_BASE        hw_res.base_cec /* HDMI PHY */
 
 /* reg */
-void write_reg(u32 base, u16 idx, u32 val);
-u32  read_reg(u32 base, u16 idx);
+void write_reg(u32 base, u32 idx, u32 val);
+u32  read_reg(u32 base, u32 idx);
 void dump_reg(void);
 
 /* resource */

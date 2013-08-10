@@ -204,12 +204,12 @@ struct file_operations pmem_fops = {
 	.unlocked_ioctl = pmem_ioctl,
 };
 
-static int get_id(struct file *file)
+static inline int get_id(struct file *file)
 {
 	return MINOR(file->f_dentry->d_inode->i_rdev);
 }
 
-int is_pmem_file(struct file *file)
+inline int is_pmem_file(struct file *file)
 {
 	int id;
 
@@ -224,7 +224,7 @@ int is_pmem_file(struct file *file)
 	return 1;
 }
 
-static int has_allocation(struct file *file)
+static inline int has_allocation(struct file *file)
 {
 	struct pmem_data *data;
 	/* check is_pmem_file first if not accessed via pmem_file_ops */
@@ -468,8 +468,13 @@ static pgprot_t pmem_access_prot(struct file *file, pgprot_t vma_prot)
 {
 	int id = get_id(file);
 #ifdef pgprot_noncached
-	if (pmem[id].cached == 0 || file->f_flags & O_SYNC)
+	if (pmem[id].cached == 0 || file->f_flags & O_SYNC) {
+#if defined(CONFIG_OVERLAY_COMPOSE)
+		return pgprot_writecombine(vma_prot);
+#else //CONFIG_OVERLAY_COMPOSE
 		return pgprot_noncached(vma_prot);
+#endif //CONFIG_OVERLAY_COMPOSE
+	}
 #endif
 #ifdef pgprot_ext_buffered
 	else if (pmem[id].buffered)
@@ -487,7 +492,7 @@ static unsigned long pmem_start_addr(int id, struct pmem_data *data)
 
 }
 
-static void *pmem_start_vaddr(int id, struct pmem_data *data)
+static inline void *pmem_start_vaddr(int id, struct pmem_data *data)
 {
 	return pmem[id].pmem_start_addr(id, data) - pmem[id].base + pmem[id].vbase;
 }
@@ -546,14 +551,18 @@ static int make_seg(uint32_t *seg_table, unsigned int pages_needed, unsigned int
 
 	for (page_start = 0; ; page_start = (last_page + (seg_index << PMEM_SEG_ORDER))) {
 		page_end = page_start + pages_needed;
-		if (page_end > total_pages)
+		if (page_end > total_pages) {
+			printk(KERN_ERR "%s: out of total pages. \n", __func__);
 			return -1;
+		}
 
 		seg_index = page_start >> PMEM_SEG_ORDER;
 		seg_index_org = seg_index;
 		total_segs = GET_TOTAL_SEGS(page_end, seg_index);
-		if (total_segs <= 0)
+		if (total_segs <= 0) {
+			printk(KERN_ERR "%s: invalid segs. \n", __func__);
 			return -1;
+		}
 
 		if (total_segs == 1) {
 			last_page = fls(seg_table[seg_index] & (PAGE_START_MASK(page_start) & PAGE_END_MASK(page_end)));
@@ -603,18 +612,22 @@ static int pmem_allocator_k3(int id, unsigned long len)
 	unsigned int total_pages;
 	
 	if (!pmem[id].bitmap_k3.chunk) {
+		printk(KERN_ERR "%s: invalid chunk. \n", __func__);
 		return -1;
 	}
 
 	pages_needed = (len + PMEM_MIN_ALLOC - 1) / PMEM_MIN_ALLOC;
 	if (pages_needed <= 0 || pages_needed > pmem[id].bitmap_k3.pages_free) {
+		printk(KERN_ERR "%s: invalid pages (0x%x), total (0x%x). \n", __func__, pages_needed, pmem[id].bitmap_k3.pages_free);
 		return -1;
 	}
 
 	total_pages = (pmem[id].size + PMEM_MIN_ALLOC - 1) / PMEM_MIN_ALLOC;
 	/* make segment */
-	if ((index = make_seg(pmem[id].bitmap_k3.seg_table, pages_needed, total_pages)) == -1)
+	if ((index = make_seg(pmem[id].bitmap_k3.seg_table, pages_needed, total_pages)) == -1) {
+		printk(KERN_ERR "%s: invalid seg index got. \n", __func__);
 		return -1;
+	}
 
 	for (i = 0; i < pmem[id].bitmap_k3.num_chunks && 
 		pmem[id].bitmap_k3.chunk[i].page_index != -1; i++)
@@ -626,12 +639,14 @@ static int pmem_allocator_k3(int id, unsigned long len)
 		int j;
 
 		if (!new_num_chunks || new_num_chunks > pmem[id].num_entries) {
+			printk(KERN_ERR "%s: invalid new chunks. \n", __func__);
 			return -1;
 		}
 
 		temp = krealloc(pmem[id].bitmap_k3.chunk,
 			new_num_chunks * sizeof(*pmem[id].bitmap_k3.chunk), GFP_KERNEL);
 		if (!temp) {
+			printk(KERN_ERR "%s: no space to alloc chunks. \n", __func__);
 			return -1;
 		}
 		pmem[id].bitmap_k3.num_chunks = new_num_chunks;
@@ -674,7 +689,7 @@ static int pmem_free_k3(int id, int index)
 	return -1;
 }
 
-static unsigned long pmem_len_k3(int id, struct pmem_data *data)
+static inline unsigned long pmem_len_k3(int id, struct pmem_data *data)
 {
 	int i;
 	unsigned long ret = 0;
@@ -696,7 +711,7 @@ static unsigned long pmem_len_k3(int id, struct pmem_data *data)
 	return ret;
 }
 
-static unsigned long pmem_start_addr_k3(int id, struct pmem_data *data)
+static inline unsigned long pmem_start_addr_k3(int id, struct pmem_data *data)
 {
 	return data->index * PMEM_MIN_ALLOC + pmem[id].base;
 }
@@ -1015,43 +1030,80 @@ void put_pmem_file(struct file *file)
 
 void flush_pmem_file(struct file *file, unsigned long offset, unsigned long len)
 {
-	struct pmem_data *data;
-	int id;
-	void *vaddr;
-	struct pmem_region_node *region_node;
-	struct list_head *elt;
-	void *flush_start, *flush_end;
+    #define K3_L2_CACHE_LEN (1024*1024)
+    struct pmem_data *data;
+    int id;
+    void *vaddr;
+    struct pmem_region_node *region_node;
+    struct list_head *elt;
+    void *flush_start, *flush_end;
+    unsigned long length;
+#if defined(CONFIG_OVERLAY_COMPOSE)
+    unsigned long phys_addr;
+    unsigned long l2_flush_start, l2_flush_end;
+#endif
+    if (!is_pmem_file(file) || !has_allocation(file)) {
+        return;
+    }
 
-	if (!is_pmem_file(file) || !has_allocation(file)) {
-		return;
-	}
+    id = get_id(file);
+    data = (struct pmem_data *)file->private_data;
+    if (!pmem[id].cached || file->f_flags & O_SYNC)
+        return;
 
-	id = get_id(file);
-	data = (struct pmem_data *)file->private_data;
-	if (!pmem[id].cached || file->f_flags & O_SYNC)
-		return;
+    down_read(&data->sem);
+    vaddr = pmem_start_vaddr(id, data);
 
-	down_read(&data->sem);
-	vaddr = pmem_start_vaddr(id, data);
-	/* if this isn't a submmapped file, flush the whole thing */
-	if (unlikely(!(data->flags & PMEM_FLAGS_CONNECTED))) {
-		dmac_flush_range(vaddr, vaddr + pmem[id].pmem_len(id, data));
-		goto end;
-	}
-	/* otherwise, flush the region of the file we are drawing */
-	list_for_each(elt, &data->region_list) {
-		region_node = list_entry(elt, struct pmem_region_node, list);
-		if ((offset >= region_node->region.offset) &&
-		    ((offset + len) <= (region_node->region.offset +
-			region_node->region.len))) {
-			flush_start = vaddr + region_node->region.offset;
-			flush_end = flush_start + region_node->region.len;
-			dmac_flush_range(flush_start, flush_end);
-			break;
-		}
-	}
+    length =  pmem[id].pmem_len(id, data);
+#if defined(CONFIG_OVERLAY_COMPOSE)
+    phys_addr = pmem[id].pmem_start_addr(id, data);
+#endif
+
+    /* if this isn't a submmapped file, flush the whole thing */
+    if (unlikely(!(data->flags & PMEM_FLAGS_CONNECTED))) {
+        if (length >= K3_L2_CACHE_LEN) {
+            flush_all_cpu_caches();
+        #if defined(CONFIG_OVERLAY_COMPOSE)
+            outer_flush_all();
+        #endif
+        } else {
+            /* Inner cache. */
+            dmac_flush_range(vaddr, vaddr + length);
+        #if defined(CONFIG_OVERLAY_COMPOSE)
+            /* Outer cache. */
+            outer_flush_range(phys_addr, phys_addr + length);
+        #endif
+        }
+        goto end;
+    }
+    /* otherwise, flush the region of the file we are drawing */
+    list_for_each(elt, &data->region_list) {
+        region_node = list_entry(elt, struct pmem_region_node, list);
+        if ((offset >= region_node->region.offset) &&
+            ((offset + len) <= (region_node->region.offset +
+            region_node->region.len))) {
+                if (region_node->region.len >= K3_L2_CACHE_LEN) {
+                    flush_all_cpu_caches();
+                #if defined(CONFIG_OVERLAY_COMPOSE)
+                    outer_flush_all();
+                #endif
+            } else {
+                flush_start = vaddr + region_node->region.offset;
+                flush_end = flush_start + region_node->region.len;
+                /* Inner cache. */
+                dmac_flush_range(flush_start, flush_end);
+            #if defined(CONFIG_OVERLAY_COMPOSE)
+                /* Outer cache. */
+                l2_flush_start = phys_addr + region_node->region.offset;
+                l2_flush_end = l2_flush_start + region_node->region.len;
+                outer_flush_range(l2_flush_start, l2_flush_end);
+            #endif
+            }
+            break;
+        }
+    }
 end:
-	up_read(&data->sem);
+    up_read(&data->sem);
 }
 
 static int pmem_connect(unsigned long connect, struct file *file)
@@ -1320,7 +1372,7 @@ static long pmem_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				region.offset = pmem[id].pmem_start_addr(id, data);
 				region.len = pmem[id].pmem_len(id, data);
 			}
-			printk(KERN_INFO "pmem: request for physical address of pmem region "
+			DLOG(KERN_INFO "pmem: request for physical address of pmem region "
 					"from process %d.\n", current->pid);
 			if (copy_to_user((void __user *)arg, &region,
 						sizeof(struct pmem_region)))
@@ -1391,6 +1443,25 @@ static long pmem_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			flush_pmem_file(file, region.offset, region.len);
 			break;
 		}
+#if defined(CONFIG_OVERLAY_COMPOSE)
+	case PMEM_CACHE_SET:
+		{
+			int cacheable;
+			if (!is_pmem_file(file) || !has_allocation(file)) {
+				return -EINVAL;
+			}
+			if (copy_from_user(&cacheable, (void __user *)arg, sizeof(cacheable))) {
+				return -EFAULT;
+			}
+			if (cacheable) {
+				file->f_flags &= ~O_SYNC;
+			} else {
+				file->f_flags |= O_SYNC;
+			}
+			break;
+            }
+#endif //CONFIG_OVERLAY_COMPOSE
+
 	default:
 		if (pmem[id].ioctl)
 			return pmem[id].ioctl(file, cmd, arg);

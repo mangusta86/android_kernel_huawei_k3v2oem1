@@ -65,6 +65,8 @@ static void uart_change_pm(struct uart_state *state, int pm_state);
 extern void bluesleep_outgoing_data(void);
 extern void bluesleep_uart_open(struct uart_port * uport);
 extern void bluesleep_uart_close(struct uart_port* uport);
+extern void bluetoothpower_uart_open(struct uart_port * uport);
+extern void bluetoothpower_uart_close(struct uart_port* uport);
 
 /*
  * This routine is used by the interrupt handler to schedule processing in

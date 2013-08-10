@@ -100,7 +100,7 @@ static DECLARE_WAIT_QUEUE_HEAD(wdt_queue);
  static int nowayout = WATCHDOG_NOWAYOUT;
 
  /* binary search */
- static inline void bsearch(u32 *var, u32 var_start, u32 var_end,
+ static inline u32 bsearch(u64 var_start, u64 var_end,
                  const u64 param, const u32 timeout, u32 rate)
  {
          u64 tmp = 0;
@@ -122,7 +122,7 @@ static DECLARE_WAIT_QUEUE_HEAD(wdt_queue);
                                  var_end = tmp;
                  }
          }
-         *var = tmp;
+         return (u32)tmp;
  }
 
 static void wdt_default_init(unsigned int timeout)
@@ -132,7 +132,7 @@ static void wdt_default_init(unsigned int timeout)
 	u32 rate = 32000;/*wdt timer clock is 32k*/
 
 	/* get appropriate value of psc and load */
-	bsearch((u32 *)&load, LOAD_MIN, LOAD_MAX, psc, timeout, rate);
+	load = bsearch(LOAD_MIN, LOAD_MAX, psc, timeout, rate);
 
 	wdt->prescale = psc;
 	wdt->load_val = load;

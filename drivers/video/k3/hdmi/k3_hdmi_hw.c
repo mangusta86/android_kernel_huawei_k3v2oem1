@@ -26,7 +26,6 @@
 
 #include "k3_hdmi.h"
 #include "k3_edid.h"
-
 #include "k3_hdmi_hw.h"
 #include "k3_hdcp.h"
 
@@ -37,13 +36,13 @@ extern hdmi_device hdmi;
 
 hdmi_hw_res hw_res = {0};
 
-void write_reg(u32 base, u16 idx, u32 val)
+void write_reg(u32 base, u32 idx, u32 val)
 {
     writel(val, base + idx);
     return;
 }
 
-u32 read_reg(u32 base, u16 idx)
+u32 read_reg(u32 base, u32 idx)
 {
     return readl(base + idx);
 }
@@ -1043,6 +1042,22 @@ int hw_configure_acr(u32 pclk, hdmi_core_fs audio_fs)
     return 0;
 }
 
+void hw_enable_tmds(void)
+{
+    /*tmds_oe enable*/
+    REG_FLD_MOD(hw_res.base_core, HDMI_CORE_SYS_TMDS_CTRL4, 1, 4, 4);
+    /*0xFA205804[5]= 0 phy output enable*/
+    REG_FLD_MOD(hw_res.base_phy, HDMI_PHY_TDMS_CTL2, 1, 5, 5);
+}
+
+void hw_disable_tmds(void)
+{
+    /*0xFA205804[5]= 0 phy output disable*/
+    REG_FLD_MOD(hw_res.base_phy, HDMI_PHY_TDMS_CTL2, 0, 5, 5);
+    /*tmds_oe disable*/
+    REG_FLD_MOD(hw_res.base_core, HDMI_CORE_SYS_TMDS_CTRL4, 0, 4, 4);
+}
+
 /******************************************************************************
 * Function:       hw_enable
 * Description:    config hdmi by hdmi config or default
@@ -1065,6 +1080,22 @@ void hw_enable(hdmi_config *cfg)
     hdmi_core_packet_enable_repeat repeat_param = {0};
 
     BUG_ON(NULL == cfg);
+#ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
+    {
+        int hdmi_ddr_freq = HDMI_PM_QOS_DDR_MIN_FREQ;
+        if (hdmi.has_request_ddr) {
+            pm_qos_remove_request(&hdmi.qos_request);
+        }
+
+        if ((HDMI_EDID_EX_VIDEO_1920x1080p_50Hz_16_9 == hdmi.code || HDMI_EDID_EX_VIDEO_1920x1080p_60Hz_16_9 == hdmi.code)
+            && HDMI_CODE_TYPE_CEA == hdmi.mode) {
+            hdmi_ddr_freq = HDMI_1080P50_60_DDR_MIN_FREQ;
+        }
+        pm_qos_add_request(&hdmi.qos_request, PM_QOS_DDR_MIN_PROFILE, hdmi_ddr_freq);
+        hdmi.has_request_ddr = true;
+        logi("hw_enable set ddr freq:%d\n", hdmi_ddr_freq);
+    }
+#endif
 
     IN_FUNCTION;
     hw_core_init(cfg->deep_color, &v_core_cfg,
@@ -1074,6 +1105,13 @@ void hw_enable(hdmi_config *cfg)
 
     /****************************** CORE *******************************/
     /************* configure core video part ********************************/
+    
+    // Disable transmission of AVI InfoFrames during re-configuration
+    write_reg(av_base_addr, HDMI_CORE_AV_PB_CTRL1, 0);
+    write_reg(av_base_addr, HDMI_CORE_AV_PB_CTRL2, 0);
+
+    hw_disable_tmds();
+
     /* set software reset in the core */
     hw_core_swreset_assert();
     v_core_cfg.hdmi_dvi = cfg->hdmi_dvi;
@@ -1214,6 +1252,8 @@ void hw_enable(hdmi_config *cfg)
 
     /* release software reset in the core */
     hw_core_swreset_release();
+
+    hw_enable_tmds();
 
     OUT_FUNCTION;
     
@@ -1574,11 +1614,6 @@ void hw_core_power_on(void)
 
     if (!hdmi.in_reset) {
 
-#ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
-        pm_qos_add_request(&hdmi.qos_request, PM_QOS_DDR_MIN_PROFILE, HDMI_PM_QOS_DDR_MIN_FREQ);
-        logd("set ddr freq:%d\n", HDMI_PM_QOS_DDR_MIN_FREQ);
-#endif
-
         if (regulator_enable(hw_res.edc_vcc) != 0) {
             loge("failed to enable edc-vcc regulator.\n");
         }
@@ -1587,11 +1622,13 @@ void hw_core_power_on(void)
     
         /*set io mux hdmi mode*/
         hw_set_iomux(NORMAL);
-    
-        if (regulator_enable(hw_res.charge_pump) != 0) {
-            loge("failed to enable charge_pump regulator.\n");
+
+        if(!hw_support_mhl()) {
+            if (regulator_enable(hw_res.charge_pump) != 0) {
+                loge("failed to enable charge_pump regulator.\n");
+            }
         }
-        
+
         mdelay(5);
     }
 
@@ -1671,8 +1708,9 @@ void  hw_core_power_off(void)
 
     if(!hdmi.in_reset) {
         /* en_chg_pump_int off */
-        regulator_disable(hw_res.charge_pump);
-    
+        if(!hw_support_mhl()) {
+            regulator_disable(hw_res.charge_pump);
+        }
         /*set io mux low power*/
         ret = hw_set_iomux(LOWPOWER);
         if (ret) {
@@ -1688,8 +1726,11 @@ void  hw_core_power_off(void)
         mdelay(2);
 
 #ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
-        pm_qos_remove_request(&hdmi.qos_request);
-        logd("remove qos request\n");
+        if (hdmi.has_request_ddr) {
+            hdmi.has_request_ddr = false;
+            pm_qos_remove_request(&hdmi.qos_request);
+            logi("remove qos request\n");
+        }
 #endif
 
     } else {
@@ -1787,6 +1828,14 @@ static void enable_clk(u32 clks)
         }
     }
 
+#if defined(CONFIG_HDMI_CEC_ENABLE)
+    if (clks & HDMI_CLK_CEC) {
+        ret = clk_enable(hw_res.clk_cec);
+        if(ret){
+            loge("enable cec clock error %d\n",ret);
+        }
+    }
+#endif
     OUT_FUNCTION;
 
     return;
@@ -1821,6 +1870,12 @@ static void disable_clk(u32 clks)
         clk_disable(hw_res.clk_edc1);
     }
 
+#if defined(CONFIG_HDMI_CEC_ENABLE)
+    if (clks & HDMI_CLK_CEC) {
+        clk_disable(hw_res.clk_cec);
+    }
+#endif
+
     OUT_FUNCTION;
     return;
 }
@@ -1840,7 +1895,7 @@ void hw_enable_clocks(void)
     #define HDMI_APB_CLK_RATE 96000000
     struct clk * clk_apb = NULL;
 
-    enable_clk(HDMI_CLK | HDMI_CLK_EDC1 | HDMI_CLK_LDI1);
+    enable_clk(HDMI_CLK | HDMI_CLK_EDC1 | HDMI_CLK_LDI1 | HDMI_CLK_CEC);
 
     clk_apb = clk_get(NULL, HDMI_APB_CLK_NAME);
     if (IS_ERR(clk_apb)) {            
@@ -1948,8 +2003,15 @@ void hw_free_resources(void)
         clk_put(hw_res.clk_ldi1);
         hw_res.clk_ldi1 = NULL;
     }
-    
-    if (hw_res.edc_vcc) {
+
+#if defined(CONFIG_HDMI_CEC_ENABLE)
+    if (hw_res.clk_cec) {
+        clk_put(hw_res.clk_cec);
+        hw_res.clk_cec = NULL;
+    }
+#endif
+
+if (hw_res.edc_vcc) {
         regulator_put(hw_res.edc_vcc);
         hw_res.edc_vcc = NULL;
     }
@@ -1995,6 +2057,7 @@ int hw_get_resources(struct platform_device *pdev)
     hw_res.base_core = (u32) IO_ADDRESS(res->start);
     hw_res.base_core_av = hw_res.base_core + HDMI_AV_REG_OFFSET;
     hw_res.base_phy = hw_res.base_core + HDMI_PHY_REG_OFFSET;
+    hw_res.base_cec = hw_res.base_core + HDMI_CEC_REG_OFFSET;
 
     logi("base core: 0x%x\n", (int)hw_res.base_core);
 
@@ -2065,7 +2128,16 @@ int hw_get_resources(struct platform_device *pdev)
         loge("hdmi, %s: failed to get ldi1 clock\n", __func__);
         goto err;
     }
-    
+
+#if defined(CONFIG_HDMI_CEC_ENABLE)
+    hw_res.clk_cec = clk_get(NULL,  HDMI_CEC_CLK_NAME);
+    if (IS_ERR(hw_res.clk_cec)) {
+        hw_res.clk_cec = NULL;
+        loge("hdmi, %s: failed to get cec clock\n", __func__);
+        goto err;
+    }
+#endif
+
     OUT_FUNCTION;
     return 0;
 

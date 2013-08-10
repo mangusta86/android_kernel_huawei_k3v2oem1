@@ -552,7 +552,6 @@ static void	bluesleep_stop(struct bluesleep_info *bs_info)
 	up(&bs_info->bt_seam);
 	printk("%s, bluetooth power manage unit stop -.\n", __func__);
 
-
 }
 /**
  * Read	the	<code>BT_WAKE</code> GPIO pin value	via	the	proc interface.

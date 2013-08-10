@@ -21,9 +21,9 @@
 
 #define LOG_TAG "TPA6132"
 
-#define PRINT_INFO  1
-#define PRINT_WARN  1
-#define PRINT_DEBUG 1
+#define PRINT_INFO  0
+#define PRINT_WARN  0
+#define PRINT_DEBUG 0
 #define PRINT_ERR   1
 
 #if PRINT_INFO

@@ -146,7 +146,10 @@ typedef enum _gceHAL_COMMAND_CODES
     gcvHAL_DUMP_EVENT,
 
     gcvHAL_ALLOCATE_VIRTUAL_COMMAND_BUFFER,
-    gcvHAL_FREE_VIRTUAL_COMMAND_BUFFER
+    gcvHAL_FREE_VIRTUAL_COMMAND_BUFFER,
+
+    /* Reset time stamp. */
+    gcvHAL_QUERY_RESET_TIME_STAMP,
 }
 gceHAL_COMMAND_CODES;
 
@@ -909,6 +912,12 @@ typedef struct _gcsHAL_INTERFACE
             IN gceVIDMEM_NODE_SHARED_INFO_TYPE infoType;
         }
         SetSharedInfo;
+
+        struct _gcsHAL_QUERY_RESET_TIME_STAMP
+        {
+            OUT gctUINT64           timeStamp;
+        }
+        QueryResetTimeStamp;
     }
     u;
 }

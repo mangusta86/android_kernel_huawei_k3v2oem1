@@ -36,7 +36,5 @@ struct cpu_num_limit {
 	int block;
 };
 
-extern struct ipps_param gipps_param;
 extern struct cpu_num_limit gcpu_num_limit;
-
 #endif /* _LINUX_CPUFREQ_K3V2_H_ */

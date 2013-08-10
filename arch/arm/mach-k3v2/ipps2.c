@@ -56,10 +56,13 @@
 #include <asm/hardware/gic.h>
 #include <asm/smp_twd.h>
 #include <linux/delay.h>
-#include "mcu_para.h"
+
+#ifdef CONFIG_IPPS_PARAM_ALTERNATIVE
+#include "ipps_para.h"
+#endif
 
 #define MODULE_NAME			"ipps-v2"
-#define DEFAULT_FW_NAME			"ipps/ipps-v2.bin"
+#define DEFAULT_FW_NAME		"ipps/ipps-v2.bin"
 #define ES_FW_NAME			"ipps/ipps-v2-es.bin"
 
 #define MCU_TIMEOUT			msecs_to_jiffies(2000)
@@ -75,24 +78,28 @@
 #define MCU_DISABLE		0x0
 #define MCU_ENABLE		0x01
 
-#define TRIM_REF_VOL            (0x42)
+#define TRIM_REF_VALUE			(0x42)
 #define PROFILE_BLOCK_SIZE      (0x100)
 
 #define MCU_CMD_HALT		(0x81)
-#define MCU_CMD_GPU_ON		(0x82)
-#define MCU_CMD_GPU_OFF		(0x83)
-#define MCU_CMD_CPU_ON(n)	(0x83 + n)
-#define MCU_CMD_CPU_OFF		(0x88)
-#define MCU_CMD_CPU_PROFILE(n)	(0x10 + (n & 0x0f))
+
+#define MCU_CMD_GPU_OP_ON			(0x82)
+#define MCU_CMD_GPU_OP_OFF		(0x83)
+#define MCU_CMD_CPU_OP_ON			(0x84)
+#define MCU_CMD_CPU_OP_OFF		(0x85)
+#define MCU_CMD_DDR_OP_ON			(0x86)
+#define MCU_CMD_DDR_OP_OFF		(0x87)
+
+#define MCU_FUNC_CMD(obj, cmd) 	(((obj & IPPS_OBJ_CPU) ? 0x50 : ((obj & IPPS_OBJ_GPU) ? 0x58 : 0x60))  + ((cmd & IPPS_DVFS_AVS_ENABLE) >> 2))
+
+#define MCU_CMD_CPU_PROFILE(n)		(0x10 + (n & 0x0f))
 #define MCU_CMD_GPU_PROFILE(n)	(0x20 + (n & 0x07))
 #define MCU_CMD_DDR_PROFILE(n)	(0x30 + (n & 0x07))
 #define MCU_CMD_POLICY(n)		(0x40 + (n & 0x0f))
-#define MCU_CMD_DDR_ON		(0x61)
-#define MCU_CMD_DDR_OFF		(0x60)
 #define MCU_CMD_TEMP_ON		(0x71)
 #define MCU_CMD_TEMP_OFF	(0x70)
 
-#define CONFIG_CPU_MAX_FREQ (2)
+#define CONFIG_CPU_MAX_FREQ (1400000)
 
 union param {
 	struct {
@@ -104,14 +111,35 @@ union param {
 	struct {
 		u32 safe:8;
 		u32 alarm:8;
-		u32	reset:8;
+		u32 reset:8;
+		u32 cold:8;
 	} temp;
+	struct {
+		u32 low:8;
+		u32 high:8;
+		u32 cur:8;
+	} power_capacity;
 	u32 ul32;
 };
 
 struct profile {
 	u32 freq:16;
 	u32 dummy[63];
+};
+
+struct cpu_profile {
+	u32 freq:16;
+	u32 avspara0_2;
+	u32 avs_para5_2_high:8;
+	u32 avs_para5_2_low:8;
+	u32 avs_para5_4_high:8;
+	u32 avs_para5_4_low:8;
+	u32 avspara0_4;
+	u32 clkprofile0;
+	u32 clkprofile1:16;
+	u32 rm_para:8;
+	u32 vol:8;
+	u32 dummy[58];
 };
 
 DEFINE_SPINLOCK(mcureg_lock);
@@ -139,7 +167,7 @@ DEFINE_SPINLOCK(mcureg_lock);
 
 #define CPU_PARAM_OFFSET	(0x5010)
 #define CPU_MAX_OFFSET		(0x5011)
-#define CPU_MAX1_OFFSET	(0x5013)
+#define CPU_MAX1_OFFSET		(0x5013)
 #define GPU_PARAM_OFFSET	(0x5014)
 #define DDR_PARAM_OFFSET	(0x5018)
 #define TEMP_PARAM_OFFSET	(0x501C)
@@ -148,24 +176,21 @@ DEFINE_SPINLOCK(mcureg_lock);
 #define GPU_STATUS_OFFSET	(0x5024)
 #define DDR_STATUS_OFFSET	(0x5028)
 #define TEMP_STATUS_OFFSET	(0x502C)
+#define POWER_CAPACITY_OFFSET	(0x5030)
 #define HPM_VALUE_OFFSET	(0x5066)
 #define TRIM_VOLT_OFFSET	(0x5067)
 #define UPDATE_OFFSET		(0x5800)
 
 #define CPU_PROFILE_OFFSET	(0x6000)
-#define CPU_MAXPROFILE_OFFSET	(0x6600)
-#define MAX_CPU_PROFILE_NUM	15
 #define	GPU_PROFILE_OFFSET	(0x7000)
-#define MAX_GPU_PROFILE_NUM	7
 #define DDR_PROFILE_OFFSET	(0x7800)
-#define MAX_DDR_PROFILE_NUM	7
-#define CPU_PROFILE_VOL_OFFSET  (0x600F)
-#define CPU_PROFILE_AVS_PARA5_OFFSET (0x601B)
 
 #define CFG_OFFSET		(0xF000)
 #define INT_STAT_OFFSET		(0xF004)
 #define INT_MASK_OFFSET		(0xF008)
 #define DEBUG_OFFSET		(0xF00C)
+
+int max_freq_array[] = {1200000,1399999,1400000,1500000,1508000,1200000};
 
 struct ipps2 {
 	void __iomem			*mmio;
@@ -176,6 +201,7 @@ struct ipps2 {
 	struct completion		done;
 	u8						shadow[RAM_SIZE];
 	struct ipps_device		*idev;
+	bool	is_halt;
 };
 
 struct cmd_proc {
@@ -228,7 +254,7 @@ int mcu_command(struct ipps2 *ipps2, u8 cmd)
 		&& !wait_for_completion_timeout(&ipps2->done, MCU_TIMEOUT)) {
 		writel_one(MCU_ENABLE, ipps2->mmio + CFG_OFFSET);
 		dev_warn(idev->dev, "WARN: MCU CMD TIMEOUT [%x]\nSTATUS DUMP:\n"
-			"%08x\t%08x\t%08x\t%08x\n%08x\t%08x\t%08x\t%08x\n%08x\t%08x\t%08x\t%08x\n", 
+			"%08x\t%08x\t%08x\t%08x\n%08x\t%08x\t%08x\t%08x\n%08x\t%08x\t%08x\t%08x\nPC:%08x CFG:%08x INT:%08x\n",
 			cmd,
 			readl_one(ipps2->mmio + 0x5000),
 			readl_one(ipps2->mmio + 0x5004),
@@ -241,39 +267,57 @@ int mcu_command(struct ipps2 *ipps2, u8 cmd)
 			readl_one(ipps2->mmio + 0x5020),
 			readl_one(ipps2->mmio + 0x5024),
 			readl_one(ipps2->mmio + 0x5028),
-			readl_one(ipps2->mmio + 0x502C));
+			readl_one(ipps2->mmio + 0x502C),
+			readl_one(ipps2->mmio + DEBUG_OFFSET),
+			readl_one(ipps2->mmio + CFG_OFFSET),
+			readl_one(ipps2->mmio + INT_STAT_OFFSET));
 		ret = -ETIMEDOUT;
 	}
 	return ret;
 }
 
-
-int mcu_cmd_proc(struct device *dev, enum ipps_cmd_type cmd, unsigned int object, void *data)
+static int mcu_cmd_proc(struct device *dev, enum ipps_cmd_type cmd, unsigned int object, void *data)
 {
 	struct platform_device *pdev = to_platform_device(dev);
 	struct ipps2 *ipps2 = platform_get_drvdata(pdev);
 	int ret;
-	u8 mcu_cmd = 0;
+	u8 mcu_cmd;
+
+	if (NULL == ipps2) {
+		pr_err("%s %d platform_get_drvdata NULL\n", __func__, __LINE__);
+		return -1;
+	}
 
 	mutex_lock(&ipps2->lock);
-
+	ret = 0;
+	mcu_cmd = 0;
+	if (ipps2->is_halt) {
+		goto mcu_cmd_proc_disabled;
+	}
 	switch (cmd) {
 		case IPPS_GET_FREQS_TABLE:
 		{
 			struct cpufreq_frequency_table *table = (struct cpufreq_frequency_table *)data;
-			struct profile *p = NULL;
+			struct profile *profile = NULL;
+			union param *param = NULL;
 			int index = 0;
 
-			if (object & IPPS_OBJ_CPU)
-				p = (struct profile *)&(ipps2->shadow[CPU_PROFILE_OFFSET]);
-			else if (object & IPPS_OBJ_GPU)
-				p = (struct profile *)&(ipps2->shadow[GPU_PROFILE_OFFSET]);
-			else if (object & IPPS_OBJ_DDR)
-				p = (struct profile *)&(ipps2->shadow[DDR_PROFILE_OFFSET]);
+			if (object & IPPS_OBJ_CPU) {
+				profile = (struct profile *)&(ipps2->shadow[CPU_PROFILE_OFFSET]);
+				param = (union param *)&(ipps2->shadow[CPU_PARAM_OFFSET]);
+			}
+			else if (object & IPPS_OBJ_GPU) {
+				profile = (struct profile *)&(ipps2->shadow[GPU_PROFILE_OFFSET]);
+				param = (union param *)&(ipps2->shadow[GPU_PARAM_OFFSET]);
+			}
+			else if (object & IPPS_OBJ_DDR) {
+				profile = (struct profile *)&(ipps2->shadow[DDR_PROFILE_OFFSET]);
+				param = (union param *)&(ipps2->shadow[DDR_PARAM_OFFSET]);
+			}
 
-			while (p && p[index].freq != 0) {
+			while (profile && profile[index].freq != 0 && index <= param->freq.max) {
 				table->index = index;
-				table->frequency = be16_to_cpu(p[index].freq)*1000;
+				table->frequency = be16_to_cpu(profile[index].freq)*1000;
 				table++;
 				index++;
 			}
@@ -406,48 +450,93 @@ int mcu_cmd_proc(struct device *dev, enum ipps_cmd_type cmd, unsigned int object
 		case IPPS_SET_MODE:
 		{
 			if (object & IPPS_OBJ_CPU) {
-				mcu_cmd = (*(unsigned int *)data == IPPS_ENABLE) ? MCU_CMD_CPU_ON(num_online_cpus()) : MCU_CMD_CPU_OFF;
+				mcu_cmd = (*(unsigned int *)data == IPPS_ENABLE) ? MCU_CMD_CPU_OP_ON : MCU_CMD_CPU_OP_OFF;
+				ipps2->shadow[CPU_STATUS_OFFSET] &= ~IPPS_ENABLE;
+				ipps2->shadow[CPU_STATUS_OFFSET] |= *(unsigned char *)data;
 			} else if (object & IPPS_OBJ_GPU) {
-				mcu_cmd = (*(unsigned int *)data == IPPS_ENABLE) ? MCU_CMD_GPU_ON : MCU_CMD_GPU_OFF;
+				mcu_cmd = (*(unsigned int *)data == IPPS_ENABLE) ? MCU_CMD_GPU_OP_ON : MCU_CMD_GPU_OP_OFF;
+				ipps2->shadow[GPU_STATUS_OFFSET] &= ~IPPS_ENABLE;
+				ipps2->shadow[GPU_STATUS_OFFSET] |= *(unsigned char *)data;
 			} else if (object & IPPS_OBJ_DDR) {
-				mcu_cmd = (*(unsigned int *)data == IPPS_ENABLE) ? MCU_CMD_DDR_ON : MCU_CMD_DDR_OFF;
+				mcu_cmd = (*(unsigned int *)data == IPPS_ENABLE) ? MCU_CMD_DDR_OP_ON : MCU_CMD_DDR_OP_OFF;
+				ipps2->shadow[DDR_STATUS_OFFSET] &= ~IPPS_ENABLE;
+				ipps2->shadow[DDR_STATUS_OFFSET] |= *(unsigned char *)data;
 			} else if (object & IPPS_OBJ_TEMP) {
 				mcu_cmd = (*(unsigned int *)data == IPPS_ENABLE) ? MCU_CMD_TEMP_ON : MCU_CMD_TEMP_OFF;
+				ipps2->shadow[TEMP_STATUS_OFFSET] &= ~IPPS_ENABLE;
+				ipps2->shadow[TEMP_STATUS_OFFSET] |= *(unsigned char *)data;
 			}
 			break;
 		}
+
+		case IPPS_GET_FUNC:
+		{
+			if (object & IPPS_OBJ_DDR) {
+				*(unsigned int *)data = readl_one(ipps2->mmio + DDR_STATUS_OFFSET) & IPPS_DFS_ENABLE;
+			} else if (object & IPPS_OBJ_CPU) {
+				*(unsigned int *)data = readl_one(ipps2->mmio + CPU_STATUS_OFFSET) & IPPS_DVFS_AVS_ENABLE;
+			} else if (object & IPPS_OBJ_GPU) {
+				*(unsigned int *)data = readl_one(ipps2->mmio + GPU_STATUS_OFFSET) & IPPS_DVFS_AVS_ENABLE;
+			}
+
+			break;
+		}
+
+		case IPPS_SET_FUNC:
+		{
+			if (object & IPPS_OBJ_CPU) {
+				mcu_cmd = MCU_FUNC_CMD(IPPS_OBJ_CPU, *(unsigned char *)data);
+				ipps2->shadow[CPU_STATUS_OFFSET] &= ~IPPS_DVFS_AVS_ENABLE;
+				ipps2->shadow[CPU_STATUS_OFFSET] |= *(unsigned char *)data;
+			} else if  (object & IPPS_OBJ_GPU) {
+				mcu_cmd = MCU_FUNC_CMD(IPPS_OBJ_GPU, *(unsigned char *)data);
+				ipps2->shadow[GPU_STATUS_OFFSET] &= ~IPPS_DVFS_AVS_ENABLE;
+				ipps2->shadow[GPU_STATUS_OFFSET] |= *(unsigned char *)data;
+			} else if (object & IPPS_OBJ_DDR) {
+				mcu_cmd = MCU_FUNC_CMD(IPPS_OBJ_DDR, *(unsigned char *)data);
+				ipps2->shadow[DDR_STATUS_OFFSET] &= ~IPPS_DFS_ENABLE;
+				ipps2->shadow[DDR_STATUS_OFFSET] |= *(unsigned char *)data;
+			}
+			break;
+		}
+
+		case IPPS_UPDATE_POWER_CAPACITY:
+		{
+			int *param = (int *)data;
+			union param *p = (union param *)&(ipps2->shadow[POWER_CAPACITY_OFFSET]);
+			p->power_capacity.cur = *param;
+			writel_one(p->ul32, ipps2->mmio + POWER_CAPACITY_OFFSET);
+		}
+
 		default:
 			break;
 	}
-
 	if (mcu_cmd)
 		ret = mcu_command(ipps2, mcu_cmd);
-	else
-		ret = 0;
 
+mcu_cmd_proc_disabled:
 	mutex_unlock(&ipps2->lock);
-
 	return ret;
-
 }
 
 static void mcu_enable(struct ipps2 *ipps2)
 {
 	int i;
-	struct ipps_device *idev = ipps2->idev;
 	unsigned long *src = (unsigned long *)ipps2->shadow;
 	unsigned long *dst = (unsigned long *)ipps2->mmio;
-	unsigned udvfsen = 0;
-
 	mutex_lock(&ipps2->lock);
+
+	if (ipps2->is_halt == false) {
+		goto mcu_enable_enabled;
+	}
 
 	writel_one(MCU_DISABLE, ipps2->mmio + CFG_OFFSET);
 
 	/*if dvfsen==1 it's pull back, we use curr firmware*/
-	udvfsen = readl(IO_ADDRESS(REG_BASE_PMCTRL + 0x100));
-	if ((udvfsen & 0x1) != 0x1)
+	if ((readl(IO_ADDRESS(REG_BASE_PMCTRL) + 0x100) & 0x1) != 0x1) {
 		for (i = 0; i < RAM_SIZE; i += 4) {
 			writel_one(*src++, dst++);
+		}
 	}
 
 	writel_one(0, ipps2->mmio + INT_STAT_OFFSET);
@@ -455,51 +544,25 @@ static void mcu_enable(struct ipps2 *ipps2)
 	writel(0x0000000F, IO_ADDRESS(REG_BASE_PCTRL) + 0x174); /* Clear HW resource lock */
 	writel_one(MCU_ENABLE, ipps2->mmio + CFG_OFFSET);
 
-	idev->command = mcu_cmd_proc;
-
+	ipps2->is_halt = false;
+mcu_enable_enabled:
 	mutex_unlock(&ipps2->lock);
 }
 
 static void mcu_disable(struct ipps2 *ipps2)
 {
-	struct ipps_device *idev = ipps2->idev;
-	union param p;
-	unsigned int ufreq, index=0;
-
 	mutex_lock(&ipps2->lock);
 
-	idev->command = NULL;
-
-	p.freq.min = 0x1;
-	p.freq.max = 0x1;
-	p.freq.safe = 0x1;
-	writel_one(p.ul32, ipps2->mmio + CPU_PARAM_OFFSET);
-
-	/*make sure cpu is profile 1*/
-	while (1) {
-		ufreq = readl_one(ipps2->mmio+CPU_RUNTIME_OFFSET);
-
-		if ((ufreq & 0xFFFF) == 0x0101)
-			break;
-
-		if (index++ > 1000) {
-			dev_warn(idev->dev, "can not set cpu to profile1\n");
-			break;
-		}
-
-		msleep(1);
-	}
-
-	if (readl_one(ipps2->mmio + CFG_OFFSET) != MCU_ENABLE) {
-		dev_warn(idev->dev, "try to disable busy mcu\n");
-		msleep(1);
+	if (ipps2->is_halt) {
+		goto mcu_disable_disabled;
 	}
 
 	mcu_command(ipps2,MCU_CMD_HALT);
 
 	writel_one(0, ipps2->mmio + INT_MASK_OFFSET);
 	writel_one(MCU_DISABLE, ipps2->mmio + CFG_OFFSET);
-
+	ipps2->is_halt = true;
+mcu_disable_disabled:
 	mutex_unlock(&ipps2->lock);
 }
 
@@ -624,8 +687,8 @@ static irqreturn_t mcu_irq(int irq, void *args)
 					}
 				} while(flage);
 			} else {
-				dev_err(idev->dev,"Error: CPU WFE Status Error! cpu num[%d], timeout[%d], flag[0x%x] irqflag[0x%x]\n",
-							cpu_num, timeout, flage, irqflage);
+				dev_warn(idev->dev,"WARN: CPU BUSY! cpu num[%d], flag[0x%x] irqflag[0x%x]\n",
+							cpu_num, flage, irqflage);
 				writel(4, sctl_addr);
 			}
 
@@ -649,23 +712,27 @@ static irqreturn_t mcu_irq(int irq, void *args)
 
 extern int get_hpm_vol_val(void);
 
-static void trim_patch(struct ipps2 *ipps2, int hpm_vol_val)
+static void trim_patch(struct ipps2 *ipps2, int hpm_value)
 {
-	int delta_vol,i;
-	ipps2->shadow[HPM_VALUE_OFFSET] = hpm_vol_val;
-	delta_vol = hpm_vol_val - TRIM_REF_VOL;
-	if (delta_vol < 1) {
-		ipps2->shadow[TRIM_VOLT_OFFSET] = 0;
-		return;
-	}
-	delta_vol++;
-	if(delta_vol > 8)
-		delta_vol = 8;
-	ipps2->shadow[TRIM_VOLT_OFFSET] = delta_vol;
-	printk("delta_vol:%d\n",delta_vol);
-	for(i=0;i<=MAX_CPU_PROFILE_NUM;i++){
-		ipps2->shadow[CPU_PROFILE_VOL_OFFSET + i * PROFILE_BLOCK_SIZE] += delta_vol;
-		ipps2->shadow[CPU_PROFILE_AVS_PARA5_OFFSET + i * PROFILE_BLOCK_SIZE] += delta_vol;
+	int offset,i = 0;
+	struct cpu_profile *p;
+	offset = hpm_value - TRIM_REF_VALUE;
+
+	if (offset > 0) {
+		offset++;
+		if(offset > 8) {
+			offset = 8;
+		}
+		dev_info(ipps2->idev->dev, "trim voltage offset: %dmv\n",
+			((offset * 900) >> 7));
+
+		p = (struct cpu_profile *)&(ipps2->shadow[CPU_PROFILE_OFFSET]);
+		for (i = 0; i <= ipps2->shadow[CPU_MAX_OFFSET]; i++) {
+			p[i].avs_para5_2_low += offset;
+			p[i].avs_para5_4_low += offset;
+			p[i].vol += offset;
+		}
+
 	}
 }
 
@@ -673,43 +740,44 @@ extern int get_cpu_max_freq(void);
 
 static void cpu_profile_adjust(struct ipps2 *ipps2)
 {
-	int max_freq,index;
+	int max_freq,index,index_freq;
 	unsigned int cpu_level, cpu_iddq, efuse_version, date, update_level;
 	unsigned long efuse0, efuse2, efuse3;
 	union param *p;
 
 #ifdef  CONFIG_CPU_MAX_FREQ
-	index = CONFIG_CPU_MAX_FREQ;
+	max_freq = CONFIG_CPU_MAX_FREQ;
 #else
 	efuse0 = readl(IO_ADDRESS(REG_BASE_PCTRL)+0x1DC);
 	efuse_version = (efuse0 >> 29) & 0x07;
 
-	index = 0;
+	max_freq = 1200000;
 	if (efuse_version == 1) {
 		efuse2 = readl(IO_ADDRESS(REG_BASE_PCTRL)+0x1D4);
 		efuse3 = readl(IO_ADDRESS(REG_BASE_PCTRL)+0x1D0);
 
 		cpu_level = (efuse0 >> 18) & 0x3F;
+
 		cpu_iddq = ((efuse2 & 0x01) << 7) | (efuse3 >> 25);
 		date = (efuse2 >> 17) & 0x1FFF;
 		dev_info(ipps2->idev->dev, "efuse info:%d,%d,%d,%d\n", efuse_version, cpu_level, cpu_iddq, date);
 		if (date > 0x1952) {   /* date 2012-10-18, after is B40, before is B30*/
-			if (cpu_level == 8 && cpu_iddq <= 40) {
-				index = 4;/* 1508  */
+			if ((cpu_level == 8) && (cpu_iddq <= 40)) {
+				max_freq = max_freq_array[4];//1508000;
 			} else if ((cpu_level == 7) && (cpu_iddq <= 40)) {
-				index = 3;/* 1482  */
+				max_freq = max_freq_array[3];//1500000;
 			} else if ((cpu_level >= 3) && (cpu_level <= 8) && (cpu_iddq <= 50)) {
-				index = 1;/* 1400  */
+				max_freq = max_freq_array[1];//1400000 - 1;
 			} else {
-				index = 0;/* 1200  */
+				max_freq = max_freq_array[0];//1200000;
 			}
 		} else {
 			if ((cpu_level >= 5) && (cpu_level <= 7) && (cpu_iddq <= 35)) {
-				index = 2;/* 1400+ */
+				max_freq = max_freq_array[2];//1400000;	/* 1400+ */
 			} else if ((cpu_iddq <= 40) && (cpu_level >= 3) && (cpu_level <= 7)) {
-				index = 1;/* 1400  */
+				max_freq = max_freq_array[1];//1400000 - 1;
 			} else {
-				index = 0;/* 1200  */
+				max_freq = max_freq_array[0];//1200000;
 			}
 		}
 	} else if (efuse_version >= 2) {
@@ -718,33 +786,39 @@ static void cpu_profile_adjust(struct ipps2 *ipps2)
 		dev_info(ipps2->idev->dev, "efuse info:%d,%d,%d\n", efuse_version, cpu_level, update_level);
 		if (update_level > 2) {
 			index = cpu_level - (update_level - 2);
+
 		} else {
 			index = cpu_level + update_level;
 		}
 		index--;
+		if (index < 0) {
+			index = 0;
+		}
+		if (index > (ARRAY_SIZE(max_freq_array) - 1)) {
+			index = ARRAY_SIZE(max_freq_array) - 1;
+		}
+		max_freq = max_freq_array[index];
 	} else {
 		max_freq = get_cpu_max_freq();
 		if (max_freq == 1400) {
-			index = 1;
+			max_freq = 1400000 - 1;
 			dev_info(ipps2->idev->dev, "set max cpufreq 1.4G according to NV\n");
 		}
 		else {
-			index = 0; /* Default 1200M */
+			max_freq = 1200000; /* Default 1200M */
 			dev_info(ipps2->idev->dev, "set max cpufreq 1.2G according to NV\n");
 		}
 	}
 #endif
-	if ((index < 0) || (index > (sizeof(max_cpu_profile) / PROFILE_BLOCK_SIZE))) {
-		index = 0;
-	}
-	if (index > 0) {
-		p = (union param *)&(ipps2->shadow[CPU_PARAM_OFFSET]);
-		memcpy((void *)ipps2->shadow+CPU_MAXPROFILE_OFFSET, (void *)&max_cpu_profile[index-1][0], PROFILE_BLOCK_SIZE);
-		p->freq.max = 6;
-		if (index == 1) {
-			memcpy((void *)ipps2->shadow+CPU_MAXPROFILE_OFFSET+PROFILE_BLOCK_SIZE, (void *)&max_cpu_profile[index][0], PROFILE_BLOCK_SIZE);
-			p->freq.max = 7;
-		}
+	index = freq_to_index(ipps2, CPU_PROFILE_OFFSET, max_freq);
+	index_freq = index_to_freq(ipps2,CPU_PROFILE_OFFSET,index);
+	p = (union param *)&(ipps2->shadow[CPU_PARAM_OFFSET]);
+	if(max_freq >= index_freq) {
+		p->freq.max = index;
+		p->freq.max1 = index + 1;
+	} else {
+		p->freq.max = index;
+		p->freq.max1 = index;
 	}
 
 #ifdef  CONFIG_TRIM_VOL
@@ -759,8 +833,13 @@ static void firmware_request_complete(const struct firmware *fw,
 	struct platform_device *pdev = to_platform_device(dev);
 	struct ipps2 *ipps2 = platform_get_drvdata(pdev);
 	struct ipps_device *idev;
-
+	unsigned long ddr_type;
 	int ret;
+
+	if (NULL == ipps2) {
+		pr_err("%s %d platform_get_drvdata NULL\n", __func__, __LINE__);
+		return ;
+	}
 
 	if (NULL == fw || fw->size != RAM_SIZE) {
 		dev_err(dev, "cannot get firmware\n");
@@ -777,18 +856,28 @@ static void firmware_request_complete(const struct firmware *fw,
 
 	ipps2->idev = idev;
 
-	idev->object = IPPS_OBJ_CPU | IPPS_OBJ_GPU | IPPS_OBJ_DDR | IPPS_OBJ_TEMP;
-
 	memcpy((void *)ipps2->shadow, (void *)fw->data, RAM_SIZE);
+
 #ifdef  CONFIG_IPPS_PARAM_ALTERNATIVE
-	memcpy((void *)ipps2->shadow+CPU_RUNTIME_OFFSET, (void *)common, sizeof(common));
-	memcpy((void *)ipps2->shadow+UPDATE_OFFSET, (void *)profile_update, sizeof(profile_update));
-	memcpy((void *)ipps2->shadow+CPU_PROFILE_OFFSET, (void *)cpu_profile, sizeof(cpu_profile));
-	memcpy((void *)ipps2->shadow+GPU_PROFILE_OFFSET, (void *)gpu_profile, sizeof(gpu_profile));
-	memcpy((void *)ipps2->shadow+DDR_PROFILE_OFFSET, (void *)ddr_profile, sizeof(ddr_profile));
-	cpu_profile_adjust(ipps2);
+	if(get_chipid() == CS_CHIP_ID) {
+		memcpy((void *)ipps2->shadow+CPU_RUNTIME_OFFSET, (void *)common, sizeof(common));
+		memcpy((void *)ipps2->shadow+CPU_PROFILE_OFFSET, (void *)cpu_profile, sizeof(cpu_profile));
+		memcpy((void *)ipps2->shadow+GPU_PROFILE_OFFSET, (void *)gpu_profile, sizeof(gpu_profile));
+		memcpy((void *)ipps2->shadow+DDR_PROFILE_OFFSET, (void *)ddr_profile, sizeof(ddr_profile));
+		cpu_profile_adjust(ipps2);
+	}
 #endif
 
+	ddr_type = readl(IO_ADDRESS(REG_BASE_DDRC_CFG)+0x1C);
+	dev_info(dev,"DDR type:%lx\n",ddr_type);
+	if((ddr_type & 0x700) == 0x200)	{
+		idev->object = IPPS_OBJ_CPU | IPPS_OBJ_GPU | IPPS_OBJ_DDR | IPPS_OBJ_TEMP;
+	} else {
+		idev->object = IPPS_OBJ_CPU | IPPS_OBJ_GPU | IPPS_OBJ_TEMP;
+		ipps2->shadow[DDR_STATUS_OFFSET] = 0x0;
+	}
+
+	idev->command = mcu_cmd_proc;
 	mcu_enable(ipps2);
 
 	ret = ipps_register_device(idev);
@@ -872,6 +961,7 @@ int ipps2_probe(struct platform_device *pdev)
 	init_completion(&ipps2->done);
 	mutex_init(&ipps2->lock);
 	clk_enable(ipps2->clk);
+	ipps2->is_halt = true;
 
 	ret = request_firmware_nowait(THIS_MODULE, FW_ACTION_HOTPLUG,
 			(get_chipid() == CS_CHIP_ID) ? DEFAULT_FW_NAME : ES_FW_NAME,
@@ -905,11 +995,15 @@ err_mem:
 static int ipps2_remove(struct platform_device *pdev)
 {
 	struct ipps2 *ipps2 = platform_get_drvdata(pdev);
-	struct ipps_device *idev = ipps2->idev;
+	struct ipps_device *idev = NULL;
 
+	if (NULL == ipps2) {
+		pr_err("%s %d platform_get_drvdata NULL\n", __func__, __LINE__);
+		return -1;
+	}
+	idev = ipps2->idev;
 	if (idev) {
-		if (idev->command)
-			mcu_disable(ipps2);
+		mcu_disable(ipps2);
 
 		ipps_unregister_device(ipps2->idev);
 		ipps_dealloc_device(ipps2->idev);
@@ -935,21 +1029,16 @@ static int ipps2_suspend(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
 	struct ipps2 *ipps2 = platform_get_drvdata(pdev);
-	struct ipps_device *idev = ipps2->idev;
-	unsigned ucurr = 0;
-
-	printk("ipps2_suspend in+\n");
-
-	ucurr = readl(ipps2->mmio + DDR_RUNTIME_OFFSET);
-	if((ucurr & 0xFF) > (ipps2->shadow[DDR_RUNTIME_OFFSET] & 0xFF)) {
-		writel(ipps2->shadow[DDR_RUNTIME_OFFSET], ipps2->mmio + DDR_PARAM_OFFSET);
-		msleep(1);
+	struct ipps_device *idev = NULL;
+	if (NULL == ipps2) {
+		pr_err("%s %d platform_get_drvdata NULL\n", __func__, __LINE__);
+		return -1;
 	}
-
-	if(idev && idev->command)
+	idev = ipps2->idev;
+	printk("ipps2_suspend+");
+	if(idev)
 		mcu_disable(ipps2);
-
-	printk("ipps2_suspend out+\n");
+	printk("ipps2_suspend-");
 
 	return 0;
 }
@@ -958,14 +1047,16 @@ static int ipps2_resume(struct device *dev)
 {
 	struct platform_device *pdev = to_platform_device(dev);
 	struct ipps2 *ipps2 = platform_get_drvdata(pdev);
-	struct ipps_device *idev = ipps2->idev;
-
-	printk("ipps2_resume in+\n");
-	if(idev && NULL == idev->command)
+	struct ipps_device *idev = NULL;
+	if (NULL == ipps2) {
+		pr_err("%s %d platform_get_drvdata NULL\n", __func__, __LINE__);
+		return -1;
+	}
+	idev = ipps2->idev;
+	printk("ipps2_resume+");
+	if(idev)
 		mcu_enable(ipps2);
-
-	mcu_command(ipps2,(0x83+num_online_cpus()));
-	printk("ipps2_resume out+\n");
+	printk("ipps2_resume-");
 
 	return 0;
 }

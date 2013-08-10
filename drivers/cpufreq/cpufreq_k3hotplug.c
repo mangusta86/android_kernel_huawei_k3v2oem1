@@ -27,6 +27,7 @@
 #include <linux/cpufreq-k3v2.h>
 #include <mach/boardid.h>
 #include <linux/suspend.h>
+#include <linux/ipps.h>
 
 /* pm_qos interface global val*/
 struct pm_qos_lst {
@@ -37,40 +38,11 @@ struct pm_qos_lst {
 
 static struct pm_qos_request_list g_cpumaxlimits;
 static struct pm_qos_request_list g_cpuminlimits;
-static struct pm_qos_request_list g_cpublocklimits;
-static struct pm_qos_request_list g_cpusafelimits;
-static struct pm_qos_request_list g_gpumaxlimits;
-static struct pm_qos_request_list g_gpuminlimits;
-static struct pm_qos_request_list g_gpublocklimits;
-static struct pm_qos_request_list g_gpusafelimits;
-static struct pm_qos_request_list g_ddrmaxlimits;
-static struct pm_qos_request_list g_ddrminlimits;
-static struct pm_qos_request_list g_ddrblocklimits;
-static struct pm_qos_request_list g_ddrsafelimits;
-static struct pm_qos_request_list g_qoscpulock;
-static struct pm_qos_request_list g_qoscpumax;
-static struct pm_qos_request_list g_qoscpumin;
-static struct pm_qos_request_list g_qoscpusafe;
 
 static struct pm_qos_lst pm_qos_list[] = {
 {&g_cpumaxlimits, PM_QOS_CPU_MAX_PROFILE, PM_QOS_CPU_MAXPROFILE_DEFAULT_VALUE},
 {&g_cpuminlimits, PM_QOS_CPU_MIN_PROFILE, PM_QOS_CPU_MINPROFILE_DEFAULT_VALUE},
-{&g_cpublocklimits, PM_QOS_CPU_PROFILE_BLOCK, PM_QOS_CPU_BLKPROFILE_DEFAULT_VALUE},
-{&g_cpusafelimits, PM_QOS_CPU_PROFILE_SAFE, PM_QOS_CPU_SAFEPROFILE_DEFAULT_VALUE},
-{&g_gpumaxlimits, PM_QOS_GPU_MAX_PROFILE, PM_QOS_GPU_MAXPROFILE_DEFAULT_VALUE},
-{&g_gpuminlimits, PM_QOS_GPU_MIN_PROFILE, PM_QOS_GPU_MINPROFILE_DEFAULT_VALUE},
-{&g_gpublocklimits, PM_QOS_GPU_PROFILE_BLOCK, PM_QOS_GPU_BLKPROFILE_DEFAULT_VALUE},
-{&g_gpusafelimits, PM_QOS_GPU_PROFILE_SAFE, PM_QOS_GPU_SAFEPROFILE_DEFAULT_VALUE},
-{&g_ddrmaxlimits, PM_QOS_DDR_MAX_PROFILE, PM_QOS_DDR_MAXPROFILE_DEFAULT_VALUE},
-{&g_ddrminlimits, PM_QOS_DDR_MIN_PROFILE, PM_QOS_DDR_MINPROFILE_DEFAULT_VALUE},
-{&g_ddrblocklimits, PM_QOS_DDR_PROFILE_BLOCK, PM_QOS_DDR_BLKPROFILE_DEFAULT_VALUE},
-{&g_ddrsafelimits, PM_QOS_DDR_PROFILE_SAFE, PM_QOS_DDR_SAFEPROFILE_DEFAULT_VALUE},
-{&g_qoscpulock, PM_QOS_CPU_NUMBER_LOCK, PM_QOS_CPU_NUMBER_LOCK_DEFAULT_VALUE},
-{&g_qoscpumax, PM_QOS_CPU_NUMBER_MAX, PM_QOS_CPU_NUMBER_MAX_DEFAULT_VALUE},
-{&g_qoscpumin, PM_QOS_CPU_NUMBER_MIN, PM_QOS_CPU_NUMBER_MIN_DEFAULT_VALUE},
-{&g_qoscpusafe, PM_QOS_CPU_NUMBER_SAFE, PM_QOS_CPU_NUMBER_SAFE_DEFAULT_VALUE},
 };
-
 
 static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 		unsigned int event);
@@ -96,140 +68,11 @@ static unsigned int dbs_enable;	/* number of CPUs using this policy */
  */
 static DEFINE_MUTEX(dbs_mutex);
 
-/************************** sysfs interface ************************/
-
 struct cpu_num_limit gcpu_num_limit = {
 	.max = NR_CPUS,
 	.min = 1,
 	.block = 0,
 };
-
-/* cpufreq_hotplug Governor Tunables */
-#define show_gpu_one(file_name, object)					\
-static ssize_t show_##file_name						\
-(struct kobject *kobj, struct attribute *attr, char *buf)		\
-{									\
-	unsigned gpufreq =	PARAM_VAL(gpu, object);		\
-	pr_info("[%s] %d\n", __func__, PARAM_VAL(gpu, object));	\
-	return sprintf(buf, "%u\n", gpufreq);		\
-}
-
-show_gpu_one(gpu_max_profile, max_freq);
-show_gpu_one(gpu_min_profile, min_freq);
-show_gpu_one(gpu_profile_block, block_freq);
-show_gpu_one(gpu_safe_profile, safe_freq);
-
-#define show_ddr_one(file_name, object)					\
-static ssize_t show_##file_name						\
-(struct kobject *kobj, struct attribute *attr, char *buf)		\
-{									\
-	unsigned ddrfreq = PARAM_VAL(ddr, object); \
-	pr_debug("[%s] %d\n", __func__, PARAM_VAL(ddr, object));	\
-	return sprintf(buf, "%u\n", ddrfreq);		\
-}
-
-show_ddr_one(ddr_max_profile, max_freq);
-show_ddr_one(ddr_min_profile, min_freq);
-show_ddr_one(ddr_profile_block, block_freq);
-show_ddr_one(ddr_safe_profile, safe_freq);
-
-#define show_cpu_one(file_name, object)					\
-static ssize_t show_##file_name						\
-(struct kobject *kobj, struct attribute *attr, char *buf)		\
-{									\
-	return sprintf(buf, "%u\n", gcpu_num_limit.object);		\
-}
-
-show_cpu_one(cpu_lock, block);
-show_cpu_one(cpu_max, max);
-show_cpu_one(cpu_min, min);
-show_cpu_one(cpu_safe, safe);
-
-
-#define show_scaling_one(file_name, object)	\
-static ssize_t show_##file_name	\
-(struct kobject *kobj, struct attribute *attr, char *buf)	\
-{	\
-	unsigned int freq = PARAM_VAL(cpu, object);\
-	pr_debug("[%s] %d\n", __func__, PARAM_VAL(cpu, object));	\
-	return sprintf(buf, "%u\n", freq);	\
-}
-
-show_scaling_one(cpu_profile_block, block_freq);
-show_scaling_one(cpu_safe_profile, safe_freq);
-
-
-#define store_one(file_name, object, pm_qos) \
-static ssize_t store_##file_name	\
-(struct kobject *a, struct attribute *b,	\
-				   const char *buf, size_t count)	\
-{	\
-	unsigned int input;	\
-	int ret = sscanf(buf, "%u", &input);	\
-	if (ret != 1)		\
-		return -EINVAL;	\
-						\
-	pm_qos_update_request(&pm_qos, input);	\
-						\
-	return count;	\
-}					\
-
-store_one(cpu_profile_block, block_limit, g_cpublocklimits);
-store_one(cpu_safe_profile, safe_limit, g_cpusafelimits);
-store_one(gpu_max_profile, max_limit, g_gpumaxlimits);
-store_one(gpu_min_profile, min_limit, g_gpuminlimits);
-store_one(gpu_profile_block, block_limit, g_gpublocklimits);
-store_one(gpu_safe_profile, safe_limit, g_gpusafelimits);
-store_one(ddr_max_profile, max_limit, g_ddrmaxlimits);
-store_one(ddr_min_profile, min_limit, g_ddrminlimits);
-store_one(ddr_profile_block, block_limit, g_ddrblocklimits);
-store_one(ddr_safe_profile, safe_limit, g_ddrsafelimits);
-store_one(cpu_lock, cpu_lock, g_qoscpulock);
-store_one(cpu_max, max_limit, g_qoscpumax);
-store_one(cpu_min, min_limit, g_qoscpumin);
-store_one(cpu_safe, safe_limit, g_qoscpusafe);
-
-
-define_one_global_rw(cpu_profile_block);
-define_one_global_rw(cpu_safe_profile);
-define_one_global_rw(gpu_max_profile);
-define_one_global_rw(gpu_min_profile);
-define_one_global_rw(gpu_profile_block);
-define_one_global_rw(gpu_safe_profile);
-define_one_global_rw(ddr_max_profile);
-define_one_global_rw(ddr_min_profile);
-define_one_global_rw(ddr_profile_block);
-define_one_global_rw(ddr_safe_profile);
-define_one_global_rw(cpu_lock);
-define_one_global_rw(cpu_max);
-define_one_global_rw(cpu_min);
-define_one_global_rw(cpu_safe);
-
-
-static struct attribute *dbs_attributes[] = {
-	&cpu_profile_block.attr,
-	&cpu_safe_profile.attr,
-	&gpu_max_profile.attr,
-	&gpu_min_profile.attr,
-	&gpu_profile_block.attr,
-	&gpu_safe_profile.attr,
-	&ddr_max_profile.attr,
-	&ddr_min_profile.attr,
-	&ddr_profile_block.attr,
-	&ddr_safe_profile.attr,
-	&cpu_lock.attr,
-	&cpu_max.attr,
-	&cpu_min.attr,
-	&cpu_safe.attr,
-	NULL
-};
-
-static struct attribute_group dbs_attr_group = {
-	.attrs = dbs_attributes,
-	.name = "k3hotplug",
-};
-
-/************************** sysfs end ************************/
 
 /***************************cpu hotplug*************************/
 #ifndef NO_CPU_HOTPLUG
@@ -276,6 +119,21 @@ static int g_iavrsubcnt = 0;
 static int hotplug_in_count = 0;
 static int hotplug_out_count = 0;
 
+#ifdef CONFIG_IPPS_SUPPORT
+static void ippsclient_add(struct ipps_device *device)
+{
+}
+
+static void ippsclient_remove(struct ipps_device *device)
+{
+}
+
+static struct ipps_client vcc_ipps_client = {
+	.name   = "cpufreq_k3hotplug",
+	.add    = ippsclient_add,
+	.remove = ippsclient_remove
+};
+#endif
 
 static inline cputime64_t get_cpu_idle_time(unsigned int cpu, cputime64_t *wall)
 {
@@ -302,7 +160,7 @@ static void auto_hotplug(void)
 	int cpun = 0;
 	unsigned int j;
 
-	int cpufreq = cpufreq_get(0);
+	cpufreq_get(0);
 
 	/*
 	 * cpu load accounting
@@ -407,7 +265,9 @@ static void do_dbs_timer(struct work_struct *work)
 {
 	int delay = usecs_to_jiffies(DEFAULT_SAMPLING_PERIOD);
 	delay -= jiffies % delay;
-	auto_hotplug();
+	if (gcpu_num_limit.block == 0) {
+		auto_hotplug();
+	}
 	schedule_delayed_work_on(0, &k_work, delay);
 }
 
@@ -427,224 +287,6 @@ static inline void dbs_timer_exit(void)
 #endif
 
 /********************cpu hotplug end**************************/
-
-/******************** PM QOS NOTIFY***************************/
-
-/**
-*  cpu max number lock handle.
-*/
-static inline void cpumax_handle(void)
-{
-	int cpu_online_num = num_online_cpus();
-
-	if (gcpu_num_limit.block != 0)
-		return;
-
-#ifdef CONFIG_HOTPLUG_CPU
-	while (gcpu_num_limit.max < cpu_online_num) {
-		cpu_down(cpu_online_num-1);
-		cpu_online_num = num_online_cpus();
-	}
-#endif
-}
-
-static int cpunumbermax_notify(struct notifier_block *b, unsigned long l,
-	void *v)
-{
-	int cpumax = 0;
-
-	pr_debug("[%s] in=%lu\n", __func__, l);
-
-	cpumax = (int)l;
-
-	if (cpumax > num_possible_cpus())
-		cpumax = num_possible_cpus();
-
-	if (cpumax < 1)
-		cpumax = 1;
-
-	if (gcpu_num_limit.max != cpumax) {
-		gcpu_num_limit.max = cpumax;
-		/*check if we need to hotplug out cpu*/
-		cpumax_handle();
-	}
-
-	return 0;
-}
-
-static struct notifier_block cpunumbermax_notifier = {
-	.notifier_call = cpunumbermax_notify,
-};
-
-/***
-* cpu min lock handle
-*/
-static inline void cpumin_handle(void)
-{
-	int cpu_online_num = num_online_cpus();
-
-	if (gcpu_num_limit.block != 0)
-		return;
-
-#ifdef CONFIG_HOTPLUG_CPU
-	while (gcpu_num_limit.min > cpu_online_num) {
-		cpu_up(cpu_online_num);
-		cpu_online_num = num_online_cpus();
-	}
-#endif
-}
-
-static int cpunumbermin_notify(struct notifier_block *b, unsigned long l,
-	void *v)
-{
-	int cpumin = 0;
-
-	pr_debug("[%s] in=%lu\n", __func__, l);
-
-	cpumin = (int)l;
-
-	if (cpumin > num_possible_cpus())
-		cpumin = num_possible_cpus();
-
-	if (cpumin < 1)
-		cpumin = 1;
-
-	if (gcpu_num_limit.min != cpumin) {
-		gcpu_num_limit.min = cpumin;
-
-		/*check if we need to hotplug cpu*/
-		cpumin_handle();
-	}
-
-	return 0;
-}
-
-static struct notifier_block cpunumbermin_notifier = {
-	.notifier_call = cpunumbermin_notify,
-};
-
-/**
-*  cpu lock number handler.
-**/
-static inline void cpu_lock_handle(void)
-{
-	int cpu_online_num = num_online_cpus();
-
-	if (gcpu_num_limit.block == 0) {
-		cpumax_handle();
-		cpumin_handle();
-
-		/*reeable hotplug*/
-		dbs_timer_init();
-		return;
-	}
-
-	/*close hotplug*/
-	dbs_timer_exit();
-
-#ifdef CONFIG_HOTPLUG_CPU
-	while (gcpu_num_limit.block != cpu_online_num) {
-
-		if (gcpu_num_limit.block < cpu_online_num)
-			cpu_down(cpu_online_num - 1);
-		else if (gcpu_num_limit.block > cpu_online_num)
-			cpu_up(cpu_online_num);
-
-		cpu_online_num = num_online_cpus();
-	}
-#endif
-}
-
-static int cpunumberlock_notify(struct notifier_block *b, unsigned long l,
-	void *v)
-{
-	int cpulock = 0;
-
-	pr_debug("[%s] in=%lu\n", __func__, l);
-
-	cpulock = (int)l;
-
-	/*if the cpu number is larger than possible number,
-	* we use the possible number.*/
-	if (cpulock > num_possible_cpus())
-		cpulock = num_possible_cpus();
-
-	if (gcpu_num_limit.block != cpulock) {
-
-		gcpu_num_limit.block = cpulock;
-
-		/*check if we need to hotplug cpu*/
-		cpu_lock_handle();
-	}
-
-	return 0;
-}
-
-static struct notifier_block cpunumberlock_notifier = {
-	.notifier_call = cpunumberlock_notify,
-};
-
-static int cpunumbersafe_notify(struct notifier_block *b, unsigned long l,
-	void *v)
-{
-	int isafe = 0;
-
-	pr_debug("[%s] in=%lu\n", __func__, l);
-
-	isafe = (int)l;
-
-	if (isafe > num_possible_cpus())
-		isafe = num_possible_cpus();
-
-	if (isafe <= 1)
-		isafe = 1;
-
-	if (gcpu_num_limit.safe != isafe)
-		gcpu_num_limit.safe = isafe;
-
-	return 0;
-}
-
-
-static struct notifier_block cpunumbersafe_notifier = {
-	.notifier_call = cpunumbersafe_notify,
-};
-
-static void k3hotplug_qos_remove_notifier(void)
-{
-	int ret = 0;
-
-	QOS_REMOVE_NOTIFY(PM_QOS_CPU_NUMBER_LOCK, cpunumberlock_notifier);
-
-	QOS_REMOVE_NOTIFY(PM_QOS_CPU_NUMBER_MAX, cpunumbermax_notifier);
-
-	QOS_REMOVE_NOTIFY(PM_QOS_CPU_NUMBER_MIN, cpunumbermin_notifier);
-
-	QOS_REMOVE_NOTIFY(PM_QOS_CPU_NUMBER_SAFE, cpunumbersafe_notifier);
-}
-
-static void k3hotplug_qos_add_notifier(void)
-{
-	int ret = 0;
-
-	QOS_ADD_NOTIFY(PM_QOS_CPU_NUMBER_LOCK, cpunumberlock_notifier);
-
-	QOS_ADD_NOTIFY(PM_QOS_CPU_NUMBER_MAX, cpunumbermax_notifier);
-
-	QOS_ADD_NOTIFY(PM_QOS_CPU_NUMBER_MIN, cpunumbermin_notifier);
-
-	QOS_ADD_NOTIFY(PM_QOS_CPU_NUMBER_SAFE, cpunumbersafe_notifier);
-
-	return;
-
-ERROR:
-	k3hotplug_qos_remove_notifier();
-
-}
-
-/******************** PM QOS NOTIFY***************************/
-
-
 void k3hotplug_pm_qos_add(void)
 {
 	int i = 0;
@@ -696,8 +338,8 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 				   unsigned int event)
 {
 	unsigned int cpu = policy->cpu;
+	unsigned int uippsmode = 0;
 	struct cpu_dbs_info_s *this_dbs_info = NULL;
-	int rc = 0;
 
 	this_dbs_info = &per_cpu(hp_cpu_dbs_info, cpu);
 
@@ -716,19 +358,12 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 		 * Start the timerschedule work, when this governor
 		 * is used for first time
 		 */
-		if (dbs_enable == 1) {
-
+		if (cpu == 0) {
+#ifdef CONFIG_IPPS_SUPPORT
+			uippsmode = IPPS_DVFS_AVS_ENABLE;
+			ipps_set_func(&vcc_ipps_client, IPPS_OBJ_CPU, &uippsmode);
+#endif
 			dbs_timer_init();
-
-			rc = sysfs_create_group(cpufreq_global_kobject,
-						&dbs_attr_group);
-			if (rc) {
-				pr_err("[%s] %d rc=%x\n", __func__, __LINE__, rc);
-				mutex_unlock(&dbs_mutex);
-				return rc;
-			}
-
-			k3hotplug_qos_add_notifier();
 			k3hotplug_pm_qos_add();
 			register_pm_notifier(&hotplug_pm_nb);
 		}
@@ -743,16 +378,13 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 
 		dbs_enable--;
 
-		if (!dbs_enable) {
-
+		if (cpu == 0) {
 			dbs_timer_exit();
-
 			k3hotplug_pm_qos_remove();
-			k3hotplug_qos_remove_notifier();
-
-			sysfs_remove_group(cpufreq_global_kobject,
-					   &dbs_attr_group);
-
+#ifdef CONFIG_IPPS_SUPPORT
+			uippsmode = IPPS_DVFS_AVS_DISABLE;
+			ipps_set_func(&vcc_ipps_client, IPPS_OBJ_CPU, &uippsmode);
+#endif
 			unregister_pm_notifier(&hotplug_pm_nb);
 		}
 
@@ -798,6 +430,14 @@ static int __init cpufreq_gov_dbs_init(void)
 	int err = 0;
 	dbs_enable = 0;
 
+#ifdef CONFIG_IPPS_SUPPORT
+	err = ipps_register_client(&vcc_ipps_client);
+	if (err != 0) {
+		printk("regulator vcc register client failed, please check!");
+		return err;
+	}
+#endif
+
 	err = cpufreq_register_governor(&cpufreq_gov_k3hotplug);
 	if (err)
 		pr_err("cpufreq_gov_k3hotplug register err=%d\n", err);
@@ -810,6 +450,9 @@ static void __exit cpufreq_gov_dbs_exit(void)
 {
 	unregister_reboot_notifier(&hotplug_reboot_nb);
 	cpufreq_unregister_governor(&cpufreq_gov_k3hotplug);
+#ifdef CONFIG_IPPS_SUPPORT
+	ipps_unregister_client(&vcc_ipps_client);
+#endif
 }
 
 MODULE_AUTHOR("s00107748");

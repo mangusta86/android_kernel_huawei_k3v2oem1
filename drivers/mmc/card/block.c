@@ -474,7 +474,8 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 	struct mmc_command cmd = {0};
 	struct mmc_data data = {0};
 	struct mmc_request mrq = {0};
-	struct scatterlist sg;
+	struct scatterlist *sg_list = NULL;
+	int i;
 	int err;
 
 	/*
@@ -493,12 +494,9 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 	cmd.arg = idata->ic.arg;
 	cmd.flags = idata->ic.flags;
 
-	data.sg = &sg;
-	data.sg_len = 1;
 	data.blksz = idata->ic.blksz;
 	data.blocks = idata->ic.blocks;
 
-	sg_init_one(data.sg, idata->buf, idata->buf_bytes);
 
 	if (idata->ic.write_flag)
 		data.flags = MMC_DATA_WRITE;
@@ -515,10 +513,26 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 	}
 
 	card = md->queue.card;
-	if (IS_ERR(card)) {
+	if ((!card) || IS_ERR(card)) {
 		err = PTR_ERR(card);
 		goto cmd_done;
 	}
+
+
+	data.sg_len = (u32)(idata->buf_bytes + card->host->max_seg_size -1) / card->host->max_seg_size;
+
+	sg_list = kzalloc(data.sg_len * sizeof(struct scatterlist), GFP_KERNEL);
+	if (!sg_list) {
+		err = -ENOMEM;
+		goto cmd_done;
+	}
+
+	data.sg = sg_list;
+	sg_init_table(data.sg, data.sg_len);
+	for (i = 0; i < data.sg_len - 1; i++) {
+		sg_set_buf(&sg_list[i], idata->buf + card->host->max_seg_size * i, card->host->max_seg_size);
+	}
+	sg_set_buf(&sg_list[i], idata->buf + card->host->max_seg_size * i, idata->buf_bytes - card->host->max_seg_size * i);
 
 	mmc_claim_host(card->host);
 
@@ -585,6 +599,8 @@ cmd_rel_host:
 	mmc_release_host(card->host);
 
 cmd_done:
+	if (sg_list)
+		kfree(sg_list);
 	mmc_blk_put(md);
 	kfree(idata->buf);
 	kfree(idata);

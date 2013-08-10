@@ -32,9 +32,9 @@
 
 #define SENSOR_NAME_LEN_MAX	50
 
-#define CAM_VCC_PIN "g25"	/*gpio_173 */
-#define CAM_ID_PIN "n28"	/*gpio_111 */
-#define SCAM_ID_PIN "m23"	/*gpio_112 */
+#define CAM_VCC_PIN "gpio_173"
+#define CAM_ID_PIN "gpio_111"
+#define SCAM_ID_PIN "gpio_112"
 static struct iomux_pin *gpio_core_ldo;
 static struct iomux_pin *gpio_main_camera_id;
 static struct iomux_pin *gpio_slave_camera_id;
@@ -120,7 +120,7 @@ EXPORT_SYMBOL(camera_framesizes);
  * Sunny ov8830/SonyImx105/S5k3h2yx use this driver ic
  */
 vcm_info_s vcm_dw9714 = {
-	.vcm_name = "DW9714",
+	.vcm_type = VCM_DW9714,
 	.offsetInit = 0, /* maybe different in each AF mode */
 	.fullRange = 1023, /* maybe different in each AF mode */
 
@@ -143,6 +143,8 @@ vcm_info_s vcm_dw9714 = {
 	.moveLensAddr[1] = 0,
 
 	.motorResTime = 7,
+	.motorDelayTime = 12,
+	.strideDivideOffset = 0x60,
 
 	.moveRange = RANGE_NORMAL,
 };
@@ -153,7 +155,7 @@ EXPORT_SYMBOL(vcm_dw9714);
  * Foxconn ov8830 use this driver ic
  */
 vcm_info_s vcm_ad5823 = {
-	.vcm_name = "AD5823",
+	.vcm_type = VCM_AD5823,
 	.offsetInit = 0, /* maybe different in each AF mode */
 	.fullRange = 1023,	/* maybe different in each AF mode */
 
@@ -176,10 +178,31 @@ vcm_info_s vcm_ad5823 = {
 	.moveLensAddr[1] = 0x5,
 
 	.motorResTime = 7,
+	.motorDelayTime = 5,
+	.strideDivideOffset = 0x50,
 
 	.moveRange = RANGE_NORMAL,
 };
 EXPORT_SYMBOL(vcm_ad5823);
+
+/* sensor override parameter definitions. */
+u32 sensor_override_params[OVERRIDE_TYPE_MAX] = {
+	CAMERA_MAX_ISO,
+	CAMERA_MIN_ISO,
+
+	CAMERA_AUTO_FPS_MAX_GAIN,
+	CAMERA_AUTO_FPS_MIN_GAIN,
+
+	CAMERA_MAX_FRAMERATE,
+	CAMERA_MIN_FRAMERATE,
+	CAMERA_MIN_CAP_FRAMERATE,
+
+	CAMERA_FLASH_TRIGGER_GAIN,
+
+	CAMERA_SHARPNESS_PREVIEW,
+	CAMERA_SHARPNESS_CAPTURE,
+};
+EXPORT_SYMBOL(sensor_override_params);
 
 /*
  **************************************************************************

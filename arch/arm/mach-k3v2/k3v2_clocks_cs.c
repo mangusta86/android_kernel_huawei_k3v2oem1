@@ -453,6 +453,12 @@ CLK_WITH_FRIEND(clk_sd_cs, "clk_sd", pll2_parent_clk,/*mmc0 clock*/
 PERIPH_CLK_CS(clk_hsic, "clk_hsic", clk_480M,
 	0, CLK_480M_RATE, CLK_480M_RATE, CLK_480M_RATE, NULL,
 	NULL, 0, NULL, 0, NULL, 0, NULL, 0)
+PERIPH_CLK(clk_60M, "clk_60M", clk_480M,
+	0, 60000000, 60000000, 60000000, NULL,
+	NULL, 0, NULL, 0, NULL, 0, NULL, 0)
+PERIPH_CLK(clk_cec, "clk_cec", clk_60M,
+	0, 2068965, 1875000, 60000000, NULL,
+	EN_REG1, 22, NULL, 0, DIV_REG12, 0xF8000000, NULL, 0)
 PERIPH_CLK_CS(clk_hsi, "clk_hsi", pll2_parent_clk,/*hsi clock*/
 	0, PLL2_DIV8_RATE, PLL2_32DIV_RATE, PLL3_RATE, PLL23_32DIV,
 	EN_REG3, 30, DIV_REG7, 0x200000, DIV_REG7, 0xF0000, RST_EN_REG3, 12)
@@ -465,9 +471,15 @@ CLK_WITH_FRIEND(clk_venc, "clk_venc", pll2_parent_clk,
 CLK_WITH_FRIEND(clk_vdec, "clk_vdec", pll2_parent_clk,
 	0, PLL2_DIV4_RATE, PLL2_32DIV_RATE, PLL3_RATE, clk_ddrc_codec, clock_ops_cs,
 	PLL23_32DIV, EN_REG1, 5, DIV_REG4, 0x200000, DIV_REG4, 0x1F0000, RST_EN_REG1, 5)
+#ifdef CONFIG_FASTBOOT_DISP_ENABLE
 PERIPH_CLK_CS(clk_ldi0, "clk_ldi0", pll2_parent_clk,
 	1, PLL2_DIV6_RATE, PLL4_64DIV_RATE, PLL3_RATE, PLL2345_DIV64,
 	EN_REG1, 9, DIV_REG5, 0x60000000, DIV_REG5, 0x1F800000, RST_EN_REG1, 9)
+#else
+PERIPH_CLK_CS(clk_ldi0, "clk_ldi0", pll2_parent_clk,
+	0, PLL2_DIV6_RATE, PLL4_64DIV_RATE, PLL3_RATE, PLL2345_DIV64,
+	EN_REG1, 9, DIV_REG5, 0x60000000, DIV_REG5, 0x1F800000, RST_EN_REG1, 9)
+#endif
 PERIPH_CLK_CS(clk_ldi1, "clk_ldi1", pll2_parent_clk,
 	0, PLL2_DIV6_RATE, PLL4_64DIV_RATE, PLL3_RATE, PLL2345_DIV64,
 	EN_REG1, 11, DIV_REG6, 0xC0000000, DIV_REG6, 0x3F000000, RST_EN_REG1, 11)
@@ -557,9 +569,15 @@ PERIPH_CLK(clk_i2c3, "clk_i2c3", clk_cfgaxi,
 PERIPH_CLK(clk_timer0, "clk_timer0", clk_cfgaxi,
 	0, CFGAXI_NORMAL_RATE, CFGAXI_NORMAL_RATE, CFGAXI_NORMAL_RATE, NULL,
 	EN_REG0, 1, NULL, 0, NULL, 0, RST_EN_REG0, 0)
+PERIPH_CLK(clk_pclktimer0, "clk_pclktimer0", clk_cfgaxi,
+	0, CFGAXI_NORMAL_RATE, CFGAXI_NORMAL_RATE, CFGAXI_NORMAL_RATE, NULL,
+	EN_REG0, 0, NULL, 0, NULL, 0, RST_EN_REG0, 0)
 PERIPH_CLK(clk_timer1, "clk_timer1", clk_cfgaxi,
 	0, CFGAXI_NORMAL_RATE, CFGAXI_NORMAL_RATE, CFGAXI_NORMAL_RATE, NULL,
 	EN_REG0, 3, NULL, 0, NULL, 0, RST_EN_REG0, 1)
+PERIPH_CLK(clk_pclktimer1, "clk_pclktimer1", clk_cfgaxi,
+	0, CFGAXI_NORMAL_RATE, CFGAXI_NORMAL_RATE, CFGAXI_NORMAL_RATE, NULL,
+	EN_REG0, 2, NULL, 0, NULL, 0, RST_EN_REG0, 1)
 PERIPH_CLK(clk_timer2, "clk_timer2", clk_cfgaxi,
 	0, CFGAXI_NORMAL_RATE, CFGAXI_NORMAL_RATE, CFGAXI_NORMAL_RATE, NULL,
 	EN_REG2, 3, NULL, 0, NULL, 0, RST_EN_REG2, 3)
@@ -584,9 +602,15 @@ PERIPH_CLK(clk_dphy2, "clk_dphy2", clkin_sys,
 PERIPH_CLK(clk_dphy1, "clk_dphy1", clkin_sys,
 	0, CLKIN_SYS_RATE, CLKIN_SYS_RATE, CLKIN_SYS_RATE, NULL,
 	EN_REG1, 16, NULL, 0, NULL, 0, RST_EN_REG1, 16)
+#ifdef CONFIG_FASTBOOT_DISP_ENABLE
 PERIPH_CLK(clk_dphy0, "clk_dphy0", clkin_sys,
 	1, CLKIN_SYS_RATE, CLKIN_SYS_RATE, CLKIN_SYS_RATE, NULL,
 	EN_REG1, 15, NULL, 0, NULL, 0, RST_EN_REG1, 15)
+#else
+PERIPH_CLK(clk_dphy0, "clk_dphy0", clkin_sys,
+	0, CLKIN_SYS_RATE, CLKIN_SYS_RATE, CLKIN_SYS_RATE, NULL,
+	EN_REG1, 15, NULL, 0, NULL, 0, RST_EN_REG1, 15)
+#endif
 CLK_WITH_FRIEND(clk_usb2hst, "clk_usb2hst", clk_cfgaxi,
 	0, CFGAXI_NORMAL_RATE, CFGAXI_NORMAL_RATE, CFGAXI_NORMAL_RATE, clk_ddrc_per,
 	clock_ops, NULL, EN_REG3, 18, NULL, 0, NULL, 0, RST_EN_REG3, 18)
@@ -605,9 +629,15 @@ CLK_WITH_FRIEND(clk_dmac, "clk_dmac", clk_cfgaxi,
 CLK_WITH_FRIEND(clk_g3d, "clk_g3d", clk_cfgaxi,
 	0, CFGAXI_NORMAL_RATE, CFGAXI_NORMAL_RATE, CFGAXI_NORMAL_RATE, clk_ddrc_gpu,
 	clock_g3d_ops, NULL, EN_REG1, 0, NULL, 0, NULL, 0, RST_EN_REG1, 14)
+#ifdef CONFIG_FASTBOOT_DISP_ENABLE
 CLK_WITH_FRIEND(clk_edc0, "clk_edc0", pll2_parent_clk, 1, PLL2_DIV5_RATE, PLL2_64DIV_RATE, \
 	PLL3_RATE, clk_ddrc_disp, clock_ops_cs, PLL23_DIV64, EN_REG1, 8, DIV_REG5, 0x400000, DIV_REG5,\
 	0x3F0000, RST_EN_REG1, 8)
+#else
+CLK_WITH_FRIEND(clk_edc0, "clk_edc0", pll2_parent_clk, 0, PLL2_DIV5_RATE, PLL2_64DIV_RATE, \
+	PLL3_RATE, clk_ddrc_disp, clock_ops_cs, PLL23_DIV64, EN_REG1, 8, DIV_REG5, 0x400000, DIV_REG5,\
+	0x3F0000, RST_EN_REG1, 8)
+#endif
 
 static int k3v2_edc0_rst_clk_enable(struct clk *clk)
 {
@@ -649,7 +679,11 @@ static struct clk_ops clock_edc0_rst_ops = {
 static struct clk clk_edc0_rst = {
 	.name		= "clk_edc0_rst",
 	.parent		= NULL,
+#ifdef CONFIG_FASTBOOT_DISP_ENABLE
 	.refcnt		= 1,
+#else
+	.refcnt		= 0,
+#endif
 	.rate		= 0,
 	.min_rate	= 0,
 	.max_rate	= 0,
@@ -1043,7 +1077,9 @@ struct clk_lookup k3v2_clk_lookups_cs[] = {
 	{_REGISTER_CLOCK(NULL,	"clk_mcu",	clk_mcu)},
 	{_REGISTER_CLOCK(NULL,	"clk_cfgaxi",	clk_cfgaxi)},
 	{_REGISTER_CLOCK(NULL,	"clk_timer1",	clk_timer1)},
+	{_REGISTER_CLOCK(NULL,	"clk_pclktimer1",	clk_pclktimer1)},
 	{_REGISTER_CLOCK(NULL,	"clk_timer0",	clk_timer0)},
+	{_REGISTER_CLOCK(NULL,	"clk_pclktimer0",	clk_pclktimer0)},
 	{_REGISTER_CLOCK(NULL,	"clk_acp",		clk_acp)},
 	{_REGISTER_CLOCK(NULL,	"clk_usbhsicphy480",	clk_usbhsicphy480)},
 	{_REGISTER_CLOCK(NULL,	"clk_usbhsicphy",	clk_usbhsicphy)},
@@ -1067,8 +1103,10 @@ struct clk_lookup k3v2_clk_lookups_cs[] = {
 	{_REGISTER_CLOCK(NULL,	"clk_aspsio",	clk_aspsio)},
 	{_REGISTER_CLOCK(NULL,	"clk_usb2hst",	clk_usb2hst)},
 	{_REGISTER_CLOCK(NULL,	"clk_usb2dvc",	clk_usb2dvc)},
-	{_REGISTER_CLOCK(NULL,	"clk_asp",		clk_asp)},
+    {_REGISTER_CLOCK(NULL,  "clk_asp",      clk_asp)},
 	{_REGISTER_CLOCK(NULL,	"clk_edc0_rst",	clk_edc0_rst)},
+    {_REGISTER_CLOCK(NULL,  "clk_cec",      clk_cec)},
+    {.dev_id = NULL, .con_id = NULL, .clk = NULL},
 	{NULL, NULL, NULL},
 };
 

@@ -113,9 +113,9 @@ static inline void __list_del_entry(struct list_head *entry)
 		entry, LIST_POISON2))
 		return;
 
-        WARN(prev->next != entry,
+    WARN(prev->next != entry,
 		"list_del corruption. prev->next should be %p, but was %p\n", entry, prev->next);
-        WARN(next->prev != entry,
+	WARN(next->prev != entry,
 		"list_del corruption. next->prev should be %p, but was %p\n", entry, next->prev);
 
 	__list_del(prev, next);

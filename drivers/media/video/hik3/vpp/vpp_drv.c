@@ -1,15 +1,4 @@
-/*
- **************************************************************************************
- *
- *       Filename:  vpp_drv.c
- *    Description:  source file
- *
- *        Version:  1.0
- *        Created:  2011-07-8 16:20:00
- *
- *       Revision:  initial draft;
- **************************************************************************************
- */
+
 #include <linux/mm.h>
 #include <linux/sched.h>
 #include <linux/interrupt.h>
@@ -118,7 +107,7 @@ int __init vpp_init(void)
         ret =  PTR_ERR(s_clk);
         goto err;
     }
-
+    hal_init();
     return ret;
 
   err:
@@ -146,7 +135,8 @@ int __init vpp_init(void)
 void __exit vpp_deinit(void)
 {
     logi("in vpp_deinit\n");
-    
+    hal_deinit();
+
     if (NULL != s_vpp_device_p)
     {
         video_unregister_device(s_vpp_device_p);

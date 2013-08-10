@@ -43,8 +43,8 @@
  * HI6421 - Regulator ctrl
  */
 #define 	LDO0_CTRL_REG			(0x20 << 2)
-#define	LDO1_CTRL_REG			(0x21 << 2)	
-#define	LDO2_CTRL_REG			(0x22 << 2) 
+#define	LDO1_CTRL_REG			(0x21 << 2)
+#define	LDO2_CTRL_REG			(0x22 << 2)
 #define	LDO3_CTRL_REG 			(0x23 << 2)
 #define	LDO4_CTRL_REG 			(0x24 << 2)
 #define	LDO5_CTRL_REG 			(0x25 << 2)
@@ -52,16 +52,16 @@
 #define	LDO7_CTRL_REG			(0x27 << 2)
 #define	LDO8_CTRL_REG			(0x28 << 2)
 #define	LDO9_CTRL_REG			(0x29 << 2)
-#define	LDO10_CTRL_REG			(0x2A << 2)  
-#define	LDO11_CTRL_REG			(0x2B << 2) 
+#define	LDO10_CTRL_REG			(0x2A << 2)
+#define	LDO11_CTRL_REG			(0x2B << 2)
 #define	LDO12_CTRL_REG 		(0x2C << 2)
 #define	LDO13_CTRL_REG 		(0x2D << 2)
 #define	LDO14_CTRL_REG			(0x2E << 2)
-#define	LDO15_CTRL_REG			(0x2F << 2) 
+#define	LDO15_CTRL_REG			(0x2F << 2)
 #define	LDO16_CTRL_REG 		(0x30 << 2)
-#define	LDO17_CTRL_REG			(0x31 << 2) 
-#define	LDO18_CTRL_REG			(0x32 << 2)  
-#define	LDO19_CTRL_REG			(0x33 << 2) 
+#define	LDO17_CTRL_REG			(0x31 << 2)
+#define	LDO18_CTRL_REG			(0x32 << 2)
+#define	LDO19_CTRL_REG			(0x33 << 2)
 #define	LDO20_CTRL_REG			(0x34 << 2)
 #define	LDO_AUDIO_CTRL_REG	(0x36 << 2)
 #define	BUCK0_CTRL_REG			(0x0C << 2)
@@ -72,8 +72,8 @@
 #define	BUCK5_CTRL_REG			(0x16 << 2)
 
 #define 	LDO0_VSET_REG			(0x20 << 2)
-#define	LDO1_VSET_REG			(0x21 << 2)	
-#define	LDO2_VSET_REG			(0x22 << 2) 
+#define	LDO1_VSET_REG			(0x21 << 2)
+#define	LDO2_VSET_REG			(0x22 << 2)
 #define	LDO3_VSET_REG 			(0x23 << 2)
 #define	LDO4_VSET_REG 			(0x24 << 2)
 #define	LDO5_VSET_REG 			(0x25 << 2)
@@ -81,16 +81,16 @@
 #define	LDO7_VSET_REG			(0x27 << 2)
 #define	LDO8_VSET_REG			(0x28 << 2)
 #define	LDO9_VSET_REG			(0x29 << 2)
-#define	LDO10_VSET_REG			(0x2A << 2)  
-#define	LDO11_VSET_REG			(0x2B << 2) 
+#define	LDO10_VSET_REG			(0x2A << 2)
+#define	LDO11_VSET_REG			(0x2B << 2)
 #define	LDO12_VSET_REG 		(0x2C << 2)
 #define	LDO13_VSET_REG 		(0x2D << 2)
 #define	LDO14_VSET_REG			(0x2E << 2)
-#define	LDO15_VSET_REG			(0x2F << 2) 
+#define	LDO15_VSET_REG			(0x2F << 2)
 #define	LDO16_VSET_REG 		(0x30 << 2)
-#define	LDO17_VSET_REG			(0x31 << 2) 
-#define	LDO18_VSET_REG			(0x32 << 2)  
-#define	LDO19_VSET_REG			(0x33 << 2) 
+#define	LDO17_VSET_REG			(0x31 << 2)
+#define	LDO18_VSET_REG			(0x32 << 2)
+#define	LDO19_VSET_REG			(0x33 << 2)
 #define	LDO20_VSET_REG			(0x34 << 2)
 #define	LDO_AUDIO_VSET_REG	(0x36 << 2)
 #define	BUCK0_VSET_REG			(0x0D << 2)
@@ -103,7 +103,7 @@
 #define	OCP_CURRENT_PROTECT_REG	(0x51 << 2)
 #define	OCP_CURRENT_PROTECT_MASK	0x2
 
-#define HI6421_BUCK_ENA					0x1		/* BUCK_ENA */
+#define HI6421_BUCK_ENA					0x1     /* BUCK_ENA */
 #define HI6421_BUCK_ENA_MASK			0x1		/* BUCK_MASK */
 #define HI6421_BUCK012_VSEL_MASK		0x7F		/* BUCK0 BUCK1 BUCK2 VSEL - [6:0] */
 #define HI6421_BUCK345_VSEL_MASK		        0x07		/* BUCK3 BUCK4 BUCK5 VSEL - [2:0] */
@@ -123,7 +123,7 @@
 #define HI6421_LDOAUDIO_ENTRY_ECO_MODE		0x2	/*LDOAUDIO ENTRY ECO*/
 
 
-#define NUM_OF_HI6421_REGULATOR		28
+#define NUM_OF_HI6421_REGULATOR		30//28
 #define NUM_OF_HI6421_REGULATOR_VSET		8
 #define REGULATOR_ECO_UA_1	8000
 #define REGULATOR_ECO_UA_2	5000

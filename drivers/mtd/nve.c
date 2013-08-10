@@ -322,6 +322,7 @@ static int nve_restore(struct NVE_struct *nve)
 
 	if (ret) {
 		printk(KERN_ERR "[NVE][%s]nve_write error in line %d!\n", __func__, __LINE__);
+		kfree(nve_ramdisk_temp);
 		return ret;
 	}
 

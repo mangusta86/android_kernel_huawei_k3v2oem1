@@ -383,6 +383,37 @@ gcoSURF_IsRenderable(
     IN gcoSURF Surface
     );
 
+#if gcdSYNC
+gceSTATUS
+gcoSURF_GetFence(
+    IN gcoSURF Surface
+    );
+gceSTATUS
+gcoSURF_WaitFence(
+    IN gcoSURF Surface
+    );
+
+gceSTATUS
+gcoSTREAM_GetFence(
+    IN gcoSTREAM stream
+    );
+
+gceSTATUS
+gcoSTREAM_WaitFence(
+    IN gcoSTREAM stream
+    );
+
+gceSTATUS
+gcoINDEX_GetFence(
+    IN gcoINDEX index
+    );
+
+gceSTATUS
+gcoINDEX_WaitFence(
+    IN gcoINDEX index
+    );
+#endif
+
 /******************************************************************************\
 ******************************** gcoINDEX Object *******************************
 \******************************************************************************/

@@ -206,10 +206,18 @@
 #define ISP_BASE_ADDR_LEFT_UV           (0x1e950)
 #define ISP_BASE_ADDR_RIGHT             (0x1e954)
 
+#if 1 /* firmware 2013-02-01 new registers definitions */
+#define ISP_FIRST_FRAME_EXPOSURE        (0x1e978)
+#define ISP_SECOND_FRAME_EXPOSURE       (0x1e97c)
+#define ISP_THIRD_FRAME_EXPOSURE       (0x1e988)
+#else /* old firmware, 16bit is not enough */
 #define ISP_FIRST_FRAME_EXPOSURE        (0x1e95c)
-#define ISP_FIRST_FRAME_GAIN            (0x1e95e)
 #define ISP_SECOND_FRAME_EXPOSURE       (0x1e960)
+#define ISP_THIRD_FRAME_EXPOSURE       (0x1e964)
+#endif
+#define ISP_FIRST_FRAME_GAIN            (0x1e95e)
 #define ISP_SECOND_FRAME_GAIN           (0x1e962)
+#define ISP_THIRD_FRAME_GAIN           (0x1e966)
 
 /* ISP banding step parameters registers */
 #define REG_ISP_BANDING_STEP_50HZ           (0x1c166)
@@ -219,7 +227,7 @@
 #define ISP_BANDING_STEP_50HZ           (0x1e968)
 #define ISP_BANDING_STEP_60HZ           (0x1e96a)
 
-#define ISP_CMDSET_CCM_PREGAIN_ENABLE		(0x1e980)
+#define ISP_CMDSET_CCM_PREGAIN_ENABLE		(0x1e980) /* bit[0] ccm pre-gain; bit[1] awb offset. */
 #define ISP_CMDSET_CCM_PREGAIN_B		(0x1e981)
 #define ISP_CMDSET_CCM_PREGAIN_G		(0x1e982)
 #define ISP_CMDSET_CCM_PREGAIN_R		(0x1e983)
@@ -227,6 +235,15 @@
 #define REG_ISP_CCM_PREGAIN_B		(0x1c5ac)
 #define REG_ISP_CCM_PREGAIN_G		(0x1c5ad)
 #define REG_ISP_CCM_PREGAIN_R		(0x1c5ae)
+
+#define ISP_CMDSET_AWB_OFFSET_B		(0x1e984)
+#define ISP_CMDSET_AWB_OFFSET_G		(0x1e985)
+#define ISP_CMDSET_AWB_OFFSET_R		(0x1e986)
+
+#define REG_ISP_AWB_OFFSET_B		(0x1c1be)
+#define REG_ISP_AWB_OFFSET_GB		(0x1c1bf)
+#define REG_ISP_AWB_OFFSET_GR		(0x1c1c0)
+#define REG_ISP_AWB_OFFSET_R		(0x1c1c1)
 
 #define ISP_YDENOISE_COFF_1X		2
 #define ISP_YDENOISE_COFF_2X		4
@@ -239,6 +256,29 @@
 #define REG_ISP_YDENOISE_4X		(0x6551c)
 #define REG_ISP_YDENOISE_8X		(0x6551d)
 #define REG_ISP_YDENOISE_16X		(0x6551e)
+
+#define REG_ISP_REF_BIN					(0x66302)
+
+#define PRIVIEW_WIDTH_HIGH			960
+#define PRIVIEW_WIDTH_LOW				320
+
+#define RED_CLIP_FRAME_INTERVAL 8
+#define RED_CLIP_DECTECT_RANGE		50
+#define RED_CLIP_UV_RESAMPLE_HIGH		8
+#define RED_CLIP_UV_RESAMPLE_MIDDLE	4
+#define RED_CLIP_UV_RESAMPLE_LOW		2
+#define RED_CLIP_RECT_ROW_NUM			5
+#define RED_CLIP_RECT_COL_NUM			5
+#define RED_CLIP_REFBIN_LOW			0x80
+#define RED_CLIP_REFBIN_HIGH			0xf0
+#define RED_CLIP_V_THRESHOLD_HIGH		160
+#define RED_CLIP_V_THRESHOLD_LOW		130
+
+typedef enum {
+	RED_CLIP_NONE = 0,
+	RED_CLIP_SHADE,
+	RED_CLIP,
+} red_clip_status;
 
 /* cmd_set and capture_cmd register operation */
 #define CMD_SET_ISP_IN_FMT_SIZE(fmt, width, height) \
@@ -691,11 +731,13 @@ typedef enum {
 	FLASH_AWBTEST_POLICY_FREEGO,
 } FLASH_AWBTEST_POLICY;
 
+
 typedef enum {
 	U9508_FLASH_TYPE_UNKNOW = 0,
 	U9508_FLASH_TYPE_EVERLIGHT,
 	U9508_FLASH_TYPE_OSRAM,
 } U9508_FLASH_TYPE_T;
+
 
 typedef struct _irq_reg {
 	u32 irq_status;
@@ -767,6 +809,7 @@ typedef struct _isp_hw_data {
 	FLASH_AWBTEST_POLICY awb_test; /* used to save policy of flash awb test. */
 	
 	U9508_FLASH_TYPE_T flash_type;
+
 
 	isp_process_mode_t process_mode;
 
@@ -897,6 +940,7 @@ static inline void SETREG8(u32 reg, u8 value) {
 #define ISP_EXPO_RATIO_ENABLE		(0<<5)
 #define ISP_EXPO_RATIO_DISABLE		(1<<5)
 #define ISP_IDI_CONFIG_ENABLE		(1<<4)
+
 #define ISP_SDE_ENABLE  			(1<<2)
 #define ISP_NEGATIVE_EFFECT_ENABLE  (1<<6)
 #define ISP_MONO_EFFECT_ENABLE  		(1<<5)
@@ -913,6 +957,10 @@ static inline void SETREG8(u32 reg, u8 value) {
 #define ISP_INPUT_CHANNEL_MIPI2         0x8
 
 #define REG_ISP_CAPTURE_SKIP_FRAME		(0x63908)
+
+#define REG_ISP_GAIN_EFFECT_MODE	(0x1d8d7)
+#define SENSOR_GAIN_EFFECT_NEXT	1
+#define SENSOR_GAIN_EFFECT_NEXT2	0
 
 #define REG_ISP_GENERAL_PURPOSE_REG1    (0x63910)
 #define REG_ISP_GENERAL_PURPOSE_REG2    (0x63912)
@@ -1128,8 +1176,8 @@ r_rb_switch: switch R and B for RGB565
 #define ISP_EXPOSURE_RATIO_MAX		0xff00
 
 /* EV RATIO */
-#define EV_BRACKET_RATIO_NUMERATOR		635	/* EV BRACKET  RATIO numerator */
-#define EV_BRACKET_RATIO_DENOMINATOR		1000	/* EV BRACKET RATIO denominator */
+#define EV_BRACKET_RATIO_NUMERATOR		635 /* EV BRACKET RATIO numerator */
+#define EV_BRACKET_RATIO_DENOMINATOR		1000 /* EV BRACKET RATIO denominator */
 
 /*Anti hand shaking registers*/
 #define REG_ISP_ANTI_SHAKING_ENABLE		(0x1c4d8)
@@ -1157,28 +1205,15 @@ r_rb_switch: switch R and B for RGB565
 #define REG_ISP_MANUAL_EXPOSURE			(0x1c16a)
 #define REG_ISP_MANUAL_EXPOSURE_SHORT		(0x1c16e)
 
-#define DEFAULT_OVER_EXPO_FLASH_EXPO	(0x1800)
-#define DEFAULT_OVER_EXPO_FLASH_GAIN	(0x10)
-
-/*#define REG_ISP_WRITEBACK_EXPO			(0x1c79c)*/
-/*#define REG_ISP_WRITEBACK_EXPO_SHORT	(0x1c7a0)*/
-/*new firmware, manual*/
-#define REG_ISP_WRITEBACK_EXPO			(0x1c168)
-#define REG_ISP_WRITEBACK_EXPO_SHORT	(0x1c16c)
-
+/* in AP write sensor's expo/gain mode, read from below writeback registers. */
+#define REG_ISP_WRITEBACK_EXPO			(0x1c79c)
 #define REG_ISP_WRITEBACK_GAIN			(0x1c7a4)
-#define REG_ISP_WRITEBACK_GAIN_SHORT	(0x1c7a6)
 
-#define REG_ISP_RESERVED_EXPO			(0x1c76c)
-#define REG_ISP_RESERVED_EXPO_SHORT	(0x1c770)
-
-/*#define REG_ISP_RESERVED_GAIN			(0x1c798)*/
-/*#define REG_ISP_RESERVED_GAIN_SHORT		(0x1c79a)*/
-
+/* in ISP write sensor's expo/gain mode, read from below registers. */
+#define REG_ISP_RESERVED_EXPO			(0x1c168)
 #define REG_ISP_RESERVED_GAIN			(0x1c170)
-#define REG_ISP_RESERVED_GAIN_SHORT		(0x1c172)
 
-#define REG_ISP_AWB_MANUAL_ENABLE		(0x65320L)
+#define REG_ISP_AWB_MANUAL_ENABLE		(0x65320)
 #define REG_ISP_AWB_METHOD_TYPE		(0x1c17c)
 
 #define REG_ISP_AWB_MANUAL_GAIN_BLUE(group)		(0x1c4f0+6*(group))
@@ -1187,20 +1222,20 @@ r_rb_switch: switch R and B for RGB565
 
 #define REG_ISP_WIN_LUM(index)		(0x1cb9c + 4 * (index))
 
-#define REG_ISP_AWB_GAIN_B		(0x65300L)
-#define REG_ISP_AWB_GAIN_GB		(0x65302L)
-#define REG_ISP_AWB_GAIN_GR		(0x65304L)
-#define REG_ISP_AWB_GAIN_R		(0x65306L)
+#define REG_ISP_AWB_GAIN_B		(0x65300)
+#define REG_ISP_AWB_GAIN_GB		(0x65302)
+#define REG_ISP_AWB_GAIN_GR		(0x65304)
+#define REG_ISP_AWB_GAIN_R		(0x65306)
 
-#define REG_ISP_AWB_ORI_GAIN_B		(0x1C734L)
-#define REG_ISP_AWB_ORI_GAIN_G		(0x1C736L)
-#define REG_ISP_AWB_ORI_GAIN_R		(0x1C738L)
+#define REG_ISP_AWB_ORI_GAIN_B		(0x1C734)
+#define REG_ISP_AWB_ORI_GAIN_G		(0x1C736)
+#define REG_ISP_AWB_ORI_GAIN_R		(0x1C738)
 
-#define REG_ISP_LENS_CP_ARRAY_LONG 		(0x1c264)
+#define REG_ISP_LENS_CP_ARRAY_LONG		(0x1c264)
 #define REG_ISP_LENS_CP_ARRAY_SHORT	(0x1c366)
 #define LENS_CP_ARRAY_BYTES				(86*3)
 
-#define REG_ISP_CCM_MATRIX 			(0x1c1d8)
+#define REG_ISP_CCM_MATRIX			(0x1c1d8)
 #define CCM_MATRIX_ARRAY_SIZE16		(54)
 
 #define REG_ISP_AWB_CTRL		(0x66206L)
@@ -1213,21 +1248,10 @@ r_rb_switch: switch R and B for RGB565
 #define REG_ISP_LENS_CT_THRESHOLDS		(0x1c254)
 #define LENS_CT_THRESHOLDS_SIZE16		4
 
-#define REG_ISP_LENC_BRHSCALE	(0x65102L)
-#define REG_ISP_LENC_BRVSCALE	(0x65104L)
-#define REG_ISP_LENC_GHSCALE		(0x65106L)
-#define REG_ISP_LENC_GVSCALE		(0x65108L)
-
-#define AUTO_FRAME_RATE_TRIGER_COUNT		4
-/*h00206029 modified 20120511*/
-#define AUTO_FRAME_RATE_MAX_GAIN			0x60
-#define AUTO_FRAME_RATE_MIN_GAIN			0x28
-
-/*y00215412 added 20121207*/
-#define FLASH_TRIGGER_GAIN			0x80
-#define FLASH_TRIGGER_LUM_RATIO		0xc0
-#define FLASH_CAP2PRE_RATIO			0x04
-/* for isp tune ops added registers end */
+#define REG_ISP_LENC_BRHSCALE	(0x65102)
+#define REG_ISP_LENC_BRVSCALE	(0x65104)
+#define REG_ISP_LENC_GHSCALE		(0x65106)
+#define REG_ISP_LENC_GVSCALE		(0x65108)
 
 /* scene add by j00179721*/
 #define REG_ISP_UV_ADJUST	0x1c4e8
@@ -1290,7 +1314,17 @@ r_rb_switch: switch R and B for RGB565
 #define ISP_ZOOM_BASE_RATIO 0x100
 #define ISP_ZOOM_MAX_RATIO 0x400
 #define ISP_FOCUS_ZOOM_MAX_RATIO 0x200
-#define ispv1_zoom_to_ratio(zoom) (((zoom) * 10 + 100) * ISP_ZOOM_BASE_RATIO / 100)
+
+#define ISP_RUNNING_CLOCK (160000000L)
+
+#define ISP_AE_CTRL_MODE	(0x1d9a0) /* 1 - AP's ae . 0 - ISP ae. */
+#define ISP_AE_WRITE_MODE	(0x1d9ad) /* 1 - ISP write sensor shutter and gain; 0 - AP write shutter and gain. */
+
+#define AE_CTRL_MODE_AP	1
+#define AE_CTRL_MODE_ISP	0
+
+#define AE_WRITE_MODE_AP	0
+#define AE_WRITE_MODE_ISP	1
 
 /* Used for tune ops and AF functions to get isp_data handler */
 void ispv1_tune_ops_init(k3_isp_data *ispdata);
@@ -1312,9 +1346,10 @@ int ispv1_iso2gain(int iso, bool binning);
 
 int ispv1_gain2iso(int gain, bool binning);
 
-/*
- * only useful for ISO auto mode
- */
+u32 get_writeback_cap_expo(void);
+u32 get_writeback_cap_gain(void);
+
+/* only useful for ISO auto mode */
 int ispv1_get_actual_iso(void);
 
 #define ispv1_expo_time2line(expo_time, fps, vts) ((fps) * (vts) / (expo_time))
@@ -1410,7 +1445,7 @@ int ispv1_get_current_fps(camera_sensor *sensor);
 int ispv1_get_band_threshold(camera_sensor *sensor, camera_anti_banding banding);
 void ispv1_set_fps_lock(int lock);
 void ispv1_preview_done_do_tune(void);
-void ispv1_cmd_id_do_ecgc(void);
+void ispv1_cmd_id_do_ecgc(camera_state state);
 void ispv1_set_aecagc_mode(aecagc_mode_t mode);
 void ispv1_set_awb_mode(awb_mode_t mode);
 
@@ -1420,7 +1455,7 @@ void ispv1_check_flash_prepare(void);
 
 void ispv1_get_wb_value(awb_gain_t *awb);
 void ispv1_set_wb_value(awb_gain_t *awb);
-int ispv1_copy_preview_data(u8 *dest, camera_rect_s *rect);
+bool ispv1_copy_preview_data(u8 *dest, camera_rect_s *rect);
 
 int ispv1_get_frame_rate_level(void);
 void ispv1_set_frame_rate_level(int level);
@@ -1429,6 +1464,13 @@ camera_frame_rate_state ispv1_get_frame_rate_state(void);
 void ispv1_set_frame_rate_state(camera_frame_rate_state state);
 
 bool ae_is_need_flash(camera_sensor *sensor, aec_data_t *ae_data, u32 target_y_low);
+
+bool ispv1_is_hdr_movie_mode(void);
+
+void ispv1_red_clip_correction(void);
+int ispv1_uv_stat_init(void);
+void ispv1_uv_stat_excute(void);
+void ispv1_uv_stat_exit(void);
 
 #endif /*__K3_ISPV1_H__ */
 /********************************* END ***********************************************/

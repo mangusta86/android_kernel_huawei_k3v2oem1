@@ -234,23 +234,13 @@ typedef union {
  */
 typedef union {
 	struct {
-		u32 bta_time:12;
-		u32 phy_lp2hs_time:8;
-		u32 phy_hs2lp_time:8;
-		u32 reserved0:4;
-	} bits;
-	u32 ul32;
-} MIPIDSI_PHY_TMR_CFG;
-
-typedef union {
-	struct {
 		u32 bta_time:15;
 		u32 reserved0:1;
 		u32 phy_lp2hs_time:8;
 		u32 phy_hs2lp_time:8;
 	} bits;
 	u32 ul32;
-} MIPIDSI_PHY_TMR_CFG_CS;
+} MIPIDSI_PHY_TMR_CFG;
 
 /**
  * @union
@@ -552,6 +542,19 @@ typedef union {
 	} bits;
 	u32 ul32;
 } MIPIDSI_TE_CTRL;
+
+/**
+ * @union
+ * @brief Name: EDPI CFG.
+ */
+typedef union {
+	struct {
+		u32 edpi_allowed_cmd_size:16;
+		u32 edpi_en:1;
+		u32 reserved:15;
+	} bits;
+	u32 ul32;
+} MIPIDSI_EDPI_CFG;
 
 /******************************************************************************
 ** FUNCTIONS IMPLEMENTATIONS
@@ -1149,16 +1152,6 @@ void set_MIPIDSI_PHY_TMR_CFG_bta_time(u32 edc_base, u32 nVal)
 	outp32(addr, mipidsi_phy_tmr_cfg.ul32);
 }
 
-void set_MIPIDSI_PHY_TMR_CFG_bta_time_CS(u32 edc_base, u32 nVal)
-{
-	u32 addr = edc_base + MIPIDSI_PHY_TMR_CFG_OFFSET;
-	MIPIDSI_PHY_TMR_CFG_CS mipidsi_phy_tmr_cfg;
-
-	mipidsi_phy_tmr_cfg.ul32 = inp32(addr);
-	mipidsi_phy_tmr_cfg.bits.bta_time = nVal;
-	outp32(addr, mipidsi_phy_tmr_cfg.ul32);
-}
-
 void set_MIPIDSI_PHY_TMR_CFG_phy_lp2hs_time(u32 edc_base, u32 nVal)
 {
 	u32 addr = edc_base + MIPIDSI_PHY_TMR_CFG_OFFSET;
@@ -1169,30 +1162,10 @@ void set_MIPIDSI_PHY_TMR_CFG_phy_lp2hs_time(u32 edc_base, u32 nVal)
 	outp32(addr, mipidsi_phy_tmr_cfg.ul32);
 }
 
-void set_MIPIDSI_PHY_TMR_CFG_phy_lp2hs_time_CS(u32 edc_base, u32 nVal)
-{
-	u32 addr = edc_base + MIPIDSI_PHY_TMR_CFG_OFFSET;
-	MIPIDSI_PHY_TMR_CFG_CS mipidsi_phy_tmr_cfg;
-
-	mipidsi_phy_tmr_cfg.ul32 = inp32(addr);
-	mipidsi_phy_tmr_cfg.bits.phy_lp2hs_time = nVal;
-	outp32(addr, mipidsi_phy_tmr_cfg.ul32);
-}
-
 void set_MIPIDSI_PHY_TMR_CFG_phy_hs2lp_time(u32 edc_base, u32 nVal)
 {
 	u32 addr = edc_base + MIPIDSI_PHY_TMR_CFG_OFFSET;
 	MIPIDSI_PHY_TMR_CFG mipidsi_phy_tmr_cfg;
-
-	mipidsi_phy_tmr_cfg.ul32 = inp32(addr);
-	mipidsi_phy_tmr_cfg.bits.phy_hs2lp_time = nVal;
-	outp32(addr, mipidsi_phy_tmr_cfg.ul32);
-}
-
-void set_MIPIDSI_PHY_TMR_CFG_phy_hs2lp_time_CS(u32 edc_base, u32 nVal)
-{
-	u32 addr = edc_base + MIPIDSI_PHY_TMR_CFG_OFFSET;
-	MIPIDSI_PHY_TMR_CFG_CS mipidsi_phy_tmr_cfg;
 
 	mipidsi_phy_tmr_cfg.ul32 = inp32(addr);
 	mipidsi_phy_tmr_cfg.bits.phy_hs2lp_time = nVal;
@@ -1391,4 +1364,24 @@ void set_MIPIDSI_TE_CTRL_te_pin_en(u32 edc_base, u32 nVal)
 	mipidsi_te_ctrl.ul32 = inp32(addr);
 	mipidsi_te_ctrl.bits.dsi_te_pin_en = nVal;
 	outp32(addr, mipidsi_te_ctrl.ul32);
+}
+
+void set_MIPIDSI_EDPI_CFG_edpi_en(u32 edc_base, u32 nVal)
+{
+	u32 addr = edc_base + MIPIDSI_EDPI_CFG_OFFSET;
+	MIPIDSI_EDPI_CFG mipidsi_edpi_cfg;
+
+	mipidsi_edpi_cfg.ul32 = inp32(addr);
+	mipidsi_edpi_cfg.bits.edpi_en = nVal;
+	outp32(addr, mipidsi_edpi_cfg.ul32);
+}
+
+void set_MIPIDSI_EDPI_CFG_edpi_allowed_cmd_size(u32 edc_base, u32 nVal)
+{
+	u32 addr = edc_base + MIPIDSI_EDPI_CFG_OFFSET;
+	MIPIDSI_EDPI_CFG mipidsi_edpi_cfg;
+
+	mipidsi_edpi_cfg.ul32 = inp32(addr);
+	mipidsi_edpi_cfg.bits.edpi_allowed_cmd_size = nVal;
+	outp32(addr, mipidsi_edpi_cfg.ul32);
 }

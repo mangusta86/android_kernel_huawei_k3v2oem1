@@ -23,6 +23,7 @@
 
 #include <linux/videodev2.h>
 #include <linux/platform_device.h>
+#include <linux/semaphore.h>
 #include <mach/platform.h>
 #include <mach/hardware.h>
 #include <mach/irqs.h>
@@ -36,7 +37,10 @@
 /* yuv scale up ratio = 0x10000/N */
 #define YUV_SCALE_DIVIDEND	0x10000
 
-#define ZOOM_BASE	10	/* 1x */
+#define ZOOM_BASE	0x100	/* 1x */
+#define isp_zoom_to_ratio(zoom, video_stab) \
+		(video_stab) ? (0x120 + (zoom)*24):(((zoom) * 10 + 100) * 0x100 / 100)
+
 /* command set CMD_ZOOM_IN_MODE relative parameters */
 /* REG1 bit[0] : 1 for high quality, 0 for save power mode */
 typedef enum {
@@ -138,7 +142,6 @@ typedef struct _k3_isp_data {
 	bool gpu_blocked;
 	struct pm_qos_request_list qos_request_cpu;
 #endif
-	struct semaphore check_flash_level_done;
 
 	/* picture attribute varibles */
 	pic_attr_t pic_attr[STATE_MAX];
@@ -146,6 +149,7 @@ typedef struct _k3_isp_data {
 	u32 *support_pixfmt;
 	u32 pixfmt_count;
 	u32 zoom;
+	int video_stab;
 	struct v4l2_fract frame_rate;
 
 	camera_sensor *sensor;
@@ -154,7 +158,8 @@ typedef struct _k3_isp_data {
 	camera_focus focus;
 
 	camera_anti_shaking	anti_shaking_enable;
-	camera_metering	metering;
+	camera_metering	        metering;
+	metering_area_s         ae_area;
 	camera_anti_banding	anti_banding;
 	camera_white_balance	awb_mode;
 	camera_iso		iso;
@@ -175,6 +180,8 @@ typedef struct _k3_isp_data {
 	int					ev;
 	camera_frame_rate_mode fps_mode;
 	camera_frame_buf		*current_frame;
+
+	struct semaphore frame_sem;
 	/* AndroidK3 added by y36721 for focus 2011-10-28 end */
 } k3_isp_data;
 
@@ -246,6 +253,9 @@ typedef struct _isp_hw_controller {
 	int (*isp_get_current_vts)(camera_sensor *sensor);
 	int (*isp_get_current_fps)(camera_sensor *sensor);
 	int (*isp_get_band_threshold)(camera_sensor *sensor, camera_anti_banding banding);
+	void (*isp_set_video_stabilization)(int bStabilization);
+	void (*isp_set_yuv_crop_pos)(int point);
+	void (*isp_get_yuv_crop_rect)(crop_rect_s *rect);
 } isp_hw_controller;
 
 /* get isp hardware control data struct */

@@ -1148,11 +1148,11 @@ static int mshci_execute_tuning(struct mmc_host *mmc)
 	case MMC_TYPE_SD_COMBO:
 		printk(KERN_INFO "%s:tuning: no rule to tuning MMC_TYPE_SD_COMBO\n",
 						mmc_hostname(host->mmc));
-		return 0;
+		goto out;
 	default:
 		printk(KERN_INFO "%s:tuning: undefined card type\n",
 						mmc_hostname(host->mmc));
-		return 0;
+		goto out;
 	}
 
 	if (data.blksz > len)
@@ -1214,14 +1214,17 @@ static int mshci_execute_tuning(struct mmc_host *mmc)
 		}
 	}
 
-	kfree(data_buf);
 	host->flags &= ~MSHCI_IN_TUNING;
 	if (!ret) {
 		host->flags |= MSHCI_TUNING_DONE;
 	}
 
+	host->tuning_move_start = 1;
+
 	printk(KERN_ERR "%s: mshci_execute_tuning --\n", mmc_hostname(host->mmc));
 
+out:
+	kfree(data_buf);
 	return ret;
 }
 
@@ -1689,6 +1692,19 @@ static struct mmc_host_ops mshci_ops = {
 	.execute_tuning = mshci_execute_tuning,
 };
 
+static struct mmc_host_ops no_tuning_mshci_ops = {
+	.request	= mshci_request,
+	.set_ios	= mshci_set_ios,
+	.get_ro		= mshci_get_ro,
+	.enable_sdio_irq = mshci_enable_sdio_irq,
+	.get_cd     = mshci_get_cd,
+	.start_signal_voltage_switch = mshci_start_signal_voltage_switch,
+	.panic_probe = raw_mmc_panic_probe,
+	.panic_write = raw_mmc_panic_write,
+	.panic_erase = raw_mmc_panic_erase,
+	.execute_tuning = NULL,
+};
+
 /* Tasklets */
 
 static void mshci_tasklet_card(unsigned long param)
@@ -1783,7 +1799,6 @@ static void mshci_tasklet_finish(unsigned long param)
 	struct mshci_host *host;
 	unsigned long flags;
 	struct mmc_request *mrq;
-	static int move_start;
 	u32 count = 100;
 
 	host = (struct mshci_host *)param;
@@ -1897,12 +1912,12 @@ static void mshci_tasklet_finish(unsigned long param)
 		((mrq->cmd->error && mrq->cmd->error != -ETIMEDOUT && mrq->cmd->error != -ENOMEDIUM) ||
 		(mrq->cmd->data && ((mrq->cmd->data->error && mrq->cmd->data->error != -ETIMEDOUT) ||
 		(mrq->cmd->data->stop && mrq->cmd->data->stop->error &&	mrq->cmd->data->stop->error != ETIMEDOUT))))) {
-			printk(KERN_ERR "%s: move tuning del_sel, start=%d\n",
-					mmc_hostname(host->mmc), move_start);
+			printk(KERN_ERR "%s: move tuning del_sel, start=%d, cmd=%d, arg=0x%x\n",
+					mmc_hostname(host->mmc), host->tuning_move_start, mrq->cmd->opcode, mrq->cmd->arg);
 			/* req error, need move del_sel */
-			if (move_start != -1) {
-				if (host->ops->tuning_move(host, move_start)) {
-					move_start = 0;
+			if (host->tuning_move_start != -1) {
+				if (host->ops->tuning_move(host, host->tuning_move_start)) {
+					host->tuning_move_start = 0;
 					mrq->cmd->retries++;
 
 					if (mrq->cmd->data && mrq->cmd->data->error) {
@@ -1915,11 +1930,11 @@ static void mshci_tasklet_finish(unsigned long param)
 						mrq->cmd->error = -EILSEQ;
 					}
 				} else {
-					move_start = -1;
+					host->tuning_move_start = -1;
 				}
 			}
 		} else {
-			move_start = 1;
+			host->tuning_move_start = 1;
 		}
 	}
 	if (mrq) {
@@ -2013,16 +2028,16 @@ static void mshci_cmd_irq(struct mshci_host *host, u32 intmask)
 	}
 
 	if (intmask & INTMSK_RTO) {
-		printk(KERN_ERR "%s: CMD REP time out\n",
-						mmc_hostname(host->mmc));
+		printk(KERN_ERR "%s: CMD %d(arg=0x%x) REP time out\n",
+						mmc_hostname(host->mmc), host->cmd->opcode, host->cmd->arg);
 		host->cmd->error = -ETIMEDOUT;
 	} else if (intmask & INTMSK_RCRC) {
-		printk(KERN_ERR "%s: CMD REP CRC error\n",
-						mmc_hostname(host->mmc));
+		printk(KERN_ERR "%s: CMD %d(arg=0x%x) REP CRC error\n",
+						mmc_hostname(host->mmc), host->cmd->opcode, host->cmd->arg);
 		host->cmd->error = -EILSEQ;
 	} else if (intmask & INTMSK_RE) {
-		printk(KERN_ERR "%s: CMD REP error\n",
-						mmc_hostname(host->mmc));
+		printk(KERN_ERR "%s: CMD %d(arg=0x%x) REP error\n",
+						mmc_hostname(host->mmc), host->cmd->opcode, host->cmd->arg);
 		host->cmd->error = -EILSEQ;
 	}
 
@@ -2289,6 +2304,25 @@ static void mshci_resume_init(struct mshci_host *host);
 int mshci_resume_host(struct mshci_host *host)
 {
 	int ret;
+	unsigned long flags;
+
+	if (host->mmc->caps & MMC_CAP_CLOCK_GATING) {
+		if (&host->clock_timer != NULL) {
+			del_timer_sync(&host->clock_timer);
+		}
+	}
+
+	spin_lock_irqsave(&host->lock, flags);
+	if (host->clk_ref_counter == CLK_DISABLED) {
+		ret = clk_enable(host->pclk);
+		host->clk_ref_counter = CLK_ENABLED;
+		if (ret) {
+			printk(KERN_ERR "%s:%s:clk_enable pclk failed\n",
+					mmc_hostname(host->mmc), __func__);
+			ret = -ENOENT;
+		}
+	}
+	spin_unlock_irqrestore(&host->lock, flags);
 
 	if (host->flags & (MSHCI_USE_IDMA)) {
 		if (host->ops->enable_dma)
@@ -2300,13 +2334,13 @@ int mshci_resume_host(struct mshci_host *host)
 	ret = request_irq(host->irq, mshci_irq, IRQF_SHARED,
 			  mmc_hostname(host->mmc), host);
 	if (ret)
-		return ret;
+		goto out;
 	mmiowb();
 
 	if ((host->quirks & MSHCI_QUIRK_WLAN_DETECTION) == 0) {
 		ret = mmc_resume_host(host->mmc);
 		if (ret)
-			return ret;
+			goto out;
 	}
 
 	host->flags &= ~MSHCI_IN_TUNING;
@@ -2314,7 +2348,14 @@ int mshci_resume_host(struct mshci_host *host)
 
 	mshci_enable_card_detection(host);
 
-	return 0;
+out:
+	if (host->mmc->caps & MMC_CAP_CLOCK_GATING) {
+		if (&host->clock_timer != NULL) {
+			mod_timer(&host->clock_timer, jiffies + msecs_to_jiffies(DELAY_TIME));
+		}
+	}
+
+	return ret;
 }
 EXPORT_SYMBOL_GPL(mshci_resume_host);
 
@@ -2461,10 +2502,10 @@ int mshci_add_host(struct mshci_host *host)
 		mshci_ops.get_ro = host->ops->get_ro;
 
 	if (!(host->quirks & MSHCI_QUIRK_TUNING_ENABLE)) {
-		mshci_ops.execute_tuning = NULL;
+		mmc->ops = &no_tuning_mshci_ops;
+	} else {
+		mmc->ops = &mshci_ops;
 	}
-
-	mmc->ops = &mshci_ops;
 
 	mmc->f_min = host->max_clk / 510;
 	mmc->f_max = host->max_clk;

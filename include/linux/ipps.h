@@ -48,9 +48,13 @@
 #define IPPS_OBJ_DDR	(0x04)
 #define IPPS_OBJ_TEMP	(0x08)
 
-#define IPPS_ENABLE		(0x01)
+#define IPPS_DVFS_ENABLE	(0x04)
+#define IPPS_DFS_ENABLE	(0x04)
+#define IPPS_AVS_ENABLE	(0x08)
+#define IPPS_DVFS_AVS_ENABLE (0x0C)
+#define IPPS_DVFS_AVS_DISABLE (0x00)
+#define IPPS_ENABLE	(0x01)
 #define IPPS_DISABLE	(0x00)
-
 
 enum ipps_cmd_type {
 	IPPS_GET_FREQS_TABLE,
@@ -62,6 +66,9 @@ enum ipps_cmd_type {
 	IPPS_SET_PARAM,
 	IPPS_GET_MODE,
 	IPPS_SET_MODE,
+	IPPS_GET_FUNC,
+	IPPS_SET_FUNC,
+	IPPS_UPDATE_POWER_CAPACITY,
 };
 
 struct ipps_freq {
@@ -144,5 +151,11 @@ int ipps_get_mode(struct ipps_client *client, unsigned int object,
 			unsigned int *mode);
 int ipps_set_mode(struct ipps_client *client, unsigned int object,
 			unsigned int *mode);
+int ipps_get_func(struct ipps_client *client, unsigned int object,
+			unsigned int *func);
+int ipps_set_func(struct ipps_client *client, unsigned int object,
+			unsigned int *func);
+int ipps_update_power_capacity(struct ipps_client *client, unsigned int object,
+			int *param);
 
 #endif /* IPPS_H */

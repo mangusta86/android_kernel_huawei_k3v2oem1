@@ -107,7 +107,9 @@ struct k3_bq24161_device_info {
 extern struct k3_bq27510_device_info *g_battery_measure_by_bq27510_device;
 /*extern a notifier list for charging notification*/
 extern struct blocking_notifier_head notifier_list_bat;
-extern u32 wakeup_timer_seconds;
+
+u32 wakeup_timer_seconds;
+
 
 struct k3_bq24161_i2c_client *k3_bq24161_client;
 
@@ -839,6 +841,10 @@ static void k3_bq24161_stop_charger(struct k3_bq24161_device_info *di)
 {
 	long int  events  = BQ24161_STOP_CHARGING;
 
+    if (!wake_lock_active(&di->charger_wake_lock)){
+        wake_lock(&di->charger_wake_lock);
+    }
+
 	dev_info(di->dev, "%s,---->STOP CHARGING\n", __func__);
         gpio_set_value(di->gpio, 1);
 
@@ -856,10 +862,32 @@ static void k3_bq24161_stop_charger(struct k3_bq24161_device_info *di)
 	gpio_set_value(di->gpio, 1);
     di->charge_full_count = 0;
         msleep(1000);
-#if BQ2416X_USE_WAKE_LOCK
-	wake_unlock(&di->charger_wake_lock);
-#endif
 
+	wake_unlock(&di->charger_wake_lock);
+
+    wakeup_timer_seconds = 0;
+}
+
+static void bq2416x_charger_done_release_wakelock(struct k3_bq24161_device_info *di)
+{
+    if(di->charger_source == POWER_SUPPLY_TYPE_MAINS){
+        if(!di->battery_present)
+            return;
+        if(di->battery_full){
+            if (wake_lock_active(&di->charger_wake_lock)){
+                if(di->charge_full_count >= BQ2416x_CHARGE_FULL_DELAY_TIME){
+                    wake_unlock(&di->charger_wake_lock);
+                    dev_info(di->dev, "ac charge done wakelock release\n");
+                }
+            }
+        }else{
+            if (!wake_lock_active(&di->charger_wake_lock)){
+                wake_lock(&di->charger_wake_lock);
+                dev_info(di->dev, "ac recharge wakelock add again\n");
+            }
+        }
+    }
+    return;
 }
 
 /*===========================================================================
@@ -933,6 +961,8 @@ static void k3_bq24161_charger_work(struct work_struct *work)
 
 	/* reset 32 second timer */
 	k3_bq24161_config_status_reg(di);
+
+   bq2416x_charger_done_release_wakelock(di);
 
 	/* arrange next 30 seconds charger work */
 	schedule_delayed_work(&di->bq24161_charger_work, msecs_to_jiffies(BQ2416x_WATCHDOG_TIMEOUT));
@@ -1428,17 +1458,19 @@ static int k3_bq24161_usb_notifier_call(struct notifier_block *nb,
 	schedule_work(&di->usb_work);
 	return NOTIFY_OK;
 }
+
 #if 0
+
 static int bq2416x_get_max_charge_voltage(struct k3_bq24161_device_info *di)
 {
-	bool ret = 0;
+    bool ret = 0;
 
-	ret = get_hw_config_int("gas_gauge/charge_voltage", &di->max_voltagemV , NULL);
-	if (ret) {
-		if (di->max_voltagemV < 4200) {
-			di->max_voltagemV = 4200;
-		}
-		return true;
+    ret = get_hw_config_int("gas_gauge/charge_voltage", &di->max_voltagemV , NULL);
+    if(ret){
+        if(di->max_voltagemV < 4200){
+            di->max_voltagemV = 4200;
+        }
+        return true;
     }
     else{
         dev_err(di->dev, " bq2416x_get_max_charge_voltage from boardid fail \n");
@@ -1448,19 +1480,21 @@ static int bq2416x_get_max_charge_voltage(struct k3_bq24161_device_info *di)
 
 static int bq2416x_get_max_charge_current(struct k3_bq24161_device_info *di)
 {
-	bool ret = 0;
-	ret = get_hw_config_int("gas_gauge/charge_current", &di->max_currentmA , NULL);
-	if (ret) {
-		if(di->max_currentmA < 1000) {
-			di->max_currentmA = 1000;
-		}
-		return true;
-	}
-	else {
-		dev_err(di->dev, " bq2416x_get_max_charge_current from boardid fail \n");
-		return false;
-	}
+    bool ret = 0;
+
+    ret = get_hw_config_int("gas_gauge/charge_current", &di->max_currentmA , NULL);
+    if(ret){
+        if(di->max_currentmA < 1000){
+             di->max_currentmA = 1000;
+        }
+        return true;
+    }
+    else{
+        dev_err(di->dev, " bq2416x_get_max_charge_current from boardid fail \n");
+        return false;
+    }
 }
+
 #endif
 static int get_firmware_charge_warm_temp(void)
 {
@@ -1630,6 +1664,9 @@ err_io:
 #endif
 
 err_kfree:
+	#if BQ2416X_USE_WAKE_LOCK
+	wake_lock_destroy(&di->charger_wake_lock);
+	#endif
 	kfree(di);
 	di = NULL;
 
@@ -1684,19 +1721,38 @@ static const struct i2c_device_id bq24161_id[] = {
 	{},
 };
 
+extern void k3v2_pm_wakeup_on_timer(unsigned int seconds, unsigned int milliseconds);
+extern void k3v2_wakeup_timer_disable(void);
+
 #ifdef CONFIG_PM
 static int k3_bq24161_charger_suspend(struct i2c_client *client,
 	pm_message_t state)
 {
     struct k3_bq24161_device_info *di = i2c_get_clientdata(client);
-    k3_bq24161_config_status_reg(di);
-    return 0;
+
+    if(di->charger_source == POWER_SUPPLY_TYPE_MAINS){
+        if(di->battery_full){
+            if (!wake_lock_active(&(di->charger_wake_lock))){
+                cancel_delayed_work(&di->bq24161_charger_work);
+                k3v2_pm_wakeup_on_timer(300,0);
+            }
+        }
+    }
+	k3_bq24161_config_status_reg(di);
+	return 0;
 }
 
 static int k3_bq24161_charger_resume(struct i2c_client *client)
 {
     struct k3_bq24161_device_info *di = i2c_get_clientdata(client);
-    k3_bq24161_config_voltage_reg(di);
+    if(di->charger_source == POWER_SUPPLY_TYPE_MAINS){
+        k3v2_wakeup_timer_disable();
+        dev_info(di->dev, "k3v2_wakeup_timer_disable\n");
+	    k3_bq24161_config_voltage_reg(di);
+        schedule_delayed_work(&di->bq24161_charger_work, msecs_to_jiffies(0));
+    }
+
+	/* reset 25 second timer */
     k3_bq24161_config_status_reg(di);
     return 0;
 }

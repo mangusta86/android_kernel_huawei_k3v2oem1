@@ -1859,7 +1859,8 @@ static void restore_regulatory_settings(bool reset_user)
 	mutex_unlock(&reg_mutex);
 	mutex_unlock(&cfg80211_mutex);
 
-	regulatory_hint_core(world_alpha2);
+	if (is_an_alpha2(world_alpha2))
+		regulatory_hint_core(world_alpha2);
 
 	/*
 	 * This restores the ieee80211_regdom module parameter

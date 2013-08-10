@@ -586,6 +586,7 @@ static int sd_set_current_limit(struct mmc_card *card, u8 *status)
 static int mmc_sd_init_uhs_card(struct mmc_card *card)
 {
 	int err;
+	int card_is_null = 0;
 	u8 *status;
 
 	if (!card->scr.sda_spec3)
@@ -620,15 +621,19 @@ static int mmc_sd_init_uhs_card(struct mmc_card *card)
 	err = sd_set_bus_speed_mode(card, status);
 	if (err)
 		goto out;
-
-	card->host->card = card;
+	if (!card->host->card) {
+		card->host->card = card;
+		card_is_null = 1;
+	}
 	if (card->host->ops->execute_tuning)
 		card->host->ops->execute_tuning(card->host);
 
 	/* Set current limit for the card */
 	err = sd_set_current_limit(card, status);
 	if (err) {
-		card->host->card = NULL;
+		if (card_is_null) {
+			card->host->card = NULL;
+		}
 		goto out;
 	}
 	/* SPI mode doesn't define CMD19 */
@@ -899,6 +904,7 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 {
 	struct mmc_card *card;
 	int err;
+	int card_is_null = 0;
 	u32 cid[4];
 	u32 rocr = 0;
 
@@ -990,7 +996,10 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 		 */
 		mmc_set_clock(host, mmc_sd_get_max_clock(card));
 
-		host->card = card;
+		if (!host->card) {
+			host->card = card;
+			card_is_null = 1;
+		}
 		if (card->host->ops->execute_tuning)
 			card->host->ops->execute_tuning(card->host);
 
@@ -1001,7 +1010,9 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 			(card->scr.bus_widths & SD_SCR_BUS_WIDTH_4)) {
 			err = mmc_app_set_bus_width(card, MMC_BUS_WIDTH_4);
 			if (err) {
-				host->card = NULL;
+				if (card_is_null) {
+					host->card = NULL;
+				}
 				goto free_card;
 			}
 			mmc_set_bus_width(host, MMC_BUS_WIDTH_4);
@@ -1009,6 +1020,9 @@ static int mmc_sd_init_card(struct mmc_host *host, u32 ocr,
 	}
 
 	host->card = card;
+	if (card->host->ops->execute_tuning)
+		card->host->ops->execute_tuning(card->host);
+
 	return 0;
 
 free_card:

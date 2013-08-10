@@ -1,7 +1,3 @@
-###############################################################################################################
-
-###############################################################################################################
-
 config BCMDHD_BCM
 	tristate "Broadcom bcmdhd_bcm wireless cards support"
 	depends on MMC
@@ -37,3 +33,10 @@ config BCMDHD_WEXT
 	select WEXT_PRIV
 	help
 	  Enables WEXT support
+
+config DHD_USE_SCHED_SCAN
+	bool "Use CFG80211 sched scan"
+	depends on BCMDHD_BCM && CFG80211
+	default y
+	---help---
+	  Use CFG80211 sched scan

@@ -48,6 +48,7 @@ typedef struct _camera_frame_buf {
 
 	u32 flags;		/* reference to CAMERA_FLAG_XXX */
 	struct list_head queue;
+	struct timeval timestamp;
 } camera_frame_buf;
 
 typedef struct _buffer_arr {

@@ -741,6 +741,7 @@ static void emit_log_char_to_rbuf(char c)
 	int i;
 	int need_init = 0;
 	int start = 0;
+	char kdumplog[]="kdumplog";
 
 	if (!hilog_loaded)
 		return;
@@ -775,8 +776,7 @@ static void emit_log_char_to_rbuf(char c)
 				(log_buf_info+i)->waddr = 0;
 				(log_buf_info+i)->raddr = 0;
 			}
-
-			strncpy((char *)(log_buf_info+5), "kdumplog", 8);
+			strncpy((char *)(log_buf_info+5), kdumplog, sizeof(kdumplog));
 		}
 
 		phyaddr_mapped = 1;

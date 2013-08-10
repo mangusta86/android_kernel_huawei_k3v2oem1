@@ -1458,8 +1458,10 @@ void set_EDC_DISP_CTL_cfg_ok(u32 edc_base, u32 nVal)
 	edc_disp_ctl.ul32 = inp32(addr);
 	edc_disp_ctl.bits.edc_cfg_ok = nVal;
 	outp32(addr, edc_disp_ctl.ul32);
+#if !defined(CONFIG_OVERLAY_COMPOSE)
 	edc_disp_ctl.bits.edc_cfg_ok = 0;
 	outp32(addr, edc_disp_ctl.ul32);
+#endif //CONFIG_OVERLAY_COMPOSEs
 }
 
 void set_EDC_DISP_CTL_cfg_ok_sel(u32 edc_base, u32 nVal)
@@ -1737,6 +1739,179 @@ void set_EDC_CH2_CSCP4(u32 edc_base, u32 nVal)
 	u32 addr = edc_base + EDC_CH2_CSCP4_OFFSET;
 	outp32(addr, nVal);
 }
+
+#if defined(CONFIG_OVERLAY_COMPOSE)
+void set_OVC_CH1_CSCIDC_csc_en(u32 edc_base, u32 nVal)
+{
+	u32 addr = edc_base + EDC_CH1_CSCIDC_OFFSET;
+	EDC_CH1_CSCIDC edc_ch1_cscidc;
+
+	edc_ch1_cscidc.ul32 = inp32(addr);
+	edc_ch1_cscidc.bits.ch1_csc_en = nVal;
+	outp32(addr, edc_ch1_cscidc.ul32);
+}
+
+void set_OVC_CH1_CSCIDC(u32 edc_base, u32 cscidc_y, u32 cscidc_u, u32 cscidc_v)
+{
+	u32 addr = edc_base + EDC_CH1_CSCIDC_OFFSET;
+
+	EDC_CH1_CSCIDC edc_ch1_cscidc;
+	edc_ch1_cscidc.ul32 = inp32(addr);
+	edc_ch1_cscidc.bits.ch1_cscidc_y = cscidc_y;
+	edc_ch1_cscidc.bits.ch1_cscidc_u = cscidc_u;
+	edc_ch1_cscidc.bits.ch1_cscidc_v = cscidc_v;
+	outp32(addr, edc_ch1_cscidc.ul32);
+}
+
+void set_OVC_CH1_CSCODC(u32 edc_base, u32 cscodc_r, u32 cscodc_g, u32 cscodc_b)
+{
+	u32 addr = edc_base + EDC_CH1_CSCODC_OFFSET;
+	EDC_CH1_CSCODC edc_ch1_cscodc;
+	edc_ch1_cscodc.ul32 = inp32(addr);
+	edc_ch1_cscodc.bits.ch1_cscodc_r = cscodc_r;
+	edc_ch1_cscodc.bits.ch1_cscodc_g = cscodc_g;
+	edc_ch1_cscodc.bits.ch1_cscodc_b = cscodc_b;
+	outp32(addr, edc_ch1_cscodc.ul32);
+}
+
+void set_OVC_CH1_CSCP0(u32 edc_base, u32 csc_01p, u32 csc_00p)
+{
+	u32 addr = edc_base + EDC_CH1_CSCP0_OFFSET;
+	EDC_CH1_CSCP0 edc_ch1_cscp0;
+	edc_ch1_cscp0.ul32 = inp32(addr);
+	edc_ch1_cscp0.bits.ch1_csc_01p = csc_01p;
+	edc_ch1_cscp0.bits.ch1_csc_00p = csc_00p;
+	outp32(addr, edc_ch1_cscp0.ul32);
+}
+
+void set_OVC_CH1_CSCP1(u32 edc_base, u32 csc_10p, u32 csc_02p)
+{
+	u32 addr = edc_base + EDC_CH1_CSCP1_OFFSET;
+	EDC_CH1_CSCP1 edc_ch1_cscp1;
+	edc_ch1_cscp1.ul32 = inp32(addr);
+	edc_ch1_cscp1.bits.ch1_csc_10p = csc_10p;
+	edc_ch1_cscp1.bits.ch1_csc_02p = csc_02p;
+	outp32(addr, edc_ch1_cscp1.ul32);
+}
+
+void set_OVC_CH1_CSCP2(u32 edc_base, u32 csc_12p, u32 csc_11p)
+{
+	u32 addr = edc_base + EDC_CH1_CSCP2_OFFSET;
+
+	EDC_CH1_CSCP2 edc_ch1_cscp2;
+	edc_ch1_cscp2.ul32 = inp32(addr);
+	edc_ch1_cscp2.bits.ch1_csc_12p = csc_12p;
+	edc_ch1_cscp2.bits.ch1_csc_11p = csc_11p;
+	outp32(addr, edc_ch1_cscp2.ul32);
+}
+
+void set_OVC_CH1_CSCP3(u32 edc_base, u32 csc_21p, u32 csc_20p)
+{
+	u32 addr = edc_base + EDC_CH1_CSCP3_OFFSET;
+
+	EDC_CH1_CSCP3 edc_ch1_cscp3;
+	edc_ch1_cscp3.ul32 = inp32(addr);
+	edc_ch1_cscp3.bits.ch1_csc_21p = csc_21p;
+	edc_ch1_cscp3.bits.ch1_csc_20p = csc_20p;
+	outp32(addr, edc_ch1_cscp3.ul32);
+}
+
+void set_OVC_CH1_CSCP4(u32 edc_base, u32 csc_22p)
+{
+	u32 addr = edc_base + EDC_CH1_CSCP4_OFFSET;
+
+	EDC_CH1_CSCP4 edc_ch1_cscp4;
+	edc_ch1_cscp4.ul32 = inp32(addr);
+	edc_ch1_cscp4.bits.ch1_csc_22p = csc_22p;
+	outp32(addr, edc_ch1_cscp4.ul32);
+}
+
+void set_OVC_CH2_CSCIDC_csc_en(u32 edc_base, u32 nVal)
+{
+	u32 addr = edc_base + EDC_CH2_CSCIDC_OFFSET;
+	EDC_CH2_CSCIDC edc_ch2_cscidc;
+
+	edc_ch2_cscidc.ul32 = inp32(addr);
+	edc_ch2_cscidc.bits.ch2_csc_en = nVal;
+	outp32(addr, edc_ch2_cscidc.ul32);
+}
+
+void set_OVC_CH2_CSCIDC(u32 edc_base, u32 cscidc_y, u32 cscidc_u, u32 cscidc_v)
+{
+	u32 addr = edc_base + EDC_CH2_CSCIDC_OFFSET;
+
+	EDC_CH2_CSCIDC edc_ch2_cscidc;
+	edc_ch2_cscidc.ul32 = inp32(addr);
+	edc_ch2_cscidc.bits.ch2_cscidc_y = cscidc_y;
+	edc_ch2_cscidc.bits.ch2_cscidc_u = cscidc_u;
+	edc_ch2_cscidc.bits.ch2_cscidc_v = cscidc_v;
+	outp32(addr, edc_ch2_cscidc.ul32);
+}
+
+void set_OVC_CH2_CSCODC(u32 edc_base, u32 cscodc_r, u32 cscodc_g, u32 cscodc_b)
+{
+	u32 addr = edc_base + EDC_CH2_CSCODC_OFFSET;
+	EDC_CH2_CSCODC edc_ch2_cscodc;
+	edc_ch2_cscodc.ul32 = inp32(addr);
+	edc_ch2_cscodc.bits.ch2_cscodc_r = cscodc_r;
+	edc_ch2_cscodc.bits.ch2_cscodc_g = cscodc_g;
+	edc_ch2_cscodc.bits.ch2_cscodc_b = cscodc_b;
+	outp32(addr, edc_ch2_cscodc.ul32);
+}
+
+void set_OVC_CH2_CSCP0(u32 edc_base, u32 csc_01p, u32 csc_00p)
+{
+	u32 addr = edc_base + EDC_CH2_CSCP0_OFFSET;
+
+	EDC_CH2_CSCP0 edc_ch2_cscp0;
+	edc_ch2_cscp0.ul32 = inp32(addr);
+	edc_ch2_cscp0.bits.ch2_csc_01p = csc_01p;
+	edc_ch2_cscp0.bits.ch2_csc_00p = csc_00p;
+	outp32(addr, edc_ch2_cscp0.ul32);
+}
+
+void set_OVC_CH2_CSCP1(u32 edc_base, u32 csc_10p, u32 csc_02p)
+{
+	u32 addr = edc_base + EDC_CH2_CSCP1_OFFSET;
+
+	EDC_CH2_CSCP1 edc_ch2_cscp1;
+	edc_ch2_cscp1.ul32 = inp32(addr);
+	edc_ch2_cscp1.bits.ch2_csc_10p = csc_10p;
+	edc_ch2_cscp1.bits.ch2_csc_02p = csc_02p;
+	outp32(addr, edc_ch2_cscp1.ul32);
+}
+
+void set_OVC_CH2_CSCP2(u32 edc_base, u32 csc_12p, u32 csc_11p)
+{
+	u32 addr = edc_base + EDC_CH2_CSCP2_OFFSET;
+
+	EDC_CH2_CSCP2 edc_ch2_cscp2;
+	edc_ch2_cscp2.ul32 = inp32(addr);
+	edc_ch2_cscp2.bits.ch2_csc_12p = csc_12p;
+	edc_ch2_cscp2.bits.ch2_csc_11p = csc_11p;
+	outp32(addr, edc_ch2_cscp2.ul32);
+}
+
+void set_OVC_CH2_CSCP3(u32 edc_base, u32 csc_21p, u32 csc_20p)
+{
+	u32 addr = edc_base + EDC_CH2_CSCP3_OFFSET;
+
+	EDC_CH2_CSCP3 edc_ch2_cscp3;
+	edc_ch2_cscp3.ul32 = inp32(addr);
+	edc_ch2_cscp3.bits.ch2_csc_21p = csc_21p;
+	edc_ch2_cscp3.bits.ch2_csc_20p = csc_20p;
+	outp32(addr, edc_ch2_cscp3.ul32);
+}
+
+void set_OVC_CH2_CSCP4(u32 edc_base, u32 csc_22p)
+{
+	u32 addr = edc_base + EDC_CH2_CSCP4_OFFSET;
+	EDC_CH2_CSCP4 edc_ch2_cscp4;
+	edc_ch2_cscp4.ul32 = inp32(addr);
+	edc_ch2_cscp4.bits.ch2_csc_22p = csc_22p;
+	outp32(addr, edc_ch2_cscp4.ul32);
+}
+#endif //CONFIG_OVERLAY_COMPOSE
 
 void set_EDC_OUT_CSC_csc_en(u32 edc_base, u32 nVal)
 {

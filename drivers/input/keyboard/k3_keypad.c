@@ -522,7 +522,7 @@ static int __devexit k3v2_keypad_remove(struct platform_device* pdev)
 }
 
 #ifdef CONFIG_PM
-static int k3v2_keypad_suspend(struct platform_device *pdev)
+static int k3v2_keypad_suspend(struct platform_device *pdev, pm_message_t state)
 {	
 	pr_info("[keypad]suspend successfully\n");
 	return 0;

@@ -6,6 +6,8 @@ KERNEL_OUT := $(TARGET_OUT_INTERMEDIATES)/KERNEL_OBJ
 KERNEL_CONFIG := $(KERNEL_OUT)/.config
 TARGET_PREBUILT_KERNEL := $(KERNEL_OUT)/arch/arm/boot/zImage
 
+$(shell cd kernel/drivers/huawei/hsad;./xml2code.sh)
+
 $(KERNEL_OUT):
 	mkdir -p $(KERNEL_OUT)
 

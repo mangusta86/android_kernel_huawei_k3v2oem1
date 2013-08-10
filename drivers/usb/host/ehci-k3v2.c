@@ -43,11 +43,13 @@ static ssize_t show_ehci_status(struct device *dev,
 	return sprintf(buf, "%d\n", connect_status);
 }
 
+static DEFINE_MUTEX(ehci_power_lock);
 static ssize_t store_ehci_power(struct device *dev,
 		struct device_attribute *attr,
 		const char *buf, size_t count)
 {
 	int power_on;
+	int ret;
 	struct hisik3_ehci_hcd *hiusb_ehci = dev_get_drvdata(dev);
 	struct usb_hcd *hcd = ehci_to_hcd(hiusb_ehci->ehci);
 
@@ -57,7 +59,17 @@ static ssize_t store_ehci_power(struct device *dev,
 		return -EINVAL;
 	}
 
+	mutex_lock(&ehci_power_lock);
+
 	if (power_on == 0 && ehci_handle != NULL) {
+		/*enable hisc phy cnf clk,12MHz and 480MHz.*/
+		hisik3_usb_phy_clk_enable(hiusb_ehci->phy);
+		ret = clk_enable(hiusb_ehci->core_clk);
+		hiusb_ehci->clock_state = 1;
+		if (ret) {
+			printk(KERN_ERR "%s.clk_enable core_clk failed\n", __func__);
+		}
+
 		connect_status = 0;
 		clear_bit(HCD_FLAG_DEAD, &hcd->flags);
 		usb_remove_hcd(hcd);
@@ -81,6 +93,7 @@ static ssize_t store_ehci_power(struct device *dev,
 
 		if (usb_add_hcd(hiusb_ehci->hcd, hiusb_ehci->irq, IRQF_SHARED)) {
 			printk("Failed to add USB HCD\n");
+			mutex_unlock(&ehci_power_lock);
 			return -1;
 		}
 		ehci_writel(hiusb_ehci->ehci, 1, &hiusb_ehci->ehci->regs->configured_flag);
@@ -99,6 +112,7 @@ static ssize_t store_ehci_power(struct device *dev,
 		hisik3_usb_resume(hcd);
 	}
 
+	mutex_unlock(&ehci_power_lock);
 	return count;
 }
 

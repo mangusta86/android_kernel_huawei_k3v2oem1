@@ -51,6 +51,7 @@
 #define CAM_DEF_WIDTH   640
 #define CAM_DEF_HEIGHT  480
 
+#define BUF_LEN	 80
 /* #define DEBUG_WRITE_FILE 0 */
 
 /* Camera control struct data */
@@ -517,7 +518,7 @@ static int k3_v4l2_ioctl_g_ctrl(struct file *file, void *fh,
 
 	case V4L2_CID_MAX_FOCUS_AREA:
 		{
-			if (CAMERA_USE_SENSORISP == cam->sensor->isp_location) {
+			if (CAMERA_USE_SENSORISP == cam->sensor->isp_location || NULL == cam->sensor->vcm) {
 				/* front camera do not support touch point focus */
 				a->value = 0;
 			} else {
@@ -913,6 +914,19 @@ static int k3_v4l2_ioctl_s_ctrl(struct file *file, void *fh,
 			k3_isp_set_pm_mode(v4l2_param->value);
 			break;
 		}
+	case V4L2_CID_SET_VIDEO_STABILIZATION:
+		{
+			print_info("set VIDEO_STABILIZATION, %d", v4l2_param->value);
+			k3_isp_set_video_stabilization(v4l2_param->value);
+			break;
+		}
+	case V4L2_CID_SET_YUV_CROP_POS:
+		{
+			print_info("set crop pos, %d", v4l2_param->value);
+			k3_isp_set_yuv_crop_pos(v4l2_param->value);
+			break;
+		}
+
 	default:
 		break;
 	}
@@ -967,7 +981,7 @@ static long k3_v4l2_ioctl_g_caps(struct file *file, void *fh, bool private,
 		mbuf = kmalloc(ext_ctls_size, GFP_KERNEL);
 		if (!mbuf) {
 			ret = -ENOMEM;
-			print_error("fail to allocate buffer fo ext controls");
+			print_error("fail to allocate buffer for ext controls");
 			goto out;
 		}
 
@@ -1070,6 +1084,12 @@ static int k3_v4l2_ioctl_g_ext_ctrls(struct file *file, void *fh,
 		{
 			camera_rect_s *rect = (camera_rect_s *)(controls[cid_idx].string);
 			k3_isp_get_focus_rect(rect);
+			break;
+		}
+		case V4L2_CID_GET_YUV_CROP_RECT:
+		{
+			crop_rect_s *rect = (crop_rect_s *)(controls[cid_idx].string);
+			k3_isp_get_yuv_crop_rect(rect);
 			break;
 		}
 
@@ -1250,6 +1270,7 @@ static int k3_v4l2_ioctl_s_ext_ctrls(struct file *file, void *fh,
 		default:
 			print_error("%s, id=%#x, value=%#x", __func__,
 					controls[cid_idx].id, controls[cid_idx].value);
+			ret = -EINVAL;
 			goto end;
 			break;
 
@@ -1411,6 +1432,7 @@ static int k3_v4l2_ioctl_dqbuf(struct file *file, void *fh,
 	b->index = frame->index;
 	b->bytesused = cam->fmt[state].fmt.pix.sizeimage;	/* FIXME already with stride */
 	b->m.offset = frame->phyaddr;
+	memcpy(&(b->timestamp), &(frame->timestamp), sizeof(struct timeval));
 #ifdef DUMP_FILE
 	dump_file("/data/yuv.yuv", frame->viraddr, 2592 * 1952 * 2);
 #endif
@@ -1595,6 +1617,8 @@ static int k3_v4l2_ioctl_s_param(struct file *file, void *fh,
 	v4l2_ctl_struct *cam = NULL;
 	struct v4l2_frmivalenum fi;
 	camera_sensor *sensor;
+	u8 max_fps = CAMERA_MAX_FRAMERATE;
+	u8 min_fps = CAMERA_MIN_FRAMERATE;
 
 	print_debug("enter %s", __func__);
 
@@ -1615,11 +1639,16 @@ static int k3_v4l2_ioctl_s_param(struct file *file, void *fh,
 	cam->frame_rate = a->parm.capture.timeperframe;
 
 	sensor = cam->sensor;
+	if (sensor->get_override_param) {
+		max_fps = sensor->get_override_param(OVERRIDE_FPS_MAX);
+		min_fps = sensor->get_override_param(OVERRIDE_FPS_MIN);
+	}
+
 	if (CAMERA_USE_K3ISP == sensor->isp_location) {
 		if (0 == cam->frame_rate.denominator) {
-			k3_isp_set_fps(CAMERA_FPS_MAX, CAMERA_MAX_FRAMERATE);
+			k3_isp_set_fps(CAMERA_FPS_MAX, max_fps);
 			/*h00206029 modified 20120511*/
-			k3_isp_set_fps(CAMERA_FPS_MIN, CAMERA_MIN_FRAMERATE);
+			k3_isp_set_fps(CAMERA_FPS_MIN, min_fps);
 		} else {
 			k3_isp_set_fps(CAMERA_FPS_MAX, cam->frame_rate.denominator / cam->frame_rate.numerator);
 			k3_isp_set_fps(CAMERA_FPS_MIN, cam->frame_rate.denominator / cam->frame_rate.numerator);
@@ -1892,10 +1921,10 @@ static ssize_t k3_sensors_show(struct device *dev, struct device_attribute *attr
 	pri_sensor = get_camera_sensor(CAMERA_SENSOR_PRIMARY);
 	sec_sensor = get_camera_sensor(CAMERA_SENSOR_SECONDARY);
 	if ((NULL != *pri_sensor) && (NULL != *sec_sensor)) {
-		sprintf(buf, "front sensor:[%s]; back sensor:[%s]\n", (*sec_sensor)->info.name, (*pri_sensor)->info.name);
+		snprintf(buf, BUF_LEN, "front sensor:[%s]; back sensor:[%s]\n", (*sec_sensor)->info.name, (*pri_sensor)->info.name);
 		ret += (strlen(buf) + 1);
 	} else {
-		sprintf(buf, "Please run Camera first\n");
+		snprintf(buf, BUF_LEN, "Please run Camera first\n");
 		ret = strlen(buf) + 1;
 	}
 	return ret;

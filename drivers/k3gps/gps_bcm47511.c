@@ -231,6 +231,9 @@ static int __devexit k3_gps_bcm_remove(struct platform_device *pdev)
 static void K3_gps_bcm_shutdown(struct platform_device *pdev)
 {
 	GPS_BCM_INFO *gps_bcm = platform_get_drvdata(pdev);
+#ifdef CONFIG_MACH_K3V2OEM1
+	int ret = 0;
+#endif
 
 	if (!gps_bcm) {
 		dev_err(&pdev->dev, "gps_bcm is NULL\n");
@@ -244,7 +247,6 @@ static void K3_gps_bcm_shutdown(struct platform_device *pdev)
 	gpio_set_value(gps_bcm->gpioid_refclk, 0);/* Add for E911 */
 
 #ifdef CONFIG_MACH_K3V2OEM1
-	int ret = 0;
 	if ((gps_bcm->piomux_block) && (gps_bcm->pblock_config)) {
 		ret = blockmux_set(gps_bcm->piomux_block, gps_bcm->pblock_config, LOWPOWER);
 		if (ret)

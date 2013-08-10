@@ -59,6 +59,10 @@ typedef struct _gcsCONTEXT_MAP *		gcsCONTEXT_MAP_PTR;
 typedef void *                          gcoVG;
 #endif
 
+#if gcdSYNC
+typedef struct _gcoFENCE *              gcoFENCE;
+typedef struct _gcsSYNC_CONTEXT  *      gcsSYNC_CONTEXT_PTR;
+#endif
 /******************************************************************************\
 ******************************* Process local storage *************************
 \******************************************************************************/

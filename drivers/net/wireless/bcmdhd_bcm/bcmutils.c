@@ -20,7 +20,7 @@
  *      Notwithstanding the above, under no circumstances may you combine this
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
- * $Id: bcmutils.c,v 1.277.2.18 2011-01-26 02:32:08 Exp $
+ * $Id: bcmutils.c,v 1.277.2.18 2011-01-26 02:32:08 $
  */
 
 #include <typedefs.h>
@@ -892,7 +892,6 @@ bcm_ip_ntoa(struct ipv4_addr *ia, char *buf)
 
 #ifdef BCMDRIVER
 
-/*modify by w56462*/
 void
 bcm_mdelay(uint ms)
 {
@@ -991,7 +990,6 @@ pktsetprio(void *pkt, bool update_vtag)
 	return (rc | priority);
 }
 
-#ifndef BCM_BOOTLOADER
 
 static char bcm_undeferrstr[32];
 static const char *bcmerrorstrtable[] = BCMERRSTRINGTABLE;
@@ -1013,7 +1011,6 @@ bcmerrorstr(int bcmerror)
 	return bcmerrorstrtable[-bcmerror];
 }
 
-#endif /* !BCM_BOOTLOADER */
 
 
 

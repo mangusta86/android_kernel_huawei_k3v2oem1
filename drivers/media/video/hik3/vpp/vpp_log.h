@@ -1,15 +1,4 @@
-/*
- **************************************************************************************
- *
- *       Filename:  vpp_log.h
- *    Description:  log debug switch header file
- *
- *        Version:  1.0
- *        Created:  2011-08-13
- *
- *       Revision:  initial draft;
- **************************************************************************************
- */
+
 #include<linux/kernel.h>
 
 #ifndef __VPP_LOG_H_

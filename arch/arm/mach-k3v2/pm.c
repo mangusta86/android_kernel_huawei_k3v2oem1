@@ -37,10 +37,13 @@
 #include <linux/wakelock.h>
 #include <mach/boardid.h>
 #include <asm/cacheflush.h>
+#include <linux/hardirq.h>
+
 #ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
 #include <linux/cpufreq-k3v2.h>
 extern struct cpu_num_limit gcpu_num_limit;
 #endif
+#include "clock.h"
 #ifdef CONFIG_CACHE_L2X0
 extern int hisik3_pm_disable_l2x0(void);
 extern int hisik3_pm_enable_l2x0(void);
@@ -65,6 +68,7 @@ typedef struct __timer_register {
 	unsigned long timer_value;
 	unsigned long timer_ctrl;
 	unsigned long timer_bgload;
+	unsigned long timer_control;
 } timer_register;
 
 static timer_register timer0[2];
@@ -89,6 +93,9 @@ static int protect_timer0_register(void)
 	timer0[0].timer_bgload = readl(timer0_base_addr + TIMER_BGLOAD);
 	timer0[1].timer_bgload = readl(timer0_base_addr + 0x20 + TIMER_BGLOAD);
 
+	/* protect timer control register */
+	timer0[0].timer_control = readl(IO_ADDRESS(REG_BASE_SCTRL) + 0x18);
+
 	/* disable timer0_0 timer0_1 */
 	writel(0, timer0_base_addr + TIMER_CTRL);
 	writel(0, timer0_base_addr + 0x20 + TIMER_CTRL);
@@ -111,7 +118,8 @@ static int restore_timer0_register(void)
 		clk_enable(timer0_clk);
 	}
 #endif
-
+	/* restore timer control register */
+	writel(timer0[0].timer_control,IO_ADDRESS(REG_BASE_SCTRL) + 0x18);
 	/* disable timer0_0 timer0_1 */
 	writel(0, timer0_base_addr + TIMER_CTRL);
 	writel(0, timer0_base_addr + 0x20 + TIMER_CTRL);
@@ -315,8 +323,7 @@ static struct k3v2_cmdword k3v2_map[] =
 	{"resetuser", 0x04},
 	{"sdupdate", 0x05},
 	{"usbupdate", 0x09},
-
-	{"panic", 0x11},
+	{"panic", 0x06},
 };
 
 static unsigned long find_rebootmap(const char* str)
@@ -345,7 +352,7 @@ static void _k3v2oem1_reset(char mode, const char *cmd)
 		/* cmd = NULL; case: cold boot */
 		num = find_rebootmap(RESET_COLD_FLAG);
 		if (readl(SECRAM_RESET_ADDR) & (1 << 5)) {
-			num = 0x11;
+			num = 0x06;
 			printk(KERN_EMERG "_k3v2oem1_reset cmd:panic.\n");
 		}
 		writel(num, SECRAM_RESET_ADDR);
@@ -451,11 +458,54 @@ void debuguart_reinit(void);
 #endif
 
 extern void pmulowpower(int isuspend);
+static void pmctrl_reinit(void)
+{
+	/*
+	 *the div of g3d clock has been changed in fastboot,
+	 *it's different with the status which was set by
+	 *clk_disable(), so reinit here.
+	 */
+	writel(G3D_DIV_DIS_VAL, G3D_CORE_DIV);
+	writel(G3D_DIV_DIS_VAL, G3D_SHADER_DIV);
+	writel(G3D_DIV_DIS_VAL, G3D_AXI_DIV);
+}
+static void sysctrl_reinit(void)
+{
+	/*
+	 *bit 7:gt_clk_ddrc_codec
+	 *bit 6:gt_clk_ddrc_disp
+	 *bit 4:gt_clk_ddrc_gpu
+	 */
+	unsigned i = 1000;
+	unsigned uregv_status = 0;
+	unsigned uregv = (1 << 7) | (1 << 6) | (1 << 4);
 
+	writel(uregv, DISEN_REG3);
+	uregv_status = readl(ISEN_REG3) & uregv;
+	while (uregv_status & i) {
+		writel(uregv, DISEN_REG3);
+		uregv_status = readl(ISEN_REG3) & uregv;
+		i --;
+	}
+
+	if (0 == i)
+		WARN(1, "CLOCK:Attempting to write clock enable register 1000 times.\r\n");
+}
+static void pctrl_reinit(void)
+{
+	unsigned uregv = 0;
+
+	/*bit 29:reinit test_pddq*/
+	uregv = readl(IO_ADDRESS(REG_BASE_PCTRL) + 0x030) | (1 << 29);
+	writel(uregv, IO_ADDRESS(REG_BASE_PCTRL) + 0x030);
+
+	/*bit 1:reinit nanophy_siddq*/
+	uregv = readl(IO_ADDRESS(REG_BASE_PCTRL) + 0x038) | (1 << 0);
+	writel(uregv, IO_ADDRESS(REG_BASE_PCTRL) + 0x038);
+}
 static int hisik3_pm_enter(suspend_state_t state)
 {
 	unsigned long flage = 0;
-	int ret = 0;
 
 	switch (state) {
 		case PM_SUSPEND_STANDBY:
@@ -470,16 +520,32 @@ static int hisik3_pm_enter(suspend_state_t state)
 		return -EAGAIN;
 	}
 
+	if (unlikely(in_atomic())) {
+		pr_warn("PM: in atomic[%08x] at %d\n", preempt_count(), __LINE__);
+	}
+
 	local_irq_save(flage);
 
 	hisik3_pm_save_gic();
+
+	if (unlikely(in_atomic())) {
+		pr_warn("PM: in atomic[%08x] at %d\n", preempt_count(), __LINE__);
+	}
 
 #ifdef CONFIG_CACHE_L2X0
 	hisik3_pm_disable_l2x0();
 #endif
 
+	if (unlikely(in_atomic())) {
+		pr_warn("PM: in atomic[%08x] at %d\n", preempt_count(), __LINE__);
+	}
+
 	/*set pmu to low power*/
 	pmulowpower(1);
+
+	if (unlikely(in_atomic())) {
+		pr_warn("PM: in atomic[%08x] at %d\n", preempt_count(), __LINE__);
+	}
 
 	/* here is an workround way to delay 40ms
          * make sure LDO0 is poweroff very clean */
@@ -500,6 +566,10 @@ static int hisik3_pm_enter(suspend_state_t state)
 	pmulowpower_show(1);
 #endif
 
+	if (unlikely(in_atomic())) {
+		pr_warn("PM: in atomic[%08x] at %d\n", preempt_count(), __LINE__);
+	}
+
 	edb_putstr("[PM]Enter hilpm_cpu_godpsleep...\r\n");
 
 #ifdef CONFIG_LOWPM_DEBUG
@@ -510,10 +580,30 @@ static int hisik3_pm_enter(suspend_state_t state)
 	rtc_enable();
 #endif
 
+	if (unlikely(in_atomic())) {
+		pr_warn("PM: in atomic[%08x] at %d\n", preempt_count(), __LINE__);
+	}
+
 	hilpm_cpu_godpsleep();
+
+	if (unlikely(in_atomic())) {
+		pr_warn("PM: in atomic[%08x] at %d\n", preempt_count(), __LINE__);
+	}
+
+	/*
+	 *the status has been changed in fastboot,
+	 *it causes difference with kernel's status,
+	 */
+	pmctrl_reinit();
+	pctrl_reinit();
+	sysctrl_reinit();
 
 	/*uart init.*/
 	edb_reinit();
+
+	if (unlikely(in_atomic())) {
+		pr_warn("PM: in atomic[%08x] at %d\n", preempt_count(), __LINE__);
+	}
 
 #ifdef CONFIG_LOWPM_DEBUG
 	/*restore debug uart0*/
@@ -526,28 +616,39 @@ static int hisik3_pm_enter(suspend_state_t state)
 	pmulowpowerall(0);
 #endif
 
+	if (unlikely(in_atomic())) {
+		pr_warn("PM: in atomic[%08x] at %d\n", preempt_count(), __LINE__);
+	}
+
 	/*PMU regs restore*/
 	pmulowpower(0);
 
-	{
-		/*read DDRCFG params after wakeup*/
-		unsigned ddr_base = IO_ADDRESS(REG_BASE_DDRC_CFG);
-		printk("0xfcd00588=%08x, 0xfcd00988=%08x\n",
-			readl(ddr_base + 0x588), readl(ddr_base + 0x988));
-		printk("0xfcd000b4=%08x, 0xfcd000b8=%08x\n",
-			readl(ddr_base + 0x0b4), readl(ddr_base + 0x0b8));
-		printk("0xfcd000c4=%08x, 0xfcd000c8=%08x\n",
-			readl(ddr_base + 0x0c4), readl(ddr_base + 0x0c8));
+	if (unlikely(in_atomic())) {
+		pr_warn("PM: in atomic[%08x] at %d\n", preempt_count(), __LINE__);
 	}
 
 	/* restore timer0_0 timer0_1 and enable timer0 clk */
 	restore_timer0_register();
 
+	flush_cache_all();
+
+	if (unlikely(in_atomic())) {
+		pr_warn("PM: in atomic[%08x] at %d\n", preempt_count(), __LINE__);
+	}
+
 #ifdef CONFIG_CACHE_L2X0
 	hisik3_pm_enable_l2x0();
 #endif
 
+	if (unlikely(in_atomic())) {
+		pr_warn("PM: in atomic[%08x] at %d\n", preempt_count(), __LINE__);
+	}
+
 	hisik3_pm_retore_gic();
+
+	if (unlikely(in_atomic())) {
+		pr_warn("PM: in atomic[%08x] at %d\n", preempt_count(), __LINE__);
+	}
 
 	local_irq_restore(flage);
 
@@ -610,6 +711,10 @@ static int __init hisik3_pm_init(void)
 	/* hilpm_cpu_godpsleep() use disable_mmu() and enable_mmu()
 	   which running in securam.we copy the two functions during init phase*/
 	hilpm_cp_securam_code();
+
+#ifdef CONFIG_CPU_IDLE
+	hilpm_cp_cpuidle_code();
+#endif
 
 	/* get the base address of timer0 */
 	timer0_base_addr = (unsigned long) IO_ADDRESS(REG_BASE_TIMER0);

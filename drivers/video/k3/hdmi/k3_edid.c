@@ -273,7 +273,8 @@ static int vesa_timing_order[] = {
     HDMI_EDID_VESA_VIDEO_1680x1050p_60Hz_CVT_16_9,
     HDMI_EDID_VESA_VIDEO_1680x1050p_60Hz_16_9,
     HDMI_EDID_VESA_VIDEO_1680x1050p_75Hz_16_9,
-    HDMI_EDID_VESA_VIDEO_1680x1050p_85Hz_16_9
+    HDMI_EDID_VESA_VIDEO_1680x1050p_85Hz_16_9,
+    HDMI_EDID_VESA_VIDEO_1920x1080p_60Hz_16_9
 };
 
 #if DEBUG_LEVEL
@@ -319,9 +320,7 @@ int edid_get_timing_order(int code, bool mhl_check)
     for (i = 0; i < count; i++) {
         if (timing_order[i] == code) {
             if(mhl_check 
-#if !ENABLE_MOCK_HDMI_TO_MHL
             && hw_support_mhl() 
-#endif
             && (i >= max_order)){
                 return -1;
             }
@@ -383,7 +382,7 @@ static int get_datablock_offset(u8 *edid, extension_edid_db datablock,
     BUG_ON((NULL == edid) || (NULL == offset));
 
     if (0x00 == edid[0x7e]) {
-        loge( "has NO extension block! \n");
+        logd( "has NO extension block! \n");
         return -1;
     }
 
@@ -684,6 +683,13 @@ hdmi_cm edid_get_best_timing(hdmi_edid *edid)
     int best_order = 0;
 
     IN_FUNCTION;
+#if HDCP_FOR_CERTIFICATION
+    //always return 480P
+    cm.code = HDCP_DEFAULT_TIMING_CODE;
+    cm.mode = HDMI_CODE_TYPE_CEA;
+    logi("for hdcp test, return code:%d.\n", cm.code);
+    return cm;
+#endif
 
 #if ENABLE_EDID_FAULT_TOLERANCE
     if (false == edid_is_valid_edid((u8*)edid)) {
@@ -698,7 +704,7 @@ hdmi_cm edid_get_best_timing(hdmi_edid *edid)
     /*get all support timing code*/
     has_image_format = edid_get_image_format((u8 *)edid, &img_format);
     if (!has_image_format) {
-        logw("there isn't video image format in edid.\n");
+        logd("there isn't video image format in edid.\n");
     }
 
     logd(" video format number: %d.\n", img_format.number);
@@ -755,14 +761,12 @@ hdmi_cm edid_get_best_timing(hdmi_edid *edid)
 *******************************************************************************/
 int edid_get_default_code()
 {
-#if ENABLE_MOCK_HDMI_TO_MHL
-    if (true) {
-#else
     if (hw_support_mhl()) {
-#endif
         return HDMI_DEFAULT_MHL_TIMING_CODE;
     }
-
+#if HDCP_FOR_CERTIFICATION
+    return HDCP_DEFAULT_TIMING_CODE;
+#endif
     return HDMI_DEFAULT_TIMING_CODE;;
 }
 
@@ -888,6 +892,29 @@ bool edid_s3d_supported(u8 *edid)
     }
 
     return s3d_support;
+}
+
+bool edid_cec_getphyaddr(u8 *edid, u8* physical_addr)
+{
+    bool result       = false;
+    int  offset       = 0;
+
+    BUG_ON(NULL == edid);
+    BUG_ON(NULL == physical_addr);
+
+    if (!get_datablock_offset(edid, DATABLOCK_VENDOR, &offset)) {
+       if((edid[offset] & 0x1F) < 8){
+           result = false;
+       } else {
+            offset += 4;
+            physical_addr[0] = (edid[offset] & 0xF0)>>4;
+            physical_addr[1] = (edid[offset] & 0x0F);
+            physical_addr[2] = (edid[offset+1] & 0xF0)>>4;
+            physical_addr[3] = (edid[offset+1] & 0x0F);
+            result = true;
+       }
+    }
+    return result;
 }
 
 /******************************************************************************
@@ -1023,68 +1050,9 @@ static int edid_get_timings_info(hdmi_edid_dtd *edid_dtd,
         case HDMI_EDID_DTD_TAG_MONITOR_NAME:
             logi( "monitor name: %s, , there isn't timing info.\n", edid_dtd->monitor_name.text);
             break;
-        case HDMI_EDID_DTD_TAG_MONITOR_LIMITS: {
-            int i = 0;
-            int max_area = 0;
-            hdmi_edid_dtd_monitor *limits = &edid_dtd->monitor_limits;
-
-            logd("monitor limits\n"
-                 "  min_vert_freq=%d\n"
-                 "  max_vert_freq=%d\n"
-                 "  min_horiz_freq=%d\n"
-                 "  max_horiz_freq=%d\n"
-                 "  pixel_clock_mhz=%d\n",
-                 limits->min_vert_freq,
-                 limits->max_vert_freq,
-                 limits->min_horiz_freq,
-                 limits->max_horiz_freq,
-                 limits->pixel_clock_mhz);
-
-            /* find the highest matching resolution (w*h) */
-            /*
-             * XXX since this is mainly for DVI monitors, should we only
-             * support VESA timings?  My monitor at home would pick
-             * 1920x1080 otherwise, but that seems to not work well (monitor
-             * blanks out and comes back, and picture doesn't fill full
-             * screen, but leaves a black bar on left (native res is
-             * 2048x1152). However if I only consider VESA timings, it picks
-             * 1680x1050 and the picture is stable and fills whole screen
-             */
-            for (i = HDMI_TIMINGS_VESA_START; i < ARRAY_SIZE(all_timings_direct); i++) {
-                hdmi_video_timings *t = edid_get_timing(i);
-                int hz = 0, hscan = 0, pixclock = 0;
-                int vtotal = 0, htotal = 0;
-                htotal = t->hbp + t->hfp + t->hsw + t->x_res;
-                vtotal = t->vbp + t->vfp + t->vsw + t->y_res;
-
-                /* NOTE: We don't support interlaced mode for VESA */
-                pixclock = t->pixel_clock * 1000;
-                hscan = (pixclock + htotal / 2) / htotal;
-                hscan = (hscan + 500) / 1000 * 1000;
-                hz = (hscan + vtotal / 2) / vtotal;
-                hscan /= 1000;
-                pixclock /= 1000000;
-                if ((pixclock < (limits->pixel_clock_mhz * 10))
-                    &&(limits->min_horiz_freq <= hscan)
-                    &&(hscan <= limits->max_horiz_freq)
-                    &&(limits->min_vert_freq <= hz)
-                    &&(hz <= limits->max_vert_freq)) {
-
-                    int area = t->x_res * t->y_res;
-                    if (area > max_area) {
-                        max_area = area;
-                        *timings = *t;
-                    }
-                }
-            }
-
-            if (max_area) {
-                logi( "found max resolution: %dx%d\n", timings->x_res, timings->y_res);
-            }
-            
-            logd("there is timing info.\n");
-            return 1;
-        }
+        case HDMI_EDID_DTD_TAG_MONITOR_LIMITS:
+            logi( "this is monitor limits.\n");
+            break;
         case HDMI_EDID_DTD_TAG_ASCII_STRING:
             logi( "this is ascii string, and there isn't timing info.\n");
             break;
@@ -1219,7 +1187,7 @@ int edid_get_image_format(u8 *edid, image_format *format)
     memset(format->fmt, 0, sizeof(format->fmt));
 
     if (0 != get_datablock_offset(edid, vsdb, &offset)) {
-        loge("there isn't video datablock.\n");
+        logd("there isn't video datablock.\n");
         return 0;
     }
 
@@ -1285,6 +1253,7 @@ int edid_get_audio_format(u8 *edid, audio_format *format)
         for (j = 1 ; j < number ; j++) {
             if (1 == j%3) {
                 current_byte = edid[offset + j];
+                BUG_ON( ind >= HDMI_AUDIO_FORMAT_MAX_LENGTH );
                 format->fmt[ind].format = FLD_GET(current_byte, 6, 3);
                 format->fmt[ind].num_of_ch = FLD_GET(current_byte, 2, 0) + 1;
             } else if (2 == j%3) {
@@ -1391,6 +1360,7 @@ void edid_get_deep_color_info(u8 *edid, deep_color *format)
     BUG_ON((NULL == edid) || (NULL == format));
 
     if (!get_datablock_offset(edid, vsdb, &offset)) {
+        BUG_ON((offset < 0) || (offset >= HDMI_EDID_MAX_LENGTH));
         current_byte = edid[offset];
         number = current_byte & HDMI_EDID_EX_DATABLOCK_LEN_MASK;
 
@@ -1758,6 +1728,7 @@ hdmi_hvsync_pol* edid_get_hvpol_byindex(int index)
 *******************************************************************************/
 bool edid_is_valid_code(int mode, int code)
 {
+    BUG_ON( code < 0);
     return (((HDMI_CODE_TYPE_VESA == mode) && (code < ARRAY_SIZE(code_vesa)) && (code_vesa[code] >= 0))
             || ((HDMI_CODE_TYPE_CEA == mode) && (code < ARRAY_SIZE(code_cea)) && (code_cea[code] >= 0))) ;
 }

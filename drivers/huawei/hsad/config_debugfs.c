@@ -14,6 +14,9 @@
 #include <mach/boardid.h>
 #include <hsad/config_debugfs.h>
 
+
+#define BOARDID_CONFIG_FILE_SIZE (PAGE_SIZE * 2)
+
 struct dentry *boardid_debugfs_root;
 struct dentry *boardid_common_root;
 static ssize_t config_boardid_read(struct file *filp,  char  __user *buffer, size_t count, loff_t *ppos)
@@ -205,33 +208,33 @@ static ssize_t config_common_file_read(struct file *filp, char __user *buffer, s
 {
 	struct board_id_general_struct *config_pairs_ptr;
 	config_pair *pconfig ;
-	int len = 0, cnt = 0;
+	unsigned int len = 0, cnt = 0;
 	char *ptr, *arr_ptr_tmp;
 	config_pairs_ptr = get_board_id_general_struct(COMMON_MODULE_NAME);
 
-	ptr = (char *)kmalloc((PAGE_SIZE*sizeof(char)), GFP_KERNEL);
+	ptr = (char *)kmalloc((BOARDID_CONFIG_FILE_SIZE*sizeof(char)), GFP_KERNEL);
 
 	if (!ptr)
 		return -ENOMEM;
 
-	memset(ptr, 0, PAGE_SIZE);
+	memset(ptr, 0, BOARDID_CONFIG_FILE_SIZE);
 
 	arr_ptr_tmp = ptr;
 
 	if (NULL == config_pairs_ptr) {
 		HW_CONFIG_DEBUG(" can not find  module:common\n");
-		len = snprintf(ptr, PAGE_SIZE, " can not find  module:common\n");
+		len = scnprintf(ptr, BOARDID_CONFIG_FILE_SIZE, " can not find  module:common\n");
 		len = simple_read_from_buffer(buffer, count, ppos, (void *)ptr, len);
 		kfree(ptr);
 		return len;
 	}
 
 	pconfig = (config_pair *)config_pairs_ptr->data_array.config_pair_ptr;
-	len = snprintf(ptr, PAGE_SIZE, "%-20s\t%-20s\t%-10s\n\n", "COMMON KEY", "COMMON DATA", "COMMON TYPE");
+	len = scnprintf(ptr, BOARDID_CONFIG_FILE_SIZE, "%-20s\t%-20s\t%-10s\n\n", "COMMON KEY", "COMMON DATA", "COMMON TYPE");
 	ptr += len;
 	cnt += len;
 	while (NULL != pconfig->key) {
-		if (PAGE_SIZE - cnt <= 0) {
+		if (BOARDID_CONFIG_FILE_SIZE <= cnt + 1) {
 			HW_CONFIG_DEBUG("max size over one page");
 			break;
 		}
@@ -242,15 +245,15 @@ static ssize_t config_common_file_read(struct file *filp, char __user *buffer, s
 		}
 
 		if (E_CONFIG_DATA_TYPE_STRING == pconfig->type) {
-			len = snprintf(ptr, PAGE_SIZE-cnt, "%-20s\t%-20s\t%-3d(string)\n", pconfig->key, (char *)pconfig->data, pconfig->type);
+			len = scnprintf(ptr, BOARDID_CONFIG_FILE_SIZE-cnt, "%-20s\t%-20s\t%-3d(string)\n", pconfig->key, (char *)pconfig->data, pconfig->type);
 		} else if (E_CONFIG_DATA_TYPE_INT == pconfig->type) {
-			len = snprintf(ptr, PAGE_SIZE-cnt, "%-20s\t%-20d\t%-3d(int)\n", pconfig->key, pconfig->data, pconfig->type);
+			len = scnprintf(ptr, BOARDID_CONFIG_FILE_SIZE-cnt, "%-20s\t%-20d\t%-3d(int)\n", pconfig->key, pconfig->data, pconfig->type);
 		} else if (E_CONFIG_DATA_TYPE_BOOL == pconfig->type) {
-			len = snprintf(ptr, PAGE_SIZE-cnt, "%-20s\t%-20d\t%-3d(bool)\n", pconfig->key, pconfig->data, pconfig->type);
+			len = scnprintf(ptr, BOARDID_CONFIG_FILE_SIZE-cnt, "%-20s\t%-20d\t%-3d(bool)\n", pconfig->key, pconfig->data, pconfig->type);
 		} else if (E_CONFIG_DATA_TYPE_ENUM == pconfig->type) {
-			len = snprintf(ptr, PAGE_SIZE-cnt, "%-20s\t%-20d\t%-3d(enum)\n", pconfig->key, pconfig->data, pconfig->type);
+			len = scnprintf(ptr, BOARDID_CONFIG_FILE_SIZE-cnt, "%-20s\t%-20d\t%-3d(enum)\n", pconfig->key, pconfig->data, pconfig->type);
 		} else {
-			len = snprintf(ptr, PAGE_SIZE-cnt, "%-20s\t%-20d\t%-3d(unknow type)\n", pconfig->key, pconfig->data, pconfig->type);
+			len = scnprintf(ptr, BOARDID_CONFIG_FILE_SIZE-cnt, "%-20s\t%-20d\t%-3d(unknow type)\n", pconfig->key, pconfig->data, pconfig->type);
 		}
 
 		ptr += len;
@@ -258,7 +261,6 @@ static ssize_t config_common_file_read(struct file *filp, char __user *buffer, s
 		pconfig++;
 	}
 
-	*ptr = '\0';
 	len = strlen(arr_ptr_tmp);
 
 	len = simple_read_from_buffer(buffer, count, ppos, (void *) arr_ptr_tmp, len);
@@ -271,8 +273,8 @@ static ssize_t config_common_read(struct file *filp, char __user *buffer, size_t
 {
 	struct board_id_general_struct *config_pairs_ptr;
 	config_pair *pconfig;
-	int len = 0;
-	int ret = 0;
+	unsigned int len = 0;
+	unsigned int ret = 0;
 	char *ptr      = NULL;
 	char *fullpath = NULL;
 	char *pkey     = NULL;
@@ -299,7 +301,7 @@ static ssize_t config_common_read(struct file *filp, char __user *buffer, size_t
 
 	if (NULL == config_pairs_ptr) {
 		HW_CONFIG_DEBUG(" can not find  module:common\n");
-		len = snprintf(ptr, PAGE_SIZE, " can not find  module:common\n");
+		len = scnprintf(ptr, PAGE_SIZE, " can not find  module:common\n");
 		len = simple_read_from_buffer(buffer, count, ppos, (void *)ptr, len);
 		kfree(ptr);
 		return len;
@@ -314,17 +316,16 @@ static ssize_t config_common_read(struct file *filp, char __user *buffer, size_t
 	while ((NULL != pconfig->key) && pkey) {
 		if (!strcmp(pkey, pconfig->key)) {
 			if (E_CONFIG_DATA_TYPE_STRING == pconfig->type) {
-				len = snprintf(ptr, PAGE_SIZE, "string:%s\n", (char *)pconfig->data);
+				len = scnprintf(ptr, PAGE_SIZE, "string:%s\n", (char *)pconfig->data);
 			} else if (E_CONFIG_DATA_TYPE_INT == pconfig->type) {
-				len = snprintf(ptr, PAGE_SIZE, "int:%d\n", pconfig->data);
+				len = scnprintf(ptr, PAGE_SIZE, "int:%d\n", pconfig->data);
 			} else if (E_CONFIG_DATA_TYPE_BOOL == pconfig->type) {
-				len = snprintf(ptr, PAGE_SIZE, "bool:%s\n", pconfig->data ? "yes" : "no");
+				len = scnprintf(ptr, PAGE_SIZE, "bool:%s\n", pconfig->data ? "yes" : "no");
 			} else if (E_CONFIG_DATA_TYPE_ENUM == pconfig->type) {
-				len = snprintf(ptr, PAGE_SIZE, "enum:%d\n", pconfig->data);
+				len = scnprintf(ptr, PAGE_SIZE, "enum:%d\n", pconfig->data);
 			} else {
-				len = snprintf(ptr, PAGE_SIZE, "unknow type:%d\n", pconfig->data);
+				len = scnprintf(ptr, PAGE_SIZE, "unknow type:%d\n", pconfig->data);
 			}
-			*(ptr+len) = 0;
 			break;
 		}
 		pconfig++;
@@ -361,18 +362,18 @@ static ssize_t config_gpio_read(struct file *filp,  char  __user *buffer, size_t
 
 	if (NULL == gpios_ptr) {
 		HW_CONFIG_DEBUG(" can not find  module:gpio\n");
-		len = snprintf(ptr, PAGE_SIZE, " can not find  module:gpio\n");
+		len = scnprintf(ptr, PAGE_SIZE, " can not find  module:gpio\n");
 		len = simple_read_from_buffer(buffer, count, ppos, (void *)ptr, len);
 		kfree(ptr);
 		return len;
 	}
 
 	gpio_ptr = (gpiomux_setting *) gpios_ptr->data_array.gpio_ptr;
-	len = snprintf(ptr, PAGE_SIZE, "%-20s\t%-20s\t%-10s\n", "NET NAME", "GENERAL NAME", "GPIO NUMBER");
+	len = scnprintf(ptr, PAGE_SIZE, "%-20s\t%-20s\t%-10s\n", "NET NAME", "GENERAL NAME", "GPIO NUMBER");
 	ptr += len;
 	cnt += len;
 	while (MUX_PIN_END != gpio_ptr->mux_pin) {
-		if (PAGE_SIZE - cnt <= 0) {
+		if (PAGE_SIZE <= cnt + 1) {
 			HW_CONFIG_DEBUG("max size over one page");
 			break;
 		}
@@ -381,14 +382,13 @@ static ssize_t config_gpio_read(struct file *filp,  char  __user *buffer, size_t
 			gpio_ptr++;
 			continue;
 		}
-		len = snprintf(ptr, PAGE_SIZE-cnt, "%-20s\t%-20s\t%-3d\n", gpio_ptr->net_name, gpio_ptr->general_name, gpio_ptr->gpio_num);
+		len = scnprintf(ptr, PAGE_SIZE-cnt, "%-20s\t%-20s\t%-3d\n", gpio_ptr->net_name, gpio_ptr->general_name, gpio_ptr->gpio_num);
 
 		ptr += len;
 		cnt += len;
 		gpio_ptr++;
 	}
 
-	*ptr = '\0';
 
 	len = strlen(arr_ptr_tmp);
 	len = simple_read_from_buffer(buffer, count, ppos, (void *)arr_ptr_tmp, len);
@@ -421,7 +421,11 @@ static const struct file_operations config_gpio_fops = {
 
 int  config_debugfs_init(void)
 {
-	struct dentry *common_file, *gpio_file, *boardid_file, *chipid_file, *pmuid_file;
+	struct dentry *common_file, *boardid_file, *chipid_file, *pmuid_file;
+
+#ifdef CONFIG_HUAWEI_GPIO_UNITE
+	struct dentry *gpio_file;
+#endif
 
 	boardid_debugfs_root = debugfs_create_dir("boardid", NULL);
 	if (!boardid_debugfs_root)

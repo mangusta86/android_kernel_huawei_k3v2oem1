@@ -842,11 +842,12 @@ static void ov5642_set_default(void)
 	ov5642_sensor.get_capability = NULL;
 
 	ov5642_sensor.skip_frames = OV5642_CAM_MODULE_SKIPFRAME;
-	strcpy(ov5642_sensor.info.name,"ov5642");
+	strncpy(ov5642_sensor.info.name, "ov5642", sizeof(ov5642_sensor.info.name));
 	ov5642_sensor.interface_type = DVP;
 	ov5642_sensor.mipi_lane_count = CSI_LINES_INVALID;
 	ov5642_sensor.mipi_index = CSI_INDEX_INVALID;
 	ov5642_sensor.sensor_type = CAMERA_SENSOR_PRIMARY;
+	ov5642_sensor.sensor_rgb_type = SENSOR_BGGR;/* changed by y00231328. add bayer order*/
 	ov5642_sensor.skip_frames = OV5642_CAM_MODULE_SKIPFRAME;	/* y36721 todo */
 
 	ov5642_sensor.power_conf.pd_valid = HIGH_VALID;

@@ -41,6 +41,7 @@
 #define STATE_BRIGHT_RIGHT_HIGH      0x03
 
 static struct device_attribute tps61310_led;
+static struct device_attribute tps61310_led_hw;
 static camera_flashlight tps61310_intf;
 struct i2c_client *tps61310_client = NULL;
 
@@ -73,6 +74,9 @@ static int tps61310_turn_on(work_mode mode, flash_lum_level lum);
 static int tps61310_turn_off(void);
 static int tps61310_camera_mode_flag = 0;
 static int tps61310_init_flag = 0;
+
+static char led_status = '0';
+static  int led_configed_flag = 0;
 
 int tps61310_init(void);
 void tps61310_exit(void);
@@ -181,6 +185,12 @@ static int tps61310_probe(struct i2c_client *client, const struct i2c_device_id 
 	tps61310_client = client;
 
 	 if (device_create_file(&client->dev, &tps61310_led))
+         {
+         print_error( "%s:Unable to create interface\n", __func__, &client->dev);
+         return -ENOMEM;
+         }
+
+	 if (device_create_file(&client->dev, &tps61310_led_hw))
          {
          print_error( "%s:Unable to create interface\n", __func__, &client->dev);
          return -ENOMEM;
@@ -382,12 +392,10 @@ static ssize_t tps61310_led_torch_mode_get_brightness(struct device *dev, struct
 static ssize_t tps61310_led_torch_mode_set_brightness(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
 {
         int val,ret;
-        static char status = '0';
-	static  int led_configed_flag = 0;
 
-        if(status != buf[0])
+        if(led_status != buf[0])
         {
-            status = buf[0];
+            led_status = buf[0];
         }
         else
         {
@@ -478,9 +486,28 @@ static ssize_t tps61310_led_torch_mode_set_brightness(struct device *dev, struct
 }
 
 
+static ssize_t tps61310_led_hw_free(struct device *dev, struct device_attribute *attr,char *buf)
+{
+	if('0' != led_status)
+	{
+		int ret;
+		led_status = 0;
+		ret = tps61310_led_torch_mode_off();
+		if(ret != 0){
+		print_error("tps61310_led_torch_mode_off error");
+		return -1;
+		}
+		led_configed_flag = 0;
+		brightness_level = 0;
+	}
+}
+
  static struct device_attribute tps61310_led=
     __ATTR(tps61310_led_lightness, 0644, tps61310_led_torch_mode_get_brightness,
                         tps61310_led_torch_mode_set_brightness);
+
+   static struct device_attribute tps61310_led_hw=
+    __ATTR(tps61310_led_hw, 0644, tps61310_led_hw_free, NULL);
 /*
  **************************************************************************
  * FunctionName: tps61310_cfg_led;

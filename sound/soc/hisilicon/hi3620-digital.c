@@ -634,6 +634,7 @@ static int hi3620_digital_tx2_enable(unsigned int aformat,unsigned int dataforma
     hi3620_set_bits(TX2_DMAS | ASP_BUS_ERROR, ASP_IER);
 
     //SPDIF
+    hi3620_reg_write(0x0, SPDIF_CTRL); //Reset SPDIF, for the Left and Right channel's data might abnormal exchange when audio paused and restarted
     hi3620_reg_write(1, SPDIF_CONFIG);//not line-pcm
     hi3620_reg_write(0x7, SPDIF_IRQ_MASK);//interrupt mask
 
@@ -1368,7 +1369,7 @@ static int status_write_proc_astatus(struct file *file, const char *buffer,
         loge("copy_from_user Error\n");
         return -EFAULT;
     }
-    if (sscanf(buf, "0x%x", &value) != 1) {
+    if (sscanf(buf, "0x%8x", &value) != 1) {
         logd("set the audiostatus error\r\n");
     }
     logd("get the audiostatus %d\r\n",value);
@@ -1400,7 +1401,7 @@ static int status_write_proc_aformat(struct file *file, const char *buffer,
         loge("copy_from_user Error\n");
         return -EFAULT;
     }
-    if (sscanf(buf, "0x%x", &g_aformat) != 1) {
+    if (sscanf(buf, "0x%8x", &g_aformat) != 1) {
         logd("set the audiostatus error\r\n");
     }
     logd("get the audioformat %d\r\n",g_aformat);

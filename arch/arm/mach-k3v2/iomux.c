@@ -15,9 +15,10 @@
 #include <linux/slab.h>
 #include <linux/mux.h>
 #include <mach/boardid.h>
+#include <linux/io.h>
 #include "iomux.h"
 #include <hsad/config_interface.h>
-
+#include "k3v2_iomux_blocks.h"
 
 static DEFINE_MUTEX(iomux_lock);
 static DEFINE_MUTEX(iomux_lock_debugfs);
@@ -45,7 +46,7 @@ struct  iomux_pin *iomux_get_pin(char *name)
 	} else if (chip_id == DI_CHIP_ID) {
 		pintable = &pins_table[0];
 	} else {
-		pr_debug("%s %d no proper chip id find.\n", __func__, __LINE__);
+		pr_err("%s %d no proper chip id find.\n", __func__, __LINE__);
 	}
 
 	while (pintable[i].pinname) {
@@ -62,7 +63,7 @@ struct  iomux_pin *iomux_get_pin(char *name)
 	}
 
 	if (pin == NULL)
-		pr_debug("IOMUX:%s pin get failed.\r\n", name);
+		pr_err("IOMUX:%s pin get failed.\r\n", name);
 
 	return pin;
 }
@@ -81,7 +82,7 @@ int pinmux_setpullupdown(struct  iomux_pin *pin, enum pull_updown pin_pull_updow
 	 *up down, only it's set as gpio and normal
 	 */
 	if (pin->pin_owner && !strncmp(pin->pin_owner, free_mode, MAX_NAME_CHARS)) {
-		pr_debug("IOMUX:the pin %s is set as low power,can't set pull.\r\n", pin->pin_name);
+		pr_err("IOMUX:the pin %s is set as low power,can't set pull.\r\n", pin->pin_name);
 		ret = -INVALID;
 		goto out;
 	}
@@ -93,7 +94,7 @@ int pinmux_setpullupdown(struct  iomux_pin *pin, enum pull_updown pin_pull_updow
 	if (pin && pin->ops && pin->ops->pin_setpullupdown) {
 		ret = pin->ops->pin_setpullupdown(pin, pin_pull_updown);
 	} else {
-		pr_debug("IOMUX:pull up or down setting failed.\r\n");
+		pr_err("IOMUX:pull up or down setting failed.\r\n");
 		ret = -INVALID;
 	}
 out:
@@ -115,7 +116,7 @@ int pinmux_setdrivestrength(struct  iomux_pin *pin, enum drive_strength pin_driv
 	 *only it's used by gpio and normal
 	 */
 	if (pin->pin_owner && !strncmp(pin->pin_owner, free_mode, FREEMODE_CHARS)) {
-		pr_debug("IOMUX:the pin %s is low power,drive strength setting failed.\r\n", pin->pin_name);
+		pr_err("IOMUX:the pin %s is low power,drive strength setting failed.\r\n", pin->pin_name);
 		ret = -INVALID;
 		goto out;
 	}
@@ -127,7 +128,7 @@ int pinmux_setdrivestrength(struct  iomux_pin *pin, enum drive_strength pin_driv
 		 */
 		ret = pin->ops->pin_setdrivestrength(pin, pin_drive_strength);
 	} else {
-		pr_debug("IOMUX:driver strength setting failed.\r\n");
+		pr_err("IOMUX:driver strength setting failed.\r\n");
 		ret = -INVALID;
 	}
 out:
@@ -149,7 +150,7 @@ static int iomux_canget_pin(struct  iomux_pin *pin, struct  iomux_block *block)
 			return 0;
 		} else {
 			/*if the pin is used by other block can't get it*/
-			pr_debug("IOMUX:%s is used by %s,can't use it \
+			pr_err("IOMUX:%s is used by %s,can't use it \
 				here.\r\n", pin->pin_name, pin->pin_owner);
 			return -INVALID;
 		}
@@ -169,6 +170,10 @@ struct iomux_block *iomux_get_block(char *name)
 
 	mutex_lock(&iomux_lock);
 	iomux_type = get_iomux_type();
+	if (iomux_type == -1) {
+		pr_err("Get IOMUX type is failed,%s %d.\r\n", __func__, __LINE__);
+		goto out;
+	}
 	table_temp = block_config_tables[iomux_type];
 	while ((*table_temp).name) {
 		if (strncmp(name, (*table_temp).name, MAX_NAME_CHARS)) {
@@ -201,7 +206,7 @@ struct iomux_block *iomux_get_block(char *name)
 			ret = iomux_canget_pin(*pins_temp, block_temp);
 			if (ret < 0) {
 				block_temp = NULL;
-				pr_debug("IOMUX:block %s get failed.\r\n", name);
+				pr_err("IOMUX:block %s get failed.\r\n", name);
 				goto out;
 			}
 			pins_temp++;
@@ -220,6 +225,10 @@ struct block_config *iomux_get_blockconfig(char *name)
 	struct  block_table *table_temp = NULL;
 
 	iomux_type = get_iomux_type();
+	if (iomux_type == -1) {
+		pr_err("Get IOMUX type is failed,%s %d.\r\n", __func__, __LINE__);
+		return NULL;
+	}
 	table_temp = block_config_tables[iomux_type];
 	while ((*table_temp).name) {
 		if (strncmp(name, (*table_temp).name, MAX_NAME_CHARS)) {
@@ -247,11 +256,11 @@ int blockmux_set(struct iomux_block *blockmux,
 	if (blockmux->ops && blockmux->ops->block_setfunc) {
 		ret = blockmux->ops->block_setfunc(blockmux, config, newmode);
 		if (ret < 0) {
-			pr_debug("IOMUX:%s's function setting failed.\r\n", blockmux->block_name);
+			pr_err("IOMUX:%s's function setting failed.\r\n", blockmux->block_name);
 			goto out;
 		}
 	} else {
-		pr_debug("IOMUX:function setting failed.\r\n");
+		pr_err("IOMUX:function setting failed.\r\n");
 		ret = -INVALID;
 	}
 out:
@@ -269,13 +278,17 @@ void __init iomux_init_blocks(void)
 	struct  block_table *table_temp = NULL;
 
 	iomux_type = get_iomux_type();
+	if (iomux_type == -1) {
+		pr_err("Get IOMUX type is failed,%s %d.\r\n", __func__, __LINE__);
+		return ;
+	}
 	table_temp = block_config_tables[iomux_type];
 	while ((*table_temp).name) {
 		block_temp = (*table_temp).block;
 		config_temp = (*table_temp).config_array;
 		ret = blockmux_set(block_temp, config_temp, LOWPOWER);
 		if (ret) {
-			pr_debug("IOMUX:iomux initialized failed.\r\n");
+			pr_err("IOMUX:iomux initialized failed.\r\n");
 			break;
 		}
 		table_temp++;
@@ -346,6 +359,11 @@ static int dbg_blockmux_show(struct seq_file *s, void *unused)
 
 	mutex_lock(&iomux_lock_debugfs);
 	iomux_type = get_iomux_type();
+	if (iomux_type == -1) {
+		pr_err("Get IOMUX type is failed,%s %d.\r\n", __func__, __LINE__);
+		mutex_unlock(&iomux_lock);
+		return -INVALID;
+	}
 	table_temp = block_config_tables[iomux_type];
 	while ((*table_temp).name) {
 		block_temp = iomux_get_block((*table_temp).name);
@@ -407,5 +425,166 @@ static int __init iomux_debuginit(void)
 	return 0;
 }
 late_initcall(iomux_debuginit);
+#endif
+#ifdef	CONFIG_LOWPM_DEBUG
+#define IOC_BASE_ADDR	((void __iomem *) IO_ADDRESS(REG_BASE_IOC))
+#define GPIO_BASE_ADDR	((void __iomem *) IO_ADDRESS(REG_BASE_GPIO0))
+#define GPIO_DIR(x)		(GPIO_BASE_ADDR + (x) * 0x1000 + 0x400)
+#define GPIO_DATA(x)		(GPIO_BASE_ADDR + (x) * 0x1000 + 0x3FC)
+#define GPIO_BIT(x, y)		((x) << (y))
+#define GPIO_IS_SET(x)		(((uregv) >> (x)) & 0x1)
+
+void iomux_debug_set(void)
+{
+	int i = 0;
+	int io_type = 0;
+	unsigned int uregv = 0;
+	struct iocfg_lp *iocfg_lookups = NULL;
+
+	io_type = get_iomux_type();
+	if (io_type == -1) {
+		pr_err("Get IOMUX type is failed,%s %d.\r\n", __func__, __LINE__);
+		return ;
+	}
+	iocfg_lookups = io_suspend_config_tables[io_type];
+
+	for (i = 0; i < IO_LIST_LENGTH; i++) {
+
+		uregv = ((iocfg_lookups[i].ugpiog<<3)+iocfg_lookups[i].ugpio_bit);
+
+		/*uart0 suspend printk*/
+		if ((0 == console_suspend_enabled)
+			&& ((uregv >= 117) && (uregv <= 120)))
+			continue;
+
+		if (E_BOARD_TYPE_PLATFORM == get_board_type()) {
+			/*oem board*/
+			if ((uregv == 40) || (uregv == 83))
+				continue;
+
+			if ((uregv >= 129) && (uregv <= 132))
+				continue;
+
+			if ((uregv >= 137) && (uregv <= 140))
+				continue;
+		} else {
+			if ((uregv == 145) || (uregv == 146))
+				continue;
+		}
+
+		uregv = readl(IOC_BASE_ADDR + (iocfg_lookups[i].uiomg_off));
+		if (iocfg_lookups[i].iomg_val != -1) {
+			if ((uregv&0x1) == iocfg_lookups[i].iomg_val)
+				writel(uregv, IOC_BASE_ADDR + (iocfg_lookups[i].uiomg_off));
+			else
+				writel(iocfg_lookups[i].iomg_val, IOC_BASE_ADDR + (iocfg_lookups[i].uiomg_off));
+		}
+
+		uregv = readl(IOC_BASE_ADDR + 0x800 + (iocfg_lookups[i].uiocg_off));
+		if (iocfg_lookups[i].iocg_val != -1) {
+			if ((uregv&0x3) == iocfg_lookups[i].iocg_val)
+				writel(uregv, IOC_BASE_ADDR + 0x800 + (iocfg_lookups[i].uiocg_off));
+			else
+				writel(iocfg_lookups[i].iocg_val, IOC_BASE_ADDR + 0x800 + (iocfg_lookups[i].uiocg_off));
+		}
+
+		uregv = readl(GPIO_DIR(iocfg_lookups[i].ugpiog));
+		uregv &= ~GPIO_BIT(1, iocfg_lookups[i].ugpio_bit);
+		uregv |= GPIO_BIT(iocfg_lookups[i].gpio_dir, iocfg_lookups[i].ugpio_bit);
+		writel(uregv, GPIO_DIR(iocfg_lookups[i].ugpiog));
+
+		uregv = readl(GPIO_DIR(iocfg_lookups[i].ugpiog));
+		uregv = readl(GPIO_DATA(iocfg_lookups[i].ugpiog));
+		uregv &= ~GPIO_BIT(1, iocfg_lookups[i].ugpio_bit);
+		uregv |= GPIO_BIT(iocfg_lookups[i].gpio_val, iocfg_lookups[i].ugpio_bit);
+		writel(uregv, GPIO_DATA(iocfg_lookups[i].ugpiog));
+
+	}
+}
+EXPORT_SYMBOL(iomux_debug_set);
+
+void iomux_debug_show(int check)
+{
+	int i = 0;
+	int io_type = 0;
+	int iflg = 0;
+	unsigned int uregv = 0;
+	struct iocfg_lp *iocfg_lookups = NULL;
+
+	io_type = get_iomux_type();
+	if (io_type == -1) {
+		pr_err("Get IOMUX type is failed,%s %d.\r\n", __func__, __LINE__);
+		return ;
+	}
+	iocfg_lookups = io_suspend_config_tables[io_type];
+
+	for (i = 0; i < IO_LIST_LENGTH; i++) {
+
+		iflg = 0;
+
+		printk("GPIO_%02d_%d (%03d) ",\
+			iocfg_lookups[i].ugpiog, iocfg_lookups[i].ugpio_bit,\
+				((iocfg_lookups[i].ugpiog<<3)+iocfg_lookups[i].ugpio_bit));
+
+		uregv = readl(IOC_BASE_ADDR + (iocfg_lookups[i].uiomg_off));
+		printk("IOMG=0x%02X ", uregv);
+
+		if (check == 1) {
+			if ((uregv == iocfg_lookups[i].iomg_val)\
+				|| (-1 == iocfg_lookups[i].iomg_val))
+				printk("(0x%02X) ", (unsigned char)uregv);
+			else {
+				iflg = 1;
+				printk("(0x%02X) ", (unsigned char)iocfg_lookups[i].iomg_val);
+			}
+		}
+
+		uregv = readl(IOC_BASE_ADDR + 0x800 + (iocfg_lookups[i].uiocg_off));
+		printk("IOCG=0x%02X ", uregv);
+
+		if (check == 1) {
+			if (((uregv & 0x3) == iocfg_lookups[i].iocg_val)\
+				|| (-1 == iocfg_lookups[i].iocg_val))
+				printk("(0x%02X) ", (unsigned char)uregv);
+			else {
+				iflg = 1;
+				printk("(0x%02X) ", (unsigned char)iocfg_lookups[i].iocg_val);
+			}
+		}
+
+		uregv = readl(GPIO_DIR(iocfg_lookups[i].ugpiog));
+		printk("DIR=0x%02X ", GPIO_IS_SET(iocfg_lookups[i].ugpio_bit));
+
+		if (check == 1) {
+			if ((uregv & GPIO_BIT(1, iocfg_lookups[i].ugpio_bit))\
+				== (GPIO_BIT(iocfg_lookups[i].gpio_dir, iocfg_lookups[i].ugpio_bit)))
+				printk("(0x%02X) ", GPIO_IS_SET(iocfg_lookups[i].ugpio_bit));
+			else {
+				iflg = 1;
+				printk("(0x%02X) ", (unsigned char)iocfg_lookups[i].gpio_dir);
+			}
+		}
+
+		uregv = readl(GPIO_DATA(iocfg_lookups[i].ugpiog));
+		printk("VAL=0x%02X ", GPIO_IS_SET(iocfg_lookups[i].ugpio_bit));
+
+		if (check == 1) {
+			if (((uregv & GPIO_BIT(1, iocfg_lookups[i].ugpio_bit))\
+				== GPIO_BIT(iocfg_lookups[i].gpio_val, iocfg_lookups[i].ugpio_bit))\
+					|| (uregv & GPIO_BIT(iocfg_lookups[i].iocg_val, iocfg_lookups[i].ugpio_bit)))
+				printk("(0x%02X) ", GPIO_IS_SET(iocfg_lookups[i].ugpio_bit));
+			else {
+				iflg = 1;
+				printk("(0x%02X) ", (unsigned char)iocfg_lookups[i].gpio_val);
+			}
+		}
+
+		if (iflg == 1)
+			printk("e");
+
+		printk("\n");
+	}
+}
+EXPORT_SYMBOL(iomux_debug_show);
 #endif
 

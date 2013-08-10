@@ -31,10 +31,26 @@
 #include <linux/workqueue.h>
 #include <linux/wakelock.h>
 #include <linux/usb/otg.h>
-
+#include <linux/vmalloc.h>
 //#define MSM_8960_PLATFORM
 //#define TI_OMAP_PLATFORM
+//#define HISI_K3_PLATFORM_DQ
+//#define HISI_K3_PLATFORM_D2
 #define HISI_K3_PLATFORM
+
+#ifdef MSM_8960_PLATFORM
+//#define MSM_8960_PLATFORM_U9501L
+//#define MSM_8960_PLATFORM_U9201L
+#define MSM_8960_PLATFORM_C8869L
+#else
+#undef MSM_8960_PLATFORM_U9501L
+#undef MSM_8960_PLATFORM_U9201L
+#undef MSM_8960_PLATFORM_C8869L
+#endif
+
+#if defined HISI_K3_PLATFORM_DQ || defined HISI_K3_PLATFORM_D2
+#define HISI_K3_PLATFORM
+#endif
 
 #ifdef MSM_8960_PLATFORM
 #include <linux/mfd/pm8xxx/pm8921-charger.h>
@@ -43,7 +59,7 @@
 #include <linux/usb/hiusb_android.h>
 #endif
 
-#define ATE_IEDT_SIZE           128 * 1024
+#define ATE_IEDT_SIZE           128 * 1024*8
 #define IE_SIZE                 16
 #define ATE_IEDT_HEAD_SIZE      2
 #define MAX_SIZE_OF_DEV_NAME    64
@@ -55,17 +71,38 @@
 #define ATE_DEBUG
 #define INPUT_EVENTS_DATA_FILE_DEFAULT "/data/hwate_record"
 #define HWATE_CONF_FILE "/data/hwate.conf"
-#define TOUCH_EVENT				0
+#define TOUCH_EVENT			0
 #define TOUCH_BUTTON_EVENT		1
 #define POWER_KEY_EVENT			2
 #define SOUND_KEY_EVENT			3
 #define MAX_EVENT_TYPE			10
 #define NULL_EVENT_TYPE			-1
+#ifdef HISI_K3_PLATFORM
+#define CONNECTED               0
+#else
 #define CONNECTED               1
+#endif
 #define MAX_VIRTUALKEYS			4
 #define MAX_VIRTUAL_SCREEN_SIZE		4096
 
-#define  COHERENCE_FLATFORM
+//#define  COHERENCE_PLATFORM
+//#define  KERNEL_MODULES
+
+#ifdef MSM_8960_PLATFORM
+#define RECORD_PHONE "record on msm 8960 platform"
+#endif
+#ifdef TI_OMAP_PLATFORM
+#define RECORD_PHONE "record on ti omap platform"
+#endif
+#ifdef HISI_K3_PLATFORM_DQ
+#define RECORD_PHONE "record on ti omap platform"
+#endif
+#ifdef HISI_K3_PLATFORM_D2
+#define RECORD_PHONE "record on k3 d2 platform"
+#endif
+#ifdef HISI_K3_PLATFORM
+#define RECORD_PHONE "record on k3 U9701L platform"
+#endif
 
 static struct ate_data *ate_dt = NULL;
 static struct kobject *hw_ate_kobj = NULL;
@@ -92,30 +129,35 @@ struct input_dev_filter {
 };
 
 struct local {
-int x;
-int y;
-int w;
-int h;
+    int x;
+    int y;
+    int w;
+    int h;
 };
 
 struct virtualkey_dev {
-unsigned int type;
-unsigned int code;
-struct local l;
+    unsigned int type;
+    unsigned int code;
+    struct local l;
 };
 
 struct virtualkey {
-struct virtualkey_dev virtualkey_device[MAX_VIRTUALKEYS];
-unsigned int total_dev;
+    struct virtualkey_dev virtualkey_device[MAX_VIRTUALKEYS];
+    unsigned int total_dev;
 };
 
 struct virtualbutton {
-struct virtualkey_dev vlkey_dev;
-unsigned long first_t;
-unsigned long end_t;
-unsigned long first_step;
-unsigned long end_step;
-int flag;
+    struct virtualkey_dev vlkey_dev;
+    unsigned long first_t;
+    unsigned long end_t;
+    unsigned long first_step;
+    unsigned long end_step;
+    int flag;
+};
+
+struct lcd_size_info {
+    __s32 x_max;
+    __s32 y_max;
 };
 
 struct ate_data {
@@ -127,6 +169,9 @@ struct ate_data {
 	char iedt_file_dir[MAX_FILE_DIR_NAME];
 	unsigned long ie_times;
 	unsigned long is_record;
+#ifdef COHERENCE_PLATFORM
+	unsigned long is_disable_coherence_flatform;
+#endif
 	int has_virtualkey;
 	unsigned long playback_continuance_ms;
 	unsigned long cur_step;
@@ -143,30 +188,30 @@ struct ate_data {
 	struct wake_lock wake_lock;
 	struct virtualkey virtualkey;
 	struct virtualbutton vlbutton;
+	struct lcd_size_info lcd_size;
 #ifdef HISI_K3_PLATFORM
 	struct notifier_block nb;
 #endif
 };
 
+#ifndef KERNEL_MODULES
+#ifndef HISI_K3_PLATFORM
 extern char buf_virtualkey[500];
 extern ssize_t  buf_vkey_size;
+#endif
+#endif
+
 static void store_input_event_data(unsigned short dev_no, unsigned short type, unsigned int code, int value);
 static void set_input_device_filter_array(void);
 static void store_touchbutton_event_data(unsigned short dev_no, unsigned short type, unsigned int code, int value,unsigned long jiffies_temp);
 
-static int virtualbutton_to_realbutton(void)
+#ifdef TI_OMAP_PLATFORM
+static int virtualbutton_to_realbutton_omap(void)
 {
     int i = 0;
     int j = 0;
     struct input_event_data *ie_data_n = NULL;
     struct input_event_data *ie_data_p = NULL;
-
-#ifdef ATE_DEBUG
-    printk("%lu,%lu,%lu,%lu,%d\n",ate_dt->vlbutton.end_step,ate_dt->vlbutton.end_t,ate_dt->vlbutton.first_step,
-        ate_dt->vlbutton.first_t,ate_dt->vlbutton.flag);
-    printk("%d,%d,%d,%d,%d,%d,\n",ate_dt->vlbutton.vlkey_dev.code,ate_dt->vlbutton.vlkey_dev.type,ate_dt->vlbutton.vlkey_dev.l.h,
-        ate_dt->vlbutton.vlkey_dev.l.w,ate_dt->vlbutton.vlkey_dev.l.x,ate_dt->vlbutton.vlkey_dev.l.y);
-#endif
 
     for(i = 0; i < ate_dt->virtualkey.total_dev; i++) {
         if(ate_dt->vlbutton.vlkey_dev.l.x > (ate_dt->virtualkey.virtualkey_device[i].l.x - ate_dt->virtualkey.virtualkey_device[i].l.w/2) &&
@@ -178,14 +223,9 @@ static int virtualbutton_to_realbutton(void)
     }
 
     if(i >= ate_dt->virtualkey.total_dev) {
-        printk("i = %d no such key!\n",i);
+        printk(KERN_ERR"i = %d no such key!\n",i);
         return -1;
     }
-
-#ifdef ATE_DEBUG
-    printk("type = %d,code = %d\n",ate_dt->virtualkey.virtualkey_device[i].code,
-        ate_dt->virtualkey.virtualkey_device[i].type);
-#endif
 
     if(ate_dt->ie_times > 1) {
         j = ate_dt->ie_times - 1;
@@ -195,9 +235,6 @@ static int virtualbutton_to_realbutton(void)
         ate_dt->vlbutton.end_t = ie_data_n->jiffies_t;
 
         while(1) {
-#ifdef ATE_DEBUG
-            printk("j=%d,ie_data_n->type=%d,ie_data_p->type=%d\n",j,ie_data_n->type,ie_data_p->type);
-#endif
             if(j == 0 || (EV_SYN != ie_data_n->type && EV_SYN == ie_data_p->type)) {
                 break;
             }
@@ -217,6 +254,50 @@ static int virtualbutton_to_realbutton(void)
 
 	return 0;
 }
+#endif
+
+static int virtualbutton_to_realbutton_8960(void)
+{
+    unsigned long k = 0;
+    struct input_event_data *ie_data = NULL;
+
+    ie_data = ate_dt->ie_dt + ate_dt->ie_times -3;
+    if(TOUCH_EVENT != ie_data->dev_no || BTN_TOUCH != ie_data->code || EV_KEY != ie_data->type) {
+        printk("%s virtual key error!\n",__func__);
+    }
+    ate_dt->vlbutton.end_t = ie_data->jiffies_t;
+    ie_data = ate_dt->ie_dt + ate_dt->ie_times -7;
+
+    if(TOUCH_EVENT != ie_data->dev_no || BTN_TOUCH != ie_data->code || EV_KEY != ie_data->type) {
+        printk("%s virtual key error!\n",__func__);
+    }
+    ate_dt->vlbutton.vlkey_dev.l.y = ie_data->value;
+
+    for(k = 0; k < ate_dt->virtualkey.total_dev; k++) {
+        if(ate_dt->vlbutton.vlkey_dev.l.x > (ate_dt->virtualkey.virtualkey_device[k].l.x - ate_dt->virtualkey.virtualkey_device[k].l.w/2) &&
+                ate_dt->vlbutton.vlkey_dev.l.x < (ate_dt->virtualkey.virtualkey_device[k].l.x + ate_dt->virtualkey.virtualkey_device[k].l.w/2) &&
+                ate_dt->vlbutton.vlkey_dev.l.y > (ate_dt->virtualkey.virtualkey_device[k].l.y - ate_dt->virtualkey.virtualkey_device[k].l.h/2) &&
+                ate_dt->vlbutton.vlkey_dev.l.y < (ate_dt->virtualkey.virtualkey_device[k].l.y + ate_dt->virtualkey.virtualkey_device[k].l.h/2)) {
+                    break;
+        }
+    }
+
+    if(k >= ate_dt->virtualkey.total_dev) {
+        printk("%s k = %lu no such key!\n",__func__,k);
+        return -1;
+    }
+    ate_dt->ie_times = ate_dt->ie_times - 10;
+    ie_data = ate_dt->ie_dt + ate_dt->ie_times;
+
+    store_touchbutton_event_data(TOUCH_BUTTON_EVENT,ate_dt->virtualkey.virtualkey_device[k].type,
+        ate_dt->virtualkey.virtualkey_device[k].code,1,ie_data->jiffies_t);
+    store_touchbutton_event_data(TOUCH_BUTTON_EVENT,EV_SYN,SYN_REPORT,0,ie_data->jiffies_t);
+    store_touchbutton_event_data(TOUCH_BUTTON_EVENT,ate_dt->virtualkey.virtualkey_device[k].type,
+        ate_dt->virtualkey.virtualkey_device[k].code,0,ate_dt->vlbutton.end_t);
+    store_touchbutton_event_data(TOUCH_BUTTON_EVENT,EV_SYN,SYN_REPORT,0,ate_dt->vlbutton.end_t);
+    return 0;
+}
+
 
 static void ate_event(struct input_handle *handle, unsigned int type, unsigned int code, int value)
 {
@@ -258,59 +339,61 @@ static void ate_event(struct input_handle *handle, unsigned int type, unsigned i
                 ate_dt->pwrkey_step = ate_dt->ie_times;
                 }
             }
-#ifdef COHERENCE_FLATFORM
-            if(TOUCH_EVENT == ate_dt->ate_dev.input_event_type[i]) {
-                if(EV_ABS == type_temp) {
-                    if(ABS_MT_TOUCH_MAJOR == code_temp) {
-#ifdef ATE_DEBUG
-                        printk("code_temp=%d\n",code_temp);
-#endif
-                        ate_dt->vlbutton.vlkey_dev.l.w = value_temp;
-                        ate_dt->vlbutton.first_step = ate_dt->ie_times;
-                        ate_dt->vlbutton.first_t = jiffies;
-                    } else if(ABS_MT_WIDTH_MAJOR== code_temp) {
-#ifdef ATE_DEBUG
-                        printk("code_temp=%d\n",code_temp);
-#endif
-                        ate_dt->vlbutton.vlkey_dev.l.h = value_temp;
-                    }else if(ABS_MT_POSITION_X== code_temp) {
-#ifdef ATE_DEBUG
-                        printk("code_temp=%d\n",code_temp);
-#endif
-                        ate_dt->vlbutton.vlkey_dev.l.x = value_temp;
-                        value_temp = MAX_VIRTUAL_SCREEN_SIZE*value_temp/(dev->absinfo[ABS_MT_POSITION_X].maximum);
-                    } else if (ABS_MT_POSITION_Y== code_temp ) {
-#ifdef ATE_DEBUG
-			printk("code_temp=%d\n",code_temp);
-#endif
-                        if(value_temp <= dev->absinfo[ABS_MT_POSITION_Y].maximum) {
-                            value_temp = MAX_VIRTUAL_SCREEN_SIZE*value_temp/(dev->absinfo[ABS_MT_POSITION_Y].maximum);
-                        } else {
-#ifdef ATE_DEBUG
-                        printk("code_temp=%d\n",code_temp);
-#endif
-			    ate_dt->vlbutton.flag = true;
-			    ate_dt->vlbutton.vlkey_dev.l.y = value_temp;
+
+#ifndef MSM_8960_PLATFORM_C8869L
+#ifdef COHERENCE_PLATFORM
+            if(0 == ate_dt->is_disable_coherence_flatform) {
+                if(TOUCH_EVENT == ate_dt->ate_dev.input_event_type[i]) {
+                    if(EV_ABS == type_temp) {
+                        if(ABS_MT_POSITION_X== code_temp) {
+                            ate_dt->vlbutton.vlkey_dev.l.x = value_temp;
+                            value_temp = MAX_VIRTUAL_SCREEN_SIZE*value_temp/(dev->absinfo[ABS_MT_POSITION_X].maximum);
+                        } else if (ABS_MT_POSITION_Y== code_temp ) {
+                            if(value_temp <= dev->absinfo[ABS_MT_POSITION_Y].maximum) {
+                                value_temp = MAX_VIRTUAL_SCREEN_SIZE*value_temp/(dev->absinfo[ABS_MT_POSITION_Y].maximum);
+                            } else {
+			        ate_dt->vlbutton.flag = true;
+			        ate_dt->vlbutton.vlkey_dev.l.y = value_temp;
+                            }
+                        }
+                    } else if (EV_SYN == type_temp) {
+                        if(true == ate_dt->vlbutton.flag) {
+                            ate_dt->vlbutton.end_step = ate_dt->ie_times;
+                            ate_dt->vlbutton.end_t = jiffies;
                         }
                     }
-                } else if (EV_SYN == type_temp) {
-                    if(true == ate_dt->vlbutton.flag) {
-                        ate_dt->vlbutton.end_step = ate_dt->ie_times;
-                        ate_dt->vlbutton.end_t = jiffies;
-                    }
                 }
-            }
 
-            if(0 != ate_dt->ie_times && true == ate_dt->has_virtualkey) {
-                ie_data = ate_dt->ie_dt + ate_dt->ie_times - 1;
-                if(TOUCH_EVENT != ate_dt->ate_dev.input_event_type[i] ||
-				(EV_SYN == ie_data->type && EV_SYN != type_temp)) {
-                    if(true == ate_dt->vlbutton.flag) {
-                        ate_dt->vlbutton.flag = false;
-                        virtualbutton_to_realbutton();
+#if defined TI_OMAP_PLATFORM || defined HISI_K3_PLATFORM
+                if(0 != ate_dt->ie_times && true == ate_dt->has_virtualkey) {
+                    ie_data = ate_dt->ie_dt + ate_dt->ie_times - 1;
+                    if(TOUCH_EVENT != ate_dt->ate_dev.input_event_type[i] ||
+				    (EV_SYN == ie_data->type && EV_SYN != type_temp)) {
+                        if(true == ate_dt->vlbutton.flag) {
+                            ate_dt->vlbutton.flag = false;
+                            virtualbutton_to_realbutton_omap();
+                        }
                     }
                 }
-        }
+#endif
+
+#ifdef MSM_8960_PLATFORM
+                if(3 <= ate_dt->ie_times && true == ate_dt->has_virtualkey) {
+                    ie_data = ate_dt->ie_dt + ate_dt->ie_times - 1;
+                    if(TOUCH_EVENT != ate_dt->ate_dev.input_event_type[i] ||
+				    (EV_SYN == ie_data->type && ABS_MT_TOUCH_MAJOR == code_temp)) {
+                        ie_data = ate_dt->ie_dt + ate_dt->ie_times - 3;
+                        if(true == ate_dt->vlbutton.flag && EV_KEY == ie_data->type &&
+						    BTN_TOUCH == ie_data->code && 0 == ie_data->value) {
+                            ate_dt->vlbutton.flag = false;
+                            virtualbutton_to_realbutton_8960();
+                        }
+                    }
+                }
+#endif
+
+                }
+#endif
 #endif
             store_input_event_data((unsigned short)ate_dt->ate_dev.input_event_type[i], (unsigned short)type_temp, code_temp, value_temp);
             if(1 == ate_dt->ie_times && true == ate_dt->has_usb_disconnect) {
@@ -348,8 +431,6 @@ static int ate_connect(struct input_handler *handler, struct input_dev *dev,
 		ate_dt->ate_dev.valid[ate_dt->ate_dev.input_dev_sum] = false;
 		ate_dt->ate_dev.input_event_type[ate_dt->ate_dev.input_dev_sum] = NULL_EVENT_TYPE;
 		ate_dt->ate_dev.input_dev_table[ate_dt->ate_dev.input_dev_sum++] = dev;
-
-
 	}
 
 	printk(KERN_DEBUG pr_fmt("Connected device: %s (%s at %s)\n"),
@@ -395,7 +476,7 @@ static const struct input_device_id ate_ids[] = {
 	{ },			/* Terminating zero entry */
 };
 
-MODULE_DEVICE_TABLE(input, evbug_ids);
+MODULE_DEVICE_TABLE(input, ate_ids);
 
 static struct input_handler ate_handler = {
 	.event = ate_event,
@@ -409,9 +490,6 @@ static void store_touchbutton_event_data(unsigned short dev_no, unsigned short t
 {
     struct input_event_data *ie_data = NULL;
 
-#ifdef ATE_DEBUG
-    printk("ate_dt->ie_times=%lu\n",ate_dt->ie_times);
-#endif
     if (ate_dt->ie_times < ATE_IEDT_SIZE/IE_SIZE - ATE_IEDT_HEAD_SIZE) {
         ie_data = ate_dt->ie_dt + ate_dt->ie_times;
         ie_data->dev_no = dev_no;
@@ -437,7 +515,6 @@ static void store_touchbutton_event_data(unsigned short dev_no, unsigned short t
 static void store_input_event_data(unsigned short dev_no, unsigned short type, unsigned int code, int value)
 {
     struct input_event_data *ie_data = NULL;
-printk("ate_dt->ie_times=%lu\n",ate_dt->ie_times);
     if (ate_dt->ie_times < ATE_IEDT_SIZE/IE_SIZE - ATE_IEDT_HEAD_SIZE) {
         ie_data = ate_dt->ie_dt + ate_dt->ie_times;
         ie_data->dev_no = dev_no;
@@ -462,6 +539,7 @@ printk("ate_dt->ie_times=%lu\n",ate_dt->ie_times);
 static int inputevent_data_save(void)
 {
     char buf[IE_SIZE]={0};
+    char buf_name[2*IE_SIZE]={0};
     char *tp_data =(char *)ate_dt->ie_dt;
     int i;
     struct file *fp;
@@ -482,6 +560,9 @@ static int inputevent_data_save(void)
     sprintf(buf, "%lu", ate_dt->playback_continuance_ms);
     vfs_write(fp, buf, sizeof(buf), &pos);
 
+    strcpy(buf_name,RECORD_PHONE);
+    vfs_write(fp, buf_name, 2*IE_SIZE, &pos);
+
     for (i = 0; i < ate_dt->ie_times; i++) {
         memset(buf, 0, IE_SIZE);
         memcpy(buf, tp_data, sizeof(struct input_event_data));
@@ -496,6 +577,7 @@ static int inputevent_data_save(void)
 static int inputevent_data_read(void)
 {
     char buf[IE_SIZE] = {0};
+    char buf_name[2*IE_SIZE]={0};
     char *tp_data = (char *)ate_dt->ie_dt;
     int i;
     struct file *fp;
@@ -526,6 +608,20 @@ static int inputevent_data_read(void)
         printk(KERN_ERR "%s: strict_strtoul ret error\n", __func__);
 	    goto exit;
     }
+
+    vfs_read(fp, buf_name, sizeof(buf_name), &pos);
+    if('\0' != buf_name[0]) {
+        if(0 != strcmp(buf_name, RECORD_PHONE)) {
+            ate_dt->ie_times = 0;
+            printk(KERN_WARNING "%s: record phone is %s!\n", __func__,buf_name);
+            printk(KERN_WARNING "%s: record data is forced clear!\n", __func__);
+            goto exit;
+        }
+    } else {
+        pos = pos - sizeof(buf_name);
+        printk(KERN_WARNING "%s: record phone is known\n", __func__);
+    }
+
     for (i = 0; i < ate_dt->ie_times; i++) {
         memset(buf, 0, IE_SIZE);
         vfs_read(fp, buf, sizeof(buf), &pos);
@@ -547,8 +643,35 @@ static ssize_t show_inputevents_count(struct device *dev,
 static DEVICE_ATTR(inputevents_count, (S_IWUSR|S_IRUGO),
 	show_inputevents_count, NULL);
 
+static bool last_is_touchbutton(void)
+{
+    struct input_event_data *ie_data = NULL;
+
+    if(0 != ate_dt->ie_times && true == ate_dt->has_virtualkey) {
+        ie_data = ate_dt->ie_dt + ate_dt->ie_times - 1;
+        if(true == ate_dt->vlbutton.flag && TOUCH_EVENT == ie_data->dev_no && EV_SYN == ie_data->type) {
+            ate_dt->vlbutton.flag = false;
+            return true;
+        }
+    }
+    return false;
+}
+
 static void del_input_event_data(void)
 {
+#ifdef COHERENCE_PLATFORM
+#if defined TI_OMAP_PLATFORM || defined HISI_K3_PLATFORM
+    if(true == last_is_touchbutton()) {
+        virtualbutton_to_realbutton_omap();
+    }
+#endif
+#endif
+
+#ifdef MSM_8960_PLATFORM
+    if(true == last_is_touchbutton()) {
+        virtualbutton_to_realbutton_8960();
+    }
+#endif
 
     if(true != ate_dt->has_usb_disconnect) {
         return ;
@@ -559,30 +682,184 @@ static void del_input_event_data(void)
     ate_dt->ie_times = ate_dt->pwrkey_step + 1;
     ate_dt->jiffies_end_record= ate_dt->pwrkey_jiffies_end_record;
 }
+
+#ifdef COHERENCE_PLATFORM
+static int get_virtualbutton(unsigned long *read_cur, unsigned long *save_cur)
+{
+    int x_temp = 0;
+    int y_temp = 0;
+    int i =0;
+    unsigned long jiffies_t_temp = 0;
+    struct input_event_data *ie_save_data = NULL;
+    struct input_event_data *ie_read_data = NULL;
+    struct input_event_data *ie_read_data_p = NULL;
+
+    ie_save_data = ate_dt->ie_dt + *save_cur -1;
+    ie_read_data = ate_dt->ie_dt + *read_cur;
+
+    jiffies_t_temp = ie_save_data->jiffies_t;
+    while(jiffies_t_temp - ie_save_data->jiffies_t <= 4) {
+        *save_cur = *save_cur -1;
+        ie_save_data = ate_dt->ie_dt + *save_cur;
+    }
+
+    *save_cur = *save_cur + 1;
+    y_temp = ie_read_data->value;
+    ie_read_data = ate_dt->ie_dt + *read_cur -1;
+    x_temp = ie_read_data->value * ate_dt->lcd_size.x_max / MAX_VIRTUAL_SCREEN_SIZE;
+    for(i = 0; i < ate_dt->virtualkey.total_dev; i++) {
+        if(x_temp > (ate_dt->virtualkey.virtualkey_device[i].l.x - ate_dt->virtualkey.virtualkey_device[i].l.w/2) &&
+                x_temp < (ate_dt->virtualkey.virtualkey_device[i].l.x + ate_dt->virtualkey.virtualkey_device[i].l.w/2) &&
+                y_temp > (ate_dt->virtualkey.virtualkey_device[i].l.y - ate_dt->virtualkey.virtualkey_device[i].l.h/2) &&
+                y_temp < (ate_dt->virtualkey.virtualkey_device[i].l.y + ate_dt->virtualkey.virtualkey_device[i].l.h/2)) {
+                    break;
+        }
+    }
+
+    if(i >= ate_dt->virtualkey.total_dev) {
+        printk(KERN_ERR"i = %d no such key!\n",i);
+        return -1;
+    }
+
+    ie_read_data_p = ate_dt->ie_dt + (*read_cur - 1);
+    ie_read_data = ate_dt->ie_dt + *read_cur;
+
+    while(ie_read_data->jiffies_t -ie_read_data_p->jiffies_t <= 50) {
+        ie_read_data_p = ate_dt->ie_dt + *read_cur;
+        *read_cur = *read_cur + 1;
+        ie_read_data = ate_dt->ie_dt + *read_cur;
+    }
+
+    ie_save_data = ate_dt->ie_dt + *save_cur;
+    ie_save_data->jiffies_t = jiffies_t_temp;
+    ie_save_data->dev_no= TOUCH_BUTTON_EVENT;
+    ie_save_data->code= ate_dt->virtualkey.virtualkey_device[i].code;
+    ie_save_data->type= ate_dt->virtualkey.virtualkey_device[i].type;
+    ie_save_data->value= 1;
+    *save_cur = *save_cur + 1;
+
+    ie_save_data = ate_dt->ie_dt + *save_cur;
+    ie_save_data->jiffies_t = jiffies_t_temp;
+    ie_save_data->dev_no= TOUCH_BUTTON_EVENT;
+    ie_save_data->code= SYN_REPORT;
+    ie_save_data->type= EV_SYN;
+    ie_save_data->value= 0;
+    *save_cur = *save_cur + 1;
+
+    ie_save_data = ate_dt->ie_dt + *save_cur;
+    ie_save_data->jiffies_t = ie_read_data_p->jiffies_t;
+    ie_save_data->dev_no= TOUCH_BUTTON_EVENT;
+    ie_save_data->code= ate_dt->virtualkey.virtualkey_device[i].code;
+    ie_save_data->type= ate_dt->virtualkey.virtualkey_device[i].type;
+    ie_save_data->value= 0;
+    *save_cur = *save_cur + 1;
+
+    ie_save_data = ate_dt->ie_dt + *save_cur;
+    ie_save_data->jiffies_t = ie_read_data_p->jiffies_t;
+    ie_save_data->dev_no= TOUCH_BUTTON_EVENT;
+    ie_save_data->code= SYN_REPORT;
+    ie_save_data->type= EV_SYN;
+    ie_save_data->value= 0;
+    *save_cur = *save_cur + 1;
+
+    return 0;
+}
+
+static void touchevent_translate(void)
+{
+    unsigned long save_cur = 0;
+    unsigned long read_cur = 0;
+    struct input_event_data *ie_save_data = NULL;
+    struct input_event_data *ie_read_data = NULL;
+
+    while(read_cur < ate_dt->ie_times) {
+            ie_save_data = ate_dt->ie_dt + save_cur;
+            ie_read_data = ate_dt->ie_dt + read_cur;
+            if(TOUCH_EVENT == ie_read_data->dev_no && EV_ABS == ie_read_data->type) {
+                if(ABS_MT_POSITION_X == ie_read_data->code) {
+                    ie_read_data->value = MAX_VIRTUAL_SCREEN_SIZE * ie_read_data->value / ate_dt->lcd_size.x_max;
+                } else if (ABS_MT_POSITION_Y == ie_read_data->code ) {
+                    if(ie_read_data->value <= ate_dt->lcd_size.y_max) {
+                        ate_dt->vlbutton.flag = false;
+                        ie_read_data->value = MAX_VIRTUAL_SCREEN_SIZE * ie_read_data->value / ate_dt->lcd_size.y_max;
+                    } else {
+                        ate_dt->vlbutton.flag = true;
+                        ate_dt->vlbutton.vlkey_dev.l.y = ie_read_data->value;
+                    }
+                }
+            }
+
+        if(true == ate_dt->vlbutton.flag) {
+            get_virtualbutton(&read_cur, &save_cur);
+            ate_dt->vlbutton.flag = false;
+            continue;
+        } else {
+            ie_save_data->jiffies_t = ie_read_data->jiffies_t;
+            ie_save_data->dev_no= ie_read_data->dev_no;
+            ie_save_data->code= ie_read_data->code;
+            ie_save_data->type= ie_read_data->type;
+            ie_save_data->value= ie_read_data->value;
+        }
+        save_cur++;
+        read_cur++;
+   }
+
+    ate_dt->ie_times = save_cur;
+}
+#endif
+static void set_lcd_size_info(void )
+{
+    int i = 0;
+    for(i = 0; i < ate_dt->ate_dev.input_dev_sum; i++) {
+        if(0 == strcmp(ate_dt->idf.dev_name[0], ate_dt->ate_dev.input_dev_table[i]->name)) {
+            ate_dt->lcd_size.x_max = ate_dt->ate_dev.input_dev_table[i]->absinfo[ABS_MT_POSITION_X].maximum;
+            ate_dt->lcd_size.y_max = ate_dt->ate_dev.input_dev_table[i]->absinfo[ABS_MT_POSITION_Y].maximum;
+            printk("ate_dt->lcd_size.x_max = %d,ate_dt->lcd_size.y_max=%d\n",ate_dt->lcd_size.x_max,ate_dt->lcd_size.y_max);
+            break ;
+        }
+    }
+}
+
 static ssize_t store_record_user_ops(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t count)
 {
     int rc;
+    unsigned long is_record = 0;
 
-    rc = strict_strtoul(buf, 0, &ate_dt->is_record);
+    rc = strict_strtoul(buf, 0, &is_record);
     if (rc)
         return rc;
 
-    if (0 != ate_dt->is_record) {
+    if (0 != is_record) {
 	ate_dt->pwrkey_step = -1;
         ate_dt->ie_times = 0;
         ate_dt->has_usb_disconnect = false;
         if (0 == ate_dt->idf.filer_total) {
             set_input_device_filter_array();
         }
+
+        if(0 == ate_dt->lcd_size.x_max || 0== ate_dt->lcd_size.y_max) {
+            set_lcd_size_info();
+        }
+
     } else if (ate_dt->ie_times > 0) {
-    del_input_event_data();
+        del_input_event_data();
         ate_dt->playback_continuance_ms =
             jiffies_to_msecs(ate_dt->jiffies_end_record - ate_dt->jiffies_frist_record);
-        inputevent_data_save();
+        if(0 != ate_dt->is_record) {
+#ifdef MSM_8960_PLATFORM_C8869L
+#ifdef COHERENCE_PLATFORM
+            if(0 == ate_dt->is_disable_coherence_flatform) {
+                touchevent_translate();
+            }
+#endif
+#endif
+            inputevent_data_save();
+        }
     } else {
         printk(KERN_INFO "%s: no input event\n", __func__);
     }
+    ate_dt->is_record = is_record;
     return count;
 }
 
@@ -601,6 +878,7 @@ static ssize_t show_play_user_ops(struct device *dev,
     ate_dt->is_record = 0;
     ate_dt->cur_step = 0;
     if(0 >= ate_dt->idf.filer_total) {
+        set_lcd_size_info();
         set_input_device_filter_array();
     }
     if (ate_dt->ie_times > 0) {
@@ -673,6 +951,7 @@ static ssize_t store_file_save_user_ops(struct device *dev,
 static DEVICE_ATTR(file_save_user_ops, (S_IWUSR|S_IRUGO),
 	show_file_save_user_ops, store_file_save_user_ops);
 
+#ifdef COHERENCE_PLATFORM
 static int realbutton_to_virtualbutton(void)
 {
     int i = 0;
@@ -691,15 +970,7 @@ static int realbutton_to_virtualbutton(void)
         return -1;
     }
 
-#ifdef ATE_DEBUG
-    printk("ate_dt->cur_step=%lu\n",ate_dt->cur_step);
-#endif
-
     for(i = 0; i < ate_dt->virtualkey.total_dev; i++) {
-#ifdef ATE_DEBUG
-        printk("i=%d,ie_data->code=%d,ate_dt->virtualkey.virtualkey_device[i].code = %d\n",
-		i,ie_data->code,ate_dt->virtualkey.virtualkey_device[i].code);
-#endif
         if(ie_data->code== ate_dt->virtualkey.virtualkey_device[i].code) {
             break;
         }
@@ -709,6 +980,7 @@ static int realbutton_to_virtualbutton(void)
         return -1;
     }
 
+#if defined TI_OMAP_PLATFORM || defined HISI_K3_PLATFORM
     if(TOUCH_BUTTON_EVENT == ie_data->dev_no && EV_KEY == ie_data->type ) {
         if(0 != ie_data->value) {
             input_event(dev, EV_ABS, ABS_MT_TOUCH_MAJOR, 17);
@@ -726,9 +998,72 @@ static int realbutton_to_virtualbutton(void)
             ate_dt->cur_step ++;
         }
     }
+#endif
+#ifdef MSM_8960_PLATFORM
+#ifdef MSM_8960_PLATFORM_C8869L
+    if(TOUCH_BUTTON_EVENT == ie_data->dev_no && EV_KEY == ie_data->type ) {
+        if(0 != ie_data->value) {
+
+            input_event(dev, EV_SYN, SYN_MT_REPORT, 0);
+            input_event(dev, EV_SYN, SYN_MT_REPORT, 0);
+            input_event(dev, EV_SYN, SYN_MT_REPORT, 0);
+            input_event(dev, EV_SYN, SYN_MT_REPORT, 0);
+            input_event(dev, EV_SYN, SYN_MT_REPORT, 0);
+            input_event(dev, EV_SYN, SYN_REPORT, 0);
+
+            input_event(dev, EV_ABS, ABS_MT_TRACKING_ID, 0);
+            input_event(dev, EV_ABS, ABS_MT_POSITION_X,
+                ate_dt->virtualkey.virtualkey_device[i].l.x);
+            input_event(dev, EV_ABS, ABS_MT_POSITION_Y,
+                ate_dt->virtualkey.virtualkey_device[i].l.y);
+            input_event(dev, EV_ABS, ABS_MT_TOUCH_MAJOR, 49);
+            input_event(dev, EV_ABS, ABS_MT_WIDTH_MAJOR, 0);
+            input_event(dev, EV_ABS, ABS_MT_ORIENTATION, 1);
+            input_event(dev, EV_ABS, ABS_MT_WIDTH_MAJOR, 1);
+
+            input_event(dev, EV_SYN, SYN_MT_REPORT, 0);
+            input_event(dev, EV_SYN, SYN_MT_REPORT, 0);
+            input_event(dev, EV_SYN, SYN_MT_REPORT, 0);
+            input_event(dev, EV_SYN, SYN_MT_REPORT, 0);
+            input_event(dev, EV_SYN, SYN_MT_REPORT, 0);
+            input_event(dev, EV_SYN, SYN_REPORT, 0);
+
+            ate_dt->cur_step ++;
+        } else {
+            input_event(dev, EV_SYN, SYN_MT_REPORT, 0);
+            input_event(dev, EV_SYN, SYN_MT_REPORT, 0);
+            input_event(dev, EV_SYN, SYN_MT_REPORT, 0);
+            input_event(dev, EV_SYN, SYN_MT_REPORT, 0);
+            input_event(dev, EV_SYN, SYN_MT_REPORT, 0);
+            input_event(dev, EV_SYN, SYN_REPORT, 0);
+            ate_dt->cur_step ++;
+        }
+    }
+#else
+    if(TOUCH_BUTTON_EVENT == ie_data->dev_no && EV_KEY == ie_data->type ) {
+        if(0 != ie_data->value) {
+            input_event(dev, EV_ABS, ABS_MT_TOUCH_MAJOR, 0);
+            input_event(dev, EV_ABS, ABS_MT_WIDTH_MAJOR, 0);
+            input_event(dev, EV_ABS, ABS_MT_POSITION_X,
+                ate_dt->virtualkey.virtualkey_device[i].l.x);
+            input_event(dev, EV_ABS, ABS_MT_POSITION_Y,
+                ate_dt->virtualkey.virtualkey_device[i].l.y);
+            input_event(dev, EV_KEY, BTN_TOUCH, 1);
+            input_event(dev, EV_SYN, SYN_MT_REPORT, 0);
+            input_event(dev, EV_SYN, SYN_REPORT, 0);
+                ate_dt->cur_step ++;
+        } else {
+            input_event(dev, EV_KEY, BTN_TOUCH, 0);
+            input_event(dev, EV_SYN, SYN_MT_REPORT, 0);
+            input_event(dev, EV_SYN, SYN_REPORT, 0);
+            ate_dt->cur_step ++;
+        }
+    }
+#endif
+#endif
     return 0;
 }
-
+#endif
 
 static void playback_work_handler(struct work_struct *work)
 {
@@ -745,43 +1080,36 @@ static void playback_work_handler(struct work_struct *work)
         if(ie_data->dev_no == ate_dt->ate_dev.input_event_type[i]) {
 	    dev = ate_dt->ate_dev.input_dev_table[i];
 	    value_temp = ie_data->value;
-#ifdef COHERENCE_FLATFORM
-		if(TOUCH_EVENT == ie_data->dev_no && EV_ABS == ie_data->type ) {
-			if(ABS_MT_POSITION_X== ie_data->code) {
-			printk("+++++++++++++++++++++\n");
-			value_temp = ie_data->value*dev->absinfo[ABS_MT_POSITION_X].maximum/MAX_VIRTUAL_SCREEN_SIZE;
-			} else if (ABS_MT_POSITION_Y== ie_data->code ) {
-			value_temp = ie_data->value*dev->absinfo[ABS_MT_POSITION_Y].maximum/MAX_VIRTUAL_SCREEN_SIZE;
-			}
-			printk("+++++++++value_temp = %d++++++++++++\n",value_temp);
-		}
+#ifdef COHERENCE_PLATFORM
+	    if(0 == ate_dt->is_disable_coherence_flatform) {
+	        if(TOUCH_EVENT == ie_data->dev_no && EV_ABS == ie_data->type ) {
+	            if(ABS_MT_POSITION_X== ie_data->code) {
+	                value_temp = ie_data->value*dev->absinfo[ABS_MT_POSITION_X].maximum/MAX_VIRTUAL_SCREEN_SIZE;
+	            } else if (ABS_MT_POSITION_Y== ie_data->code ) {
+	                value_temp = ie_data->value*dev->absinfo[ABS_MT_POSITION_Y].maximum/MAX_VIRTUAL_SCREEN_SIZE;
+	            }
+	        }
+	    }
 #endif
 		input_event(dev, (unsigned int)ie_data->type, ie_data->code, value_temp);
             break ;
         }
     }
-#ifdef COHERENCE_FLATFORM
-    if(i >= ate_dt->ate_dev.input_dev_sum && true == ate_dt->has_virtualkey) {
-        realbutton_to_virtualbutton();
+#ifdef COHERENCE_PLATFORM
+    if(0 == ate_dt->is_disable_coherence_flatform) {
+        if(i >= ate_dt->ate_dev.input_dev_sum && true == ate_dt->has_virtualkey) {
+            realbutton_to_virtualbutton();
+        }
     }
 #endif
     if (ate_dt->cur_step < ate_dt->ie_times - 1) {
         if (jiffies >= ate_dt->jiffies_frist_playback + (ate_dt->ie_dt + (ate_dt->cur_step + 1))->jiffies_t) {
-#ifdef ATE_DEBUG
-            printk(KERN_DEBUG "%s: cur_step=%lu case 0 \n", __func__, ate_dt->cur_step);
-#endif
             schedule_delayed_work(&ate_dt->playback_work, 0);
         } else {
             if(ate_dt->ie_times > 4 &&  ate_dt->cur_step >= ate_dt->ie_times - 4 &&
                 POWER_KEY_EVENT == (ie_data + 1)->dev_no) {
-#ifdef ATE_DEBUG
-            printk(KERN_DEBUG "%s: cur_step=%lu case 1 \n", __func__, ate_dt->cur_step);
-#endif
                 schedule_delayed_work(&ate_dt->playback_work, 0);
             } else {
-#ifdef ATE_DEBUG
-            printk(KERN_DEBUG "%s: cur_step=%lu case 2 \n", __func__, ate_dt->cur_step);
-#endif
                 schedule_delayed_work(&ate_dt->playback_work,
                     ate_dt->jiffies_frist_playback + (ate_dt->ie_dt + (ate_dt->cur_step + 1))->jiffies_t - jiffies);
             }
@@ -832,6 +1160,17 @@ static void clean_input_device_filter_array(void)
 static void default_set_input_device_filter_array(void )
 {
 #ifdef MSM_8960_PLATFORM
+#ifdef MSM_8960_PLATFORM_C8869L
+    strcpy(ate_dt->idf.dev_name[0], "synaptics");
+    ate_dt->idf.input_event_type[0] = TOUCH_EVENT;
+    strcpy(ate_dt->idf.dev_name[1], "qt1060");
+    ate_dt->idf.input_event_type[1] = TOUCH_BUTTON_EVENT;
+    strcpy(ate_dt->idf.dev_name[2], "pmic8xxx_pwrkey");
+    ate_dt->idf.input_event_type[2] = POWER_KEY_EVENT;
+    strcpy(ate_dt->idf.dev_name[3], "keypad_8960");
+    ate_dt->idf.input_event_type[3] = SOUND_KEY_EVENT;
+    ate_dt->idf.filer_total = SOUND_KEY_EVENT+1;
+#else
     strcpy(ate_dt->idf.dev_name[0], "atmel-touchscreen");
     ate_dt->idf.input_event_type[0] = TOUCH_EVENT;
     strcpy(ate_dt->idf.dev_name[1], "qt1060");
@@ -841,6 +1180,7 @@ static void default_set_input_device_filter_array(void )
     strcpy(ate_dt->idf.dev_name[3], "keypad_8960");
     ate_dt->idf.input_event_type[3] = SOUND_KEY_EVENT;
     ate_dt->idf.filer_total = SOUND_KEY_EVENT+1;
+#endif
 #endif
 #ifdef TI_OMAP_PLATFORM
     strcpy(ate_dt->idf.dev_name[0], "atmel-touchscreen");
@@ -856,7 +1196,7 @@ static void default_set_input_device_filter_array(void )
 #ifdef HISI_K3_PLATFORM
     strcpy(ate_dt->idf.dev_name[0], "synaptics");
     ate_dt->idf.input_event_type[0] = TOUCH_EVENT;
-    strcpy(ate_dt->idf.dev_name[1], "qt1060");
+    strcpy(ate_dt->idf.dev_name[1], "so340010");
     ate_dt->idf.input_event_type[1] = TOUCH_BUTTON_EVENT;
     strcpy(ate_dt->idf.dev_name[2], "k3v2_power_key");
     ate_dt->idf.input_event_type[2] = POWER_KEY_EVENT;
@@ -943,6 +1283,7 @@ static ssize_t store_input_device_filter(struct device *dev,
     clean_input_device_filter_array();
 
     if (flag != 0) {
+        set_lcd_size_info();
         set_input_device_filter_array();
     }
     return count;
@@ -965,10 +1306,36 @@ static ssize_t show_input_device_filter(struct device *dev,
 static DEVICE_ATTR(input_device_filter, (S_IWUSR | S_IRUGO),
 	show_input_device_filter, store_input_device_filter);
 
+#ifdef COHERENCE_PLATFORM
+static ssize_t store_disable_coherence_flatform(struct device *dev,
+	struct device_attribute *attr, const char *buf, size_t count)
+{
+    int ret = 0;
+    ret = strict_strtoul(buf, 0, &ate_dt->is_disable_coherence_flatform);
+    return count;
+}
+
+static ssize_t show_disable_coherence_flatform(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+    char *s = buf;
+    char *end = buf + PAGE_SIZE;
+
+   if(0 != ate_dt->is_disable_coherence_flatform) {
+       s += scnprintf(s, end - s, "coherence flatform is disable!\n");
+    } else {
+       s += scnprintf(s, end - s, "coherence flatform is enable!\n");
+    }
+    return (s - buf);
+}
+
+static DEVICE_ATTR(disable_coherence_flatform, (S_IWUSR | S_IRUGO),
+	show_disable_coherence_flatform, store_disable_coherence_flatform);
+#endif
+
 #ifdef MSM_8960_PLATFORM
 static void ate_usb_notifier(uint8_t usb_status)
 {
-	printk("+++++++%s+++++\n",__func__);
 	ate_dt->usb_status= usb_status;
 }
 #endif
@@ -976,13 +1343,13 @@ static void ate_usb_notifier(uint8_t usb_status)
 #ifdef HISI_K3_PLATFORM
 static int ate_usb_notifier(struct notifier_block *nb,unsigned long event, void *data)
 {
-	printk("+++%s++event=%ld+++\n",__func__,event);
 	ate_dt->usb_status= event;
 	return NOTIFY_OK;
 }
 extern uint8_t usb_status_ate;
 #endif
 
+#ifdef COHERENCE_PLATFORM
 static ssize_t get_virtualkey_config(void)
 {
     char c_buf[500];
@@ -998,14 +1365,25 @@ static ssize_t get_virtualkey_config(void)
         ":" __stringify(EV_KEY) ":" __stringify(KEY_HOMEPAGE)   ":360:1380:160:90"
         ":" __stringify(EV_KEY) ":" __stringify(KEY_MENU) ":598:1380:160:90"
         "\n");
+#else
+#ifdef KERNEL_MODULES
+    ssize_t  buf_vkey_size=0;
+    buf_vkey_size = sprintf(c_buf,
+        __stringify(EV_KEY) ":" __stringify(KEY_HOME)  ":365:1380:160:150"
+        ":" __stringify(EV_KEY) ":" __stringify(KEY_BACK)   ":120:1380:160:150"
+        ":" __stringify(EV_KEY) ":" __stringify(KEY_MENU)   ":605:1380:160:150"
+        "\n");
+#endif
 #endif
 
     if(buf_vkey_size <= 0) {
     return -1;
     }
 
+#ifndef KERNEL_MODULES
 #ifndef HISI_K3_PLATFORM
     memcpy(c_buf,buf_virtualkey,buf_vkey_size);
+#endif
 #endif
     for(i = ate_dt->virtualkey.total_dev = 0; i<500 &&
 		i < buf_vkey_size; i++, ate_dt->virtualkey.total_dev++) {
@@ -1017,75 +1395,75 @@ static ssize_t get_virtualkey_config(void)
             }
         }
 
-    if(!strcmp(p_char, __stringify(EV_KEY))) {
-        ate_dt->virtualkey.virtualkey_device[ate_dt->virtualkey.total_dev].type = EV_KEY;
-    } else {
-    printk(KERN_ERR"the tepy of key is error\n");
-    return -1;
-    }
-
-    p_char = &c_buf[++i];
-    for(; i<500 && i < buf_vkey_size; i++) {
-        if(':' == c_buf[i]) {
-        c_buf[i] = '\0';
-        break;
+        if(!strcmp(p_char, __stringify(EV_KEY))) {
+            ate_dt->virtualkey.virtualkey_device[ate_dt->virtualkey.total_dev].type = EV_KEY;
+        } else {
+            printk(KERN_ERR"the tepy of key is error\n");
+            return -1;
         }
-    }
 
-    ret = strict_strtoul(p_char, 0, &value);
-    if (ret < 0) {
-        printk(KERN_ERR "%s: strict_strtoul ret error\n", __func__);
-        return -1;
-    }
-    ate_dt->virtualkey.virtualkey_device[ate_dt->virtualkey.total_dev].code = (int)value;
-
-    p_char = &c_buf[++i];
-    for(; i<500 && i <= buf_vkey_size; i++) {
-        if(':' == c_buf[i]) {
-        c_buf[i] = '\0';
-        break;
+        p_char = &c_buf[++i];
+        for(; i<500 && i < buf_vkey_size; i++) {
+            if(':' == c_buf[i]) {
+                c_buf[i] = '\0';
+                break;
+            }
         }
-    }
 
-    ret = strict_strtoul(p_char, 0, &value);
-    if (ret < 0) {
-        printk(KERN_ERR "%s: strict_strtoul ret error\n", __func__);
-        return -1;
-    }
-    ate_dt->virtualkey.virtualkey_device[ate_dt->virtualkey.total_dev].l.x = (int)value;
-
-    p_char = &c_buf[++i];
-    for(; i<500 && i < buf_vkey_size; i++) {
-        if(':' == c_buf[i]) {
-        c_buf[i] = '\0';
-        break;
+        ret = strict_strtoul(p_char, 0, &value);
+        if (ret < 0) {
+            printk(KERN_ERR "%s: strict_strtoul ret error\n", __func__);
+            return -1;
         }
-    }
+        ate_dt->virtualkey.virtualkey_device[ate_dt->virtualkey.total_dev].code = (int)value;
 
-    ret = strict_strtoul(p_char, 0, &value);
-    if (ret < 0) {
-        printk(KERN_ERR "%s: strict_strtoul ret error\n", __func__);
-        return -1;
-    }
-    ate_dt->virtualkey.virtualkey_device[ate_dt->virtualkey.total_dev].l.y = (int)value;
-
-    p_char = &c_buf[++i];
-    for(; i<500 && i <= buf_vkey_size; i++) {
-        if(':' == c_buf[i]) {
-        c_buf[i] = '\0';
-        break;
+        p_char = &c_buf[++i];
+        for(; i<500 && i <= buf_vkey_size; i++) {
+            if(':' == c_buf[i]) {
+            c_buf[i] = '\0';
+            break;
+            }
         }
-    }
 
-    ret = strict_strtoul(p_char, 0, &value);
-    if (ret < 0) {
-        printk(KERN_ERR "%s: strict_strtoul ret error\n", __func__);
-        return -1;
-    }
-    ate_dt->virtualkey.virtualkey_device[ate_dt->virtualkey.total_dev].l.w = (int)value;
+        ret = strict_strtoul(p_char, 0, &value);
+        if (ret < 0) {
+            printk(KERN_ERR "%s: strict_strtoul ret error\n", __func__);
+            return -1;
+        }
+        ate_dt->virtualkey.virtualkey_device[ate_dt->virtualkey.total_dev].l.x = (int)value;
 
-    p_char = &c_buf[++i];
-    for(; i<500 && i < buf_vkey_size; i++) {
+        p_char = &c_buf[++i];
+        for(; i<500 && i < buf_vkey_size; i++) {
+            if(':' == c_buf[i]) {
+                c_buf[i] = '\0';
+                break;
+            }
+        }
+
+        ret = strict_strtoul(p_char, 0, &value);
+        if (ret < 0) {
+            printk(KERN_ERR "%s: strict_strtoul ret error\n", __func__);
+            return -1;
+        }
+        ate_dt->virtualkey.virtualkey_device[ate_dt->virtualkey.total_dev].l.y = (int)value;
+
+        p_char = &c_buf[++i];
+        for(; i<500 && i <= buf_vkey_size; i++) {
+            if(':' == c_buf[i]) {
+                c_buf[i] = '\0';
+                break;
+            }
+        }
+
+        ret = strict_strtoul(p_char, 0, &value);
+        if (ret < 0) {
+            printk(KERN_ERR "%s: strict_strtoul ret error\n", __func__);
+            return -1;
+        }
+        ate_dt->virtualkey.virtualkey_device[ate_dt->virtualkey.total_dev].l.w = (int)value;
+
+        p_char = &c_buf[++i];
+        for(; i<500 && i < buf_vkey_size; i++) {
             if(':' == c_buf[i]) {
                 c_buf[i] = '\0';
                 break;
@@ -1093,17 +1471,18 @@ static ssize_t get_virtualkey_config(void)
                 c_buf[i] = '\0';
                 break;
             }
-    }
+        }
 
-    ret = strict_strtoul(p_char, 0, &value);
-    if (ret < 0) {
-        printk(KERN_ERR "%s: strict_strtoul ret error\n", __func__);
-        return -1;
-    }
-    ate_dt->virtualkey.virtualkey_device[ate_dt->virtualkey.total_dev].l.h = (int)value;
+        ret = strict_strtoul(p_char, 0, &value);
+        if (ret < 0) {
+            printk(KERN_ERR "%s: strict_strtoul ret error\n", __func__);
+            return -1;
+        }
+        ate_dt->virtualkey.virtualkey_device[ate_dt->virtualkey.total_dev].l.h = (int)value;
     }
 return 0;
 }
+#endif
 
 static int __init ate_init(void)
 {
@@ -1134,14 +1513,16 @@ static int __init ate_init(void)
     ate_dt->usb_status = usb_status_ate;
 #endif
 
-    ate_dt->ie_dt = kmalloc(ATE_IEDT_SIZE, GFP_KERNEL);
+//    ate_dt->ie_dt = kmalloc(ATE_IEDT_SIZE, GFP_KERNEL);
+    ate_dt->ie_dt = vmalloc(ATE_IEDT_SIZE);
+
     if (ate_dt->ie_dt == NULL) {
         ret = -ENOMEM;
         goto exit_kfree_ate_dt;
     }
     memset(ate_dt->ie_dt, 0, ATE_IEDT_SIZE);
 
-#ifdef COHERENCE_FLATFORM
+#ifdef COHERENCE_PLATFORM
     if(0 != get_virtualkey_config()) {
         ate_dt->has_virtualkey = false;
     } else {
@@ -1150,6 +1531,9 @@ static int __init ate_init(void)
 #else
         ate_dt->has_virtualkey = false;
 #endif
+
+
+		
 
     hw_ate_kobj = kobject_create_and_add("hw_ate", NULL);
     if (hw_ate_kobj == NULL) {
@@ -1197,8 +1581,19 @@ static int __init ate_init(void)
         printk(KERN_ERR "%s: sysfs_create_file input_event_filter failed\n", __func__);
         goto exit_sysfs_remove_file_save_user_ops;
     }
+#ifdef COHERENCE_PLATFORM
+    ret = sysfs_create_file(hw_ate_kobj, &dev_attr_disable_coherence_flatform.attr);
+    if (ret) {
+        printk(KERN_ERR "%s: sysfs_create_file disable_coherence_flatform failed\n", __func__);
+        goto exit_sysfs_remove_disable_coherence_flatform;
+    }
+#endif
     return input_register_handler(&ate_handler);
 
+#ifdef COHERENCE_PLATFORM
+exit_sysfs_remove_disable_coherence_flatform:
+    sysfs_remove_file(hw_ate_kobj, &dev_attr_disable_coherence_flatform.attr);
+#endif
 exit_sysfs_remove_file_save_user_ops:
     sysfs_remove_file(hw_ate_kobj, &dev_attr_file_save_user_ops.attr);
 exit_sysfs_remove_playback_continuance_ms:

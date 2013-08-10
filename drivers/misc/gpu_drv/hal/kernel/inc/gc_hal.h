@@ -55,6 +55,41 @@ extern "C" {
     sizeof(a) / sizeof(a[0]) \
 )
 
+#ifdef __LP64__
+
+#define gcmALL_TO_UINT32(t) \
+( \
+    (gctUINT32) (gctUINTPTR_T) (t)\
+)
+
+#define gcmPTR_TO_UINT64(p) \
+( \
+    (gctUINT64) (p)\
+)
+
+#define gcmUINT64_TO_PTR(u) \
+( \
+    (gctPOINTER) (u)\
+)
+
+#else /* 32 bit */
+
+#define gcmALL_TO_UINT32(t) \
+( \
+    (gctUINT32) (t)\
+)
+
+#define gcmPTR_TO_UINT64(p) \
+( \
+    (gctUINT64) (gctUINTPTR_T) (p)\
+)
+
+#define gcmUINT64_TO_PTR(u) \
+( \
+    (gctPOINTER) (gctUINTPTR_T) (u)\
+)
+
+#endif
 /******************************************************************************\
 ******************************** gcsOBJECT Object *******************************
 \******************************************************************************/
@@ -2309,6 +2344,13 @@ gckCOMMAND_Detach(
     IN gckCOMMAND Command,
     IN gckCONTEXT Context
     );
+
+#if gcdVIRTUAL_COMMAND_BUFFER
+gceSTATUS
+gckCOMMAND_DumpExecutingBuffer(
+    IN gckCOMMAND Command
+    );
+#endif
 
 /******************************************************************************\
 ********************************* gckMMU Object ********************************

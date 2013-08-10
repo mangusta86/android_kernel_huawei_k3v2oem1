@@ -15,8 +15,6 @@
 #include <linux/regulator/driver.h>
 #include <linux/regulator/machine.h>
 
-#include <mach/boardid.h>
-
 #include "es305.h"
 
 #define LOG_TAG "ES305"
@@ -85,8 +83,6 @@ struct audience_img {
 
 struct audience_img img;
 
-static unsigned int chipid = 0;
-
 static enum ES305_MODE   es305_mode = ES305_NORMAL;
 static enum ES305_PATHID es305_current_pathid = ES305_PATH_NO_INIT;
 static enum ES305_POWER  es305_power = ES305_POWER_OFF;
@@ -107,30 +103,25 @@ static struct regulator *g_regu_ldo5 = NULL;
 
 extern void hi6421_lock_sysclk(bool);
 
-static unsigned int path_playback_cs[] = {
+static unsigned int path_playback[] = {
     0x80520074, /* BYPASS MODE PORT D to PORT B */
     0x80260092, /* ROUTE 146 : PORT A(64bits) <--> PORT C(32bits) */
 };
 
-static unsigned int path_playback_es[] = {
-    0x80520074, /* BYPASS MODE PORT D to PORT B */
-    0x8026008A, /* ROUTE 138 : PORT D + PORT C -> PORT B, PORT B -> PORT C */
-};
-
-/* cs chip call mode narrow band */
-static unsigned int path_nb_call_receiver_cs[] = {
+/* call mode narrow band */
+static unsigned int path_nb_call_receiver[] = {
     0x80310000, /* CONFIG HANDSET PRESET */
 };
 
-static unsigned int path_nb_call_headset_cs[] = {
+static unsigned int path_nb_call_headset[] = {
     0x80310001, /* CONFIG HEADSET PRESET */
 };
 
-static unsigned int path_nb_call_headphone_cs[] = {
+static unsigned int path_nb_call_headphone[] = {
     0x80310002, /* CONFIG HEADPHONE PRESET */
 };
 
-static unsigned int path_nb_call_speaker_cs[] = {
+static unsigned int path_nb_call_speaker[] = {
     0x80310003, /* CONFIG HANDFREE PRESET */
 };
 
@@ -139,40 +130,24 @@ static unsigned int path_nb_call_bt[] = {
 };
 
 /* cs chip call mode wide band */
-static unsigned int path_wb_call_receiver_cs[] = {
+static unsigned int path_wb_call_receiver[] = {
     0x80310006, /* CONFIG HANDSET PRESET */
 };
 
-static unsigned int path_wb_call_headset_cs[] = {
+static unsigned int path_wb_call_headset[] = {
     0x80310007, /* CONFIG HEADSET PRESET */
 };
 
-static unsigned int path_wb_call_headphone_cs[] = {
+static unsigned int path_wb_call_headphone[] = {
     0x80310008, /* CONFIG HEADPHONE PRESET */
 };
 
-static unsigned int path_wb_call_speaker_cs[] = {
+static unsigned int path_wb_call_speaker[] = {
     0x80310009, /* CONFIG HANDFREE PRESET */
 };
 
 static unsigned int path_wb_call_bt[] = {
     0x8031000A, /* CONFIG BT PRESET */
-};
-
-/* es chip call mode narrow band */
-static unsigned int path_nb_call_receiver_es[] = {
-    0x80520000, /* CANCEL BYPASS MODE */
-    0x80310000, /* CONFIG HANDSET PRESET */
-};
-
-static unsigned int path_nb_call_headset_es[] = {
-    0x80520000, /* CANCEL BYPASS */
-    0x80310001, /* CONFIG HEADSET PRESET */
-};
-
-static unsigned int path_nb_call_speaker_es[] = {
-    0x80520000, /* CANCEL BYPASS */
-    0x80310003, /* CONFIG HANDFREE PRESET */
 };
 
 /* voip mode, support wide band only */
@@ -361,7 +336,7 @@ static int es305_sync(void)
     int ret = 0;
     int retry = POLLING_RETRY_TIMES;
     unsigned char w_buf[4];
-    unsigned char r_buf[4];
+    unsigned char r_buf[4] = {0,0,0,0};
 
     logi("%s", __FUNCTION__);
 
@@ -399,7 +374,7 @@ static int es305_sync(void)
 static int es305_check_cmd_ack(unsigned int msg)
 {
     int ret = 0;
-    unsigned char msgbuf[4];
+    unsigned char msgbuf[4] = {0,0,0,0};
 
     logi("%s", __FUNCTION__);
 
@@ -686,166 +661,71 @@ static int es305_set_pathid(enum ES305_PATHID pathid)
 
     switch(pathid) {
     case ES305_PATH_BYPASS:
-        if (CS_CHIP_ID == chipid) {
-            ret = es305_send_msg_by_array(path_playback_cs,
-                          SIZE_OF_ARRAY(path_playback_cs));
-        } else {
-            ret = es305_send_msg_by_array(path_playback_es,
-                          SIZE_OF_ARRAY(path_playback_es));
-        }
+        ret = es305_send_msg_by_array(path_playback,
+                                      SIZE_OF_ARRAY(path_playback));
         break;
 /* call narrow band */
     case ES305_PATH_NB_CALL_RECEIVER:
-        if (CS_CHIP_ID == chipid) {
-            ret = es305_send_msg_by_array(path_nb_call_receiver_cs,
-                      SIZE_OF_ARRAY(path_nb_call_receiver_cs));
-        } else {
-            ret = es305_send_msg_by_array(path_nb_call_receiver_es,
-                      SIZE_OF_ARRAY(path_nb_call_receiver_es));
-        }
+        ret = es305_send_msg_by_array(path_nb_call_receiver,
+                                      SIZE_OF_ARRAY(path_nb_call_receiver));
         break;
     case ES305_PATH_NB_CALL_HEADSET:
-        if (CS_CHIP_ID == chipid) {
-            ret = es305_send_msg_by_array(path_nb_call_headset_cs,
-                      SIZE_OF_ARRAY(path_nb_call_headset_cs));
-        } else {
-            ret = es305_send_msg_by_array(path_nb_call_headset_es,
-                      SIZE_OF_ARRAY(path_nb_call_headset_es));
-        }
+        ret = es305_send_msg_by_array(path_nb_call_headset,
+                                      SIZE_OF_ARRAY(path_nb_call_headset));
         break;
     case ES305_PATH_NB_CALL_HEADPHONE:
-        if (CS_CHIP_ID == chipid) {
-            ret = es305_send_msg_by_array(path_nb_call_headphone_cs,
-                      SIZE_OF_ARRAY(path_nb_call_headphone_cs));
-        } else {
-            /* es version image have not preset for headphone, use preset for headset */
-            ret = es305_send_msg_by_array(path_nb_call_headset_es,
-                      SIZE_OF_ARRAY(path_nb_call_headset_es));
-        }
+        ret = es305_send_msg_by_array(path_nb_call_headphone,
+                                      SIZE_OF_ARRAY(path_nb_call_headphone));
         break;
     case ES305_PATH_NB_CALL_SPEAKER:
-        if (CS_CHIP_ID == chipid) {
-            ret = es305_send_msg_by_array(path_nb_call_speaker_cs,
-                      SIZE_OF_ARRAY(path_nb_call_speaker_cs));
-        } else {
-            ret = es305_send_msg_by_array(path_nb_call_speaker_es,
-                      SIZE_OF_ARRAY(path_nb_call_speaker_es));
-        }
+        ret = es305_send_msg_by_array(path_nb_call_speaker,
+                                      SIZE_OF_ARRAY(path_nb_call_speaker));
         break;
     case ES305_PATH_NB_CALL_BT:
         ret = es305_send_msg_by_array(path_nb_call_bt,
-                      SIZE_OF_ARRAY(path_nb_call_bt));
+                                      SIZE_OF_ARRAY(path_nb_call_bt));
         break;
 /* call wide band */
     case ES305_PATH_WB_CALL_RECEIVER:
-        if (CS_CHIP_ID == chipid) {
-            ret = es305_send_msg_by_array(path_wb_call_receiver_cs,
-                      SIZE_OF_ARRAY(path_wb_call_receiver_cs));
-        } else {
-            /* es version image have not preset for wide band */
-            ret = es305_send_msg_by_array(path_nb_call_receiver_es,
-                      SIZE_OF_ARRAY(path_nb_call_receiver_es));
-        }
+        ret = es305_send_msg_by_array(path_wb_call_receiver,
+                                      SIZE_OF_ARRAY(path_wb_call_receiver));
         break;
     case ES305_PATH_WB_CALL_HEADSET:
-        if (CS_CHIP_ID == chipid) {
-            ret = es305_send_msg_by_array(path_wb_call_headset_cs,
-                      SIZE_OF_ARRAY(path_wb_call_headset_cs));
-        } else {
-            /* es version image have not preset for wide band */
-            ret = es305_send_msg_by_array(path_nb_call_headset_es,
-                      SIZE_OF_ARRAY(path_nb_call_headset_es));
-        }
+        ret = es305_send_msg_by_array(path_wb_call_headset,
+                                      SIZE_OF_ARRAY(path_wb_call_headset));
         break;
     case ES305_PATH_WB_CALL_HEADPHONE:
-        if (CS_CHIP_ID == chipid) {
-            ret = es305_send_msg_by_array(path_wb_call_headphone_cs,
-                      SIZE_OF_ARRAY(path_wb_call_headphone_cs));
-        } else {
-            /* es version image have not preset for wide band */
-            ret = es305_send_msg_by_array(path_nb_call_headset_es,
-                      SIZE_OF_ARRAY(path_nb_call_headset_es));
-        }
+        ret = es305_send_msg_by_array(path_wb_call_headphone,
+                                      SIZE_OF_ARRAY(path_wb_call_headphone));
         break;
     case ES305_PATH_WB_CALL_SPEAKER:
-        if (CS_CHIP_ID == chipid) {
-            ret = es305_send_msg_by_array(path_wb_call_speaker_cs,
-                      SIZE_OF_ARRAY(path_wb_call_speaker_cs));
-        } else {
-            /* es version image have not preset for wide band */
-            ret = es305_send_msg_by_array(path_nb_call_speaker_es,
-                      SIZE_OF_ARRAY(path_nb_call_speaker_es));
-        }
+        ret = es305_send_msg_by_array(path_wb_call_speaker,
+                                      SIZE_OF_ARRAY(path_wb_call_speaker));
         break;
     case ES305_PATH_WB_CALL_BT:
         ret = es305_send_msg_by_array(path_wb_call_bt,
-                      SIZE_OF_ARRAY(path_wb_call_bt));
+                                      SIZE_OF_ARRAY(path_wb_call_bt));
         break;
 /* voip mode */
     case ES305_PATH_VOIP_RECEIVER:
-        if (CS_CHIP_ID == chipid) {
-            ret = es305_send_msg_by_array(path_voip_receiver,
-                      SIZE_OF_ARRAY(path_voip_receiver));
-        } else {
-            /* es version image have not preset for voip, use bypass path */
-            if (ES305_PATH_BYPASS != es305_current_pathid) {
-                ret = es305_send_msg_by_array(path_playback_es,
-                          SIZE_OF_ARRAY(path_playback_es));
-            }
-            pathid = ES305_PATH_BYPASS;
-        }
+        ret = es305_send_msg_by_array(path_voip_receiver,
+                                      SIZE_OF_ARRAY(path_voip_receiver));
         break;
     case ES305_PATH_VOIP_HEADSET:
-        if (CS_CHIP_ID == chipid) {
-            ret = es305_send_msg_by_array(path_voip_headset,
-                      SIZE_OF_ARRAY(path_voip_headset));
-        } else {
-            /* es version image have not preset for voip, use bypass path */
-            if (ES305_PATH_BYPASS != es305_current_pathid) {
-                ret = es305_send_msg_by_array(path_playback_es,
-                          SIZE_OF_ARRAY(path_playback_es));
-            }
-            pathid = ES305_PATH_BYPASS;
-        }
+        ret = es305_send_msg_by_array(path_voip_headset,
+                                      SIZE_OF_ARRAY(path_voip_headset));
         break;
     case ES305_PATH_VOIP_HEADPHONE:
-        if (CS_CHIP_ID == chipid) {
-            ret = es305_send_msg_by_array(path_voip_headphone,
-                      SIZE_OF_ARRAY(path_voip_headphone));
-        } else {
-            /* es version image have not preset for voip, use bypass path */
-            if (ES305_PATH_BYPASS != es305_current_pathid) {
-                ret = es305_send_msg_by_array(path_playback_es,
-                          SIZE_OF_ARRAY(path_playback_es));
-            }
-            pathid = ES305_PATH_BYPASS;
-        }
+        ret = es305_send_msg_by_array(path_voip_headphone,
+                                      SIZE_OF_ARRAY(path_voip_headphone));
         break;
     case ES305_PATH_VOIP_SPEAKER:
-        if (CS_CHIP_ID == chipid) {
-            ret = es305_send_msg_by_array(path_voip_speaker,
-                      SIZE_OF_ARRAY(path_voip_speaker));
-        } else {
-            /* es version image have not preset for voip, use bypass path */
-            if (ES305_PATH_BYPASS != es305_current_pathid) {
-                ret = es305_send_msg_by_array(path_playback_es,
-                          SIZE_OF_ARRAY(path_playback_es));
-            }
-            pathid = ES305_PATH_BYPASS;
-        }
+        ret = es305_send_msg_by_array(path_voip_speaker,
+                                      SIZE_OF_ARRAY(path_voip_speaker));
         break;
     case ES305_PATH_VOIP_BT:
-        if (CS_CHIP_ID == chipid) {
-            ret = es305_send_msg_by_array(path_voip_bt,
-                      SIZE_OF_ARRAY(path_voip_bt));
-        } else {
-            /* es version image have not preset for voip, use bypass path */
-            if (ES305_PATH_BYPASS != es305_current_pathid) {
-                ret = es305_send_msg_by_array(path_playback_es,
-                          SIZE_OF_ARRAY(path_playback_es));
-            }
-            pathid = ES305_PATH_BYPASS;
-        }
+        ret = es305_send_msg_by_array(path_voip_bt,
+                                      SIZE_OF_ARRAY(path_voip_bt));
         break;
     default:
         loge("%s: invalid pathid : %d", __FUNCTION__, pathid);
@@ -1086,10 +966,6 @@ static int es305_probe(struct i2c_client *client,const struct i2c_device_id *id)
         loge("%s: es305_device register failed (%d)", __FUNCTION__, ret);
         goto err_free_gpio_all;
     }
-
-    mutex_lock(&es305_lock);
-    chipid = get_chipid();
-    mutex_unlock(&es305_lock);
 
     return 0;
 

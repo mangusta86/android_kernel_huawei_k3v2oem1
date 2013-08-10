@@ -249,11 +249,22 @@ void input_keycode(unsigned short key_code)
 #ifdef CONFIG_MHL_USB_SHARE
 void usb_switch_contorl(int switch_1_state, int switch_2_state)
 {
+       int ret = 0;
 	struct mhl_platform_data *mhl_pdata = NULL;
 	mhl_pdata = mhl_Sii9244_page0->dev.platform_data;
 
-	gpio_request(mhl_pdata->gpio_switch_1, "MHL_USB_1");
-	gpio_request(mhl_pdata->gpio_switch_2, "MHL_USB_2");
+	ret = gpio_request(mhl_pdata->gpio_switch_1, "MHL_USB_1");
+	if(ret < 0)
+	{
+	    TX_API_PRINT((KERN_ERR "Mhl:API:%s:%d:MHL_USB_1 GPIO request failed\n", __func__, __LINE__));
+	    return;
+	}
+	ret = gpio_request(mhl_pdata->gpio_switch_2, "MHL_USB_2");
+	if(ret < 0)
+	{
+	    TX_API_PRINT((KERN_ERR "Mhl:API:%s:%d:MHL_USB_2 GPIO request failed\n", __func__, __LINE__));
+	    return;
+	}
 
 	gpio_direction_output(mhl_pdata->gpio_switch_1, 0);
 	gpio_direction_output(mhl_pdata->gpio_switch_2, 0);

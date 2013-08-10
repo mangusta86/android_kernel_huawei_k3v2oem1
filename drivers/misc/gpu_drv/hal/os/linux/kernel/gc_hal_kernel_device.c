@@ -26,6 +26,9 @@
     static struct dove_gpio_irq_handler gc500_handle;
 #endif
 
+#define DEBUG_FILE "galcore_trace"
+#define PARENT_FILE "gpu"
+
 #define gcmIS_CORE_PRESENT(Device, Core) (Device->irqLines[Core] > 0)
 
 /******************************************************************************\
@@ -350,6 +353,7 @@ gckGALDEVICE_Construct(
     IN gctUINT32 PhysBaseAddr,
     IN gctUINT32 PhysSize,
     IN gctINT Signal,
+    IN gctUINT32 LogFileSize,
     OUT gckGALDEVICE *Device
     )
 {
@@ -385,6 +389,24 @@ gckGALDEVICE_Construct(
     }
 
     memset(device, 0, sizeof(struct _gckGALDEVICE));
+
+    device->dbgNode = gcvNULL;
+    if(LogFileSize != 0)
+    {
+        if(gckDEBUGFS_CreateNode(LogFileSize, PARENT_FILE, DEBUG_FILE, &device->dbgNode))
+        {
+            gcmkTRACE_ZONE(
+                    gcvLEVEL_ERROR, gcvZONE_DRIVER,
+                    "%s(%d): Failed to create  the debug file system  %s/%s \n",
+                    __FUNCTION__, __LINE__,
+                    PARENT_FILE, DEBUG_FILE
+                    );
+        }
+        else
+        {
+            gckDEBUGFS_SetCurrentNode(device->dbgNode);
+        }
+    }
 
     if (IrqLine != -1)
     {
@@ -672,7 +694,9 @@ gckGALDEVICE_Construct(
         /* create the external memory heap */
         status = gckVIDMEM_Construct(
             device->os,
-            externalBaseAddress, device->externalSize, externalAlignment,
+            //externalBaseAddress, device->externalSize, externalAlignment,
+            (ContiguousBase + ContiguousSize - device->externalSize - device->baseAddress) | device->systemMemoryBaseAddress,
+            device->externalSize, 64,
             0, &device->externalVidMem
             );
 
@@ -684,7 +708,7 @@ gckGALDEVICE_Construct(
         else
         {
             /* Map external memory. */
-            device->externalLogical
+/*            device->externalLogical
                 = (gctPOINTER) ioremap_nocache(physical, device->externalSize);
 
             if (device->externalLogical == gcvNULL)
@@ -694,6 +718,8 @@ gckGALDEVICE_Construct(
 
             device->externalPhysical = (gctPHYS_ADDR) physical;
             physical += device->externalSize;
+*/
+            device->externalPhysical = (gctPHYS_ADDR) (ContiguousBase + ContiguousSize - device->externalSize);
         }
     }
 
@@ -757,7 +783,7 @@ gckGALDEVICE_Construct(
             status = gckVIDMEM_Construct(
                 device->os,
                 (ContiguousBase - device->baseAddress) | device->systemMemoryBaseAddress,
-                 ContiguousSize,
+                 ContiguousSize - device->externalSize,
                 64, BankSize,
                 &device->contiguousVidMem
                 );

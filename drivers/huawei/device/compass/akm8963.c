@@ -30,7 +30,7 @@
 #include <linux/workqueue.h>
 #include <linux/freezer.h>
 #include <linux/board_sensors.h>
-#include <akm8963.h>
+#include "akm8963.h"
 #include <asm/io.h>
 #include <linux/mux.h>
 #ifdef CONFIG_HUAWEI_HW_DEV_DCT
@@ -44,7 +44,7 @@
 #define AKM_ACCEL_ITEMS 3
 /* Wait timeout in millisecond */
 #define AKM8963_DRDY_TIMEOUT	100
-#define MSENSOR_PIN "ac28"/*gpio_125*/
+#define MSENSOR_PIN "gpio_125"/*gpio_125*/
 #if AKM8963_DEBUG_MSG
 #define AKMDBG(format, ...)    \
         printk(KERN_INFO "AKM8963 " format "\n", ## __VA_ARGS__)
@@ -373,8 +373,6 @@ static void AKECS_SetYPR(
 		rbuf[5], rbuf[6], rbuf[7], rbuf[8]);
 	dev_vdbg(&akm->input->dev, "  Orientation[YPR] : %6d,%6d,%6d",
 		rbuf[9], rbuf[10], rbuf[11]);
-      printk (" Geomagnetism[LSB]: %6d,%6d,%6d stat=%d",
-		rbuf[5], rbuf[6], rbuf[7], rbuf[8]);
 	/* No events are reported */
 	if (!rbuf[0]) {
 		dev_dbg(&akm->i2c->dev, "Don't waste a time.");

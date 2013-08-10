@@ -626,7 +626,7 @@ config TCP_MD5SIG
 	  If unsure, say N.
 
 config TCP_CONG_MW3
-    tristate "MW3 TCP"
-    default y
-    ---help---
-    This is version 1.0 of TCP which uses a mw3 function among other techniques.
+tristate "MW3 TCP"
+default y
+---help---
+This is version 1.0 of TCP which uses a mw3 function among other techniques.

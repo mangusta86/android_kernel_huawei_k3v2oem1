@@ -89,7 +89,6 @@
 #define GPIO_LCD_POWER  (171)
 #define GPIO_LCD_ID0	(135)
 #define GPIO_LCD_ID1	(136)
-#define GPIO_LCD_TE (072)
 #define GPIO_PWM0   (149)
 #define GPIO_PWM1   (150)
 
@@ -97,7 +96,6 @@
 #define GPIO_LCD_RESET_NAME "gpio_lcd_reset"
 #define GPIO_LCD_ID0_NAME "gpio_lcd_id0"
 #define GPIO_LCD_ID1_NAME "gpio_lcd_id1"
-#define GPIO_LCD_TE_NAME "gpio_lcd_te"
 #define GPIO_PWM0_NAME   "gpio_pwm0"
 #define GPIO_PWM1_NAME   "gpio_pwm1"
 #define REG_BASE_PWM0_NAME  "reg_base_pwm0"
@@ -117,16 +115,34 @@
 #define PLATFORM_DEVICE_LCD_NAME "mipi_panasonic_VVX10F002A00"
 #elif defined(CONFIG_LCD_CMI_OTM1280A)
 #define PLATFORM_DEVICE_LCD_NAME "mipi_cmi_OTM1280A"
+#elif defined(CONFIG_LCD_SAMSUNG_LMS350DF04)
+#define PLATFORM_DEVICE_LCD_NAME "ldi_samsung_LMS350DF04"
+#elif defined(CONFIG_LCD_SAMSUNG_S6E39A)
+#define PLATFORM_DEVICE_LCD_NAME "mipi_samsung_S6E39A"
+#elif defined(CONFIG_LCD_SHARP_LS035B3SX)
+#define PLATFORM_DEVICE_LCD_NAME "mipi_sharp_LS035B3SX"
+#elif defined(CONFIG_LCD_CMI_PT045TN07)
+#define PLATFORM_DEVICE_LCD_NAME "mipi_cmi_PT045TN07"
+#elif defined(CONFIG_LCD_JDI_OTM1282B)
+#define PLATFORM_DEVICE_LCD_NAME "mipi_jdi_OTM1282B"
+#else
+#error "PLATFORM_DEVICE_LCD_NAME not defined"
 #endif
 
+/* Begin: Added by d59977 for BCM GPS */
 #define GPIO_GPS_BCM_EN    (GPIO_18_7)
 #define GPIO_GPS_BCM_RET   (GPIO_19_0)
+/* End: Added by d59977 for BCM GPS */
 
+/* Begin: Added by d59977 for BCM GPS */
 #define GPIO_GPS_BCM_EN_NAME    "gpio_gps_bcm_enable"
 #define GPIO_GPS_BCM_RET_NAME   "gpio_gps_bcm_rest"
+/* End: Added by d59977 for BCM GPS */
 
+/* Begin: Added for agps e911 */
 #define GPIO_GPS_BCM_REFCLK (GPIO_19_1)     /*GPIO_153*/
 #define GPIO_GPS_BCM_REFCLK_NAME   "gpio_gps_bcm_refclk"
+/* End: Added for agps e911 */
 
 
 #define SECRAM_RESET_ADDR	IO_ADDRESS(REG_BASE_PMUSPI + (0x87 << 2))
@@ -416,12 +432,6 @@ static struct resource k3_lcd_resources[] = {
 		.end = REG_BASE_PWM0 + REG_PWM0_IOSIZE-1,
 		.flags = IORESOURCE_MEM,
 	},  
-	[7] = {
-		.name = GPIO_LCD_TE_NAME,
-		.start = GPIO_LCD_TE,
-		.end = GPIO_LCD_TE,
-		.flags = IORESOURCE_IO,
-	},
 };
 
 static struct platform_device k3_lcd_device = {
@@ -476,6 +486,7 @@ static struct platform_device usb_switch_device_u9508 = {
     },
 };
 
+/* Begin: Added by d59977 for BCM GPS */
 static struct resource k3_gps_bcm_resources[] = {
 	[0] = {
 	.name  = GPIO_GPS_BCM_EN_NAME,
@@ -489,12 +500,14 @@ static struct resource k3_gps_bcm_resources[] = {
 	.end   = GPIO_GPS_BCM_RET,
 	.flags = IORESOURCE_IO,
 	},
+	/* Begin: Added for agps e911 */
 	[2] = {
 	.name  = GPIO_GPS_BCM_REFCLK_NAME,
 	.start = GPIO_GPS_BCM_REFCLK,
 	.end   = GPIO_GPS_BCM_REFCLK,
 	.flags = IORESOURCE_IO,
 	},
+	/* end: Added for agps e911 */
 };
 
 static struct platform_device k3_gps_bcm_device = {
@@ -506,6 +519,7 @@ static struct platform_device k3_gps_bcm_device = {
 	.num_resources = ARRAY_SIZE(k3_gps_bcm_resources),
 	.resource = k3_gps_bcm_resources,
 };
+/* End: Added by d59977 for BCM GPS */
 
 
 static struct resource bluepower_resources[] = {
@@ -751,6 +765,7 @@ static struct platform_device hisik3_power_key_device = {
 	.resource = hisik3_power_key_resources,
 };
 
+/*watchdog added by s00212129*/
 static struct resource  hisik3_watchdog_resources[] = {
 	[0] = {
 		.start = REG_BASE_WD,
@@ -848,7 +863,7 @@ static struct atmel_i2c_platform_data atmel_tp_platform_data = {
 	.abs_width_max = 255,
 	/*.abs_area_min = 0,*/
 	/*.abs_area_max = 255,*/
-        .gpio_irq = GPIO_19_5,
+	.gpio_irq = GPIO_19_5,
 	.gpio_reset = GPIO_19_4,
 	.power = NULL,
 	.config_T6 = {
@@ -1120,12 +1135,14 @@ static struct platform_device tpa6132_device = {
 	},
 };
 
+#ifdef CONFIG_HIK3_CAMERA_FLASH
 static struct tps61310_platform_data tps61310_platform_data = 
 {
 	.reset_pin			= GPIO_9_4,
 	.strobe0			= GPIO_8_1,
 	.strobe1			= GPIO_8_2,
 };
+#endif
 
 static struct platform_device boardid_dev ={
     .name    = "boardid_dev",
@@ -1144,11 +1161,13 @@ static struct i2c_board_info hisik3_i2c_bus0_devs[]= {
 	},
 	
 	/* camera tps61310 light */
+#ifdef CONFIG_HIK3_CAMERA_FLASH	
 	[1]	=	{
 		.type			= K3_FLASH_NAME, 
 		.addr			= K3_FLASH_I2C_ADDR,
 		.platform_data		= &tps61310_platform_data,
 	},
+#endif	
 };
 
 static int hi6421_batt_table[] = {
@@ -1550,6 +1569,7 @@ static void __init k3v2_map_io(void)
 	k3v2_map_common_io();
 }
 
+/* Begin: change ro.hardware to huawei */
 MACHINE_START(K3V2OEM1, "huawei")
 	.boot_params	= PLAT_PHYS_OFFSET + 0x00000100,
 	.init_irq       = k3v2_gic_init_irq,
@@ -1558,3 +1578,4 @@ MACHINE_START(K3V2OEM1, "huawei")
 	.timer          = &k3v2_timer,
 	.init_early 	= k3v2_early_init,
 MACHINE_END
+/* End: change ro.hardware to huawei */

@@ -309,7 +309,7 @@ static ssize_t adxl34x_enable_show(struct device *dev,
 {
 	struct adxl34x *ac = dev_get_drvdata(dev);
 
-	return sprintf(buf, "%u\n", ~ac->disabled);	
+	return sprintf(buf, "%u\n", ~ac->disabled);
 }
 
 static ssize_t adxl34x_enable_store(struct device *dev,

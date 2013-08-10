@@ -67,7 +67,7 @@ const struct _sensor_reg_t sonyimx105_framesize_1600x1200[] = {
 
 	//PLL config
 	{0x0305, 0x02},
-	{0x0307, 0x50},
+	{0x0307, 0x50},//y00215412 20120609 set sclk 800M
 	{0x30A4, 0x02},
 	{0x303C, 0x40},
 
@@ -130,7 +130,7 @@ const struct _sensor_reg_t sonyimx105_framesize_5M_wide[] = {
 
 	//PLL config
 	{0x0305, 0x02},
-	{0x0307, 0x50},
+	{0x0307, 0x50},//y00215412 20120609 set sclk 800M
 	{0x30A4, 0x02},
 	{0x303C, 0x40},
 

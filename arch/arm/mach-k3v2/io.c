@@ -31,6 +31,12 @@
 	.length  =    REG_##name##_IOSIZE, \
 	.type    =    MT_DEVICE	\
 }
+#define REG_MMMAP(name) { \
+	.virtual =   (REG_BASE_##name##_VIRT),	\
+	.pfn     =    __phys_to_pfn(REG_BASE_##name), \
+	.length  =    REG_##name##_IOSIZE, \
+	.type    =    MT_MEMORY \
+}
 
 static struct map_desc hisik3_io_desc[] __initdata = {
 	REG_IOMAP(G2D),
@@ -120,7 +126,7 @@ static struct map_desc hisik3_io_desc[] __initdata = {
 	REG_IOMAP(EDC0),
 	REG_IOMAP(ASP),
 	REG_IOMAP(ISP),
-	REG_IOMAP(SECRAM),
+	REG_MMMAP(SECRAM),
 #ifdef CONFIG_PCI
 	REG_IOMAP(PCIE),
 #endif

@@ -107,6 +107,9 @@ module_param(baseAddress, ulong, 0644);
 static ulong physSize = 0;
 module_param(physSize, ulong, 0644);
 
+static uint logFileSize=0;
+module_param(logFileSize,uint, 0644);
+
 static int showArgs = 1;
 module_param(showArgs, int, 0644);
 
@@ -770,6 +773,11 @@ static int drv_init(void)
 #endif
     }
 
+    if(logFileSize != 0)
+    {
+        gckDEBUGFS_Initialize();
+    }
+
     /* Create the GAL device. */
     gcmkONERROR(gckGALDEVICE_Construct(
         irqLine,
@@ -780,6 +788,7 @@ static int drv_init(void)
         registerMemBaseVG, registerMemSizeVG,
         contiguousBase, contiguousSize,
         bankSize, fastClear, compression, baseAddress, physSize, signal,
+        logFileSize,
         &device
         ));
 
@@ -1036,7 +1045,7 @@ static int __devinit gpu_suspend(struct platform_device *dev, pm_message_t state
     gctINT i, j;
 
     device = platform_get_drvdata(dev);
-    printk("gpu_suspend +\n");
+	printk("gpu_suspend +\n");
     for (i = 0; i < gcdCORE_COUNT; i++)
     {
         if (device->kernels[i] != gcvNULL)
@@ -1071,11 +1080,11 @@ static int __devinit gpu_suspend(struct platform_device *dev, pm_message_t state
 
             if (gcmIS_ERROR(status))
             {
-                printk("gpu_suspend error[%d status=%d] -\n", i, status);
-                for (j = 0; j < i; i++)
-                {
-                    (void)gckHARDWARE_SetPowerManagementState(device->kernels[j]->hardware, gcvPOWER_ON);
-                }
+				printk("gpu_suspend error[%d status=%d] -\n", i, status);
+            	for (j = 0; j < i; i++)
+        		{
+					(void)gckHARDWARE_SetPowerManagementState(device->kernels[j]->hardware, gcvPOWER_ON);
+        		}
                 return -1;
             }
 
@@ -1201,7 +1210,7 @@ static int __init gpu_init(void)
     baseAddress = 0;
     // TBD: get it from bootargs
     contiguousBase = HIGPU_BUF_BASE;
-    contiguousSize = HIGPU_BUF_SIZE;
+    contiguousSize = hisi_get_reserve_gpu_mem_size();
     physSize = 0x80000000;
 
 #if 0

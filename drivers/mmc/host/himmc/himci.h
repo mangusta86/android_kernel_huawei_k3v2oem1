@@ -116,7 +116,8 @@ struct himci_host {
 	int                     *init_tuning_config;
 	int						tuning_current_sample;		/* record current sample */
 	int						tuning_init_sample;			/* record the inital sample */
-	int						tuning_move_sample;			/* record the inital sample */
+	int						tuning_move_sample;			/* record the move sample */
+	int						tuning_move_count;			/* record the move count */
 	unsigned int			tuning_sample_flag;			/* record the sample OK or NOT */
 };
 

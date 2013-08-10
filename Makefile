@@ -1,3 +1,5 @@
+-include U9508_BoardConfig.mk
+-include U9508_platform.mk
 VERSION = 3
 PATCHLEVEL = 0
 SUBLEVEL = 8
@@ -376,14 +378,6 @@ endif
 
 ifeq ($(USE_LCD_TOSHIBA_MDW70),true)
     KBUILD_CFLAGS += -DCONFIG_LCD_TOSHIBA_MDW70
-endif
-
-ifeq ($(USE_PRODUCT_U9508),true)
-	KBUILD_CFLAGS += -DCONFIG_PRODUCT_U9508
-endif
-
-ifeq ($(USE_PRODUCT_U9510),true)
-    KBUILD_CFLAGS += -DCONFIG_PRODUCT_U9510
 endif
 
 KBUILD_AFLAGS_KERNEL :=

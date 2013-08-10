@@ -56,6 +56,7 @@ enum event_type {
 
 struct hiusb_info {
 	enum hiusb_status hiusb_status;
+	unsigned hiusb_phy_param;
 	int is_allow_connect;
 	int gadget_init;
 	int usb_in_irq_installed;
@@ -86,6 +87,54 @@ struct hiusb_info {
 };
 
 static struct hiusb_info *hiusb_info_p;
+
+void hiusb_switch_to_host_test_package(void)
+{
+	hprt0_data_t reg_value;
+	dwc_otg_device_t *otg_dev = lm_get_drvdata(hiusb_info_p->hiusb_lm_dev);
+
+	printk("[%s]+\n", __func__);
+	reg_value.d32 = dwc_otg_get_hprt0(otg_dev->core_if);
+	printk("hprt value: 0x%x\n", reg_value.d32);
+	reg_value.b.prttstctl = 4;
+	dwc_otg_set_hprt0(otg_dev->core_if, reg_value.d32);
+	reg_value.d32 = dwc_otg_get_hprt0(otg_dev->core_if);
+	printk("new hprt value: 0x%x\n", reg_value.d32);
+	printk("[%s]-\n", __func__);
+}
+
+void hiusb_switch_to_device_test_package(void)
+{
+	dctl_data_t reg_value;
+	dwc_otg_device_t *otg_dev = lm_get_drvdata(hiusb_info_p->hiusb_lm_dev);
+
+	printk("[%s]+\n", __func__);
+	reg_value.d32 = DWC_READ_REG32(&otg_dev->core_if->dev_if->dev_global_regs->dctl);
+	printk("dctl value: 0x%x\n", reg_value.d32);
+	reg_value.b.tstctl = 4;
+	DWC_WRITE_REG32(&otg_dev->core_if->dev_if->dev_global_regs->dctl, reg_value.d32);
+	reg_value.d32 = DWC_READ_REG32(&otg_dev->core_if->dev_if->dev_global_regs->dctl);
+	printk("dctl value: 0x%x\n", reg_value.d32);
+	printk("[%s]-\n", __func__);
+}
+
+unsigned int hiusb_read_phy_param(void)
+{
+	unsigned int reg_value;
+	reg_value = readl(PERI_CTRL17);
+	return reg_value;
+}
+
+unsigned int hiusb_set_phy_param(unsigned int value)
+{
+	hiusb_info_p->hiusb_phy_param = value;
+	return hiusb_info_p->hiusb_phy_param;
+}
+
+unsigned int hiusb_get_phy_param(void)
+{
+	return hiusb_info_p->hiusb_phy_param;
+}
 
 int get_charger_name(void)
 {
@@ -376,8 +425,7 @@ static int setup_dvc_and_phy(void)
 	reg_value |= (0x6 << 17);
 	writel(reg_value, (PERI_CTRL16));
 
-	/* bit[5:2]: picophy_txvreftune 4'b1000 */
-	/* bit[1:0]: picophy_txrisetune 2'b11 */
+	/* set usb1 phy param */
 	reg_value = readl(PERI_CTRL17);
 	reg_value &= ~0x3F;
 
@@ -401,6 +449,14 @@ static int setup_dvc_and_phy(void)
 		pr_err("invalid usbphy_tune.\n");
 		break;
 	}
+
+	if (hiusb_get_phy_param()) {
+		reg_value = hiusb_get_phy_param();
+		printk(KERN_INFO "new phy param: 0x%08x\n", reg_value);
+	}
+
+	hiusblog("phy param: 0x%08x\n", reg_value);
+
 	writel(reg_value, PERI_CTRL17);
 
 	/* id and vbus setting */
@@ -543,9 +599,8 @@ static void clear_charger_interrupt(void)
 
 static void k3v2_otg_setup(void)
 {
-	wake_lock(&(hiusb_info_p->hiusb_wake_lock));
-	hiusblog("hiusb wake lock\n");
-	/* open ldo clock */
+	//wake_lock(&(hiusb_info_p->hiusb_wake_lock));
+	//hiusblog("hiusb wake lock\n");
 	setup_dvc_and_phy();
 	hiusb_info_p->hiusb_status = HIUSB_DEVICE;
 	return;
@@ -570,8 +625,8 @@ static void k3v2_otg_clearup(void)
 	/* close clock ldo */
 	clearup_dvc_and_phy();
 
-	wake_unlock(&(hiusb_info_p->hiusb_wake_lock));
-	hiusblog("hiusb wake unlock\n");
+	//wake_unlock(&(hiusb_info_p->hiusb_wake_lock));
+	//hiusblog("hiusb wake unlock\n");
 	return ;
 }
 
@@ -620,14 +675,19 @@ static void k3v2_otg_interrupt_work(struct work_struct *work)
 		} else if ((HIUSB_OFF == hiusb_info_p->hiusb_status)
 		    || (HIUSB_SUSPEND == hiusb_info_p->hiusb_status)) {
 			/* USB cable connected, do not alow sleep. */
-			wake_lock(&(hiusb_info_p->hiusb_wake_lock));
-			hiusblog("hiusb wake lock\n");
+			//wake_lock(&(hiusb_info_p->hiusb_wake_lock));
+			//hiusblog("hiusb wake lock\n");
 
 			/* open ldo clock */
 			setup_dvc_and_phy();
 
 			/* Get charger type. */
 			hiusb_info_p->charger_type = detect_charger_type();
+			if ((hiusb_info_p->charger_type == CHARGER_TYPE_USB)
+			    ||(hiusb_info_p->charger_type == CHARGER_TYPE_BC_USB)){
+				wake_lock(&(hiusb_info_p->hiusb_wake_lock));
+				hiusblog("hiusb wake lock\n");
+			}
 			notify_charger_type(0);
 
 			/* disable usb core interrupt */
@@ -688,9 +748,10 @@ static void k3v2_otg_interrupt_work(struct work_struct *work)
 			hiusb_info_p->hiusb_status = HIUSB_OFF;
 
 			hiusblog("hiusb_status: DEVICE -> OFF\n");
-
-			wake_unlock(&(hiusb_info_p->hiusb_wake_lock));
-			hiusblog("hiusb wake unlock\n");
+			if (wake_lock_active(&(hiusb_info_p->hiusb_wake_lock))) {
+			    wake_unlock(&(hiusb_info_p->hiusb_wake_lock));
+			    hiusblog("hiusb wake unlock\n");
+            }
 		} else if (HIUSB_HOST == hiusb_info_p->hiusb_status) {
 			hiusblog("OUT intr in HOST mode\n");
 		} else if (HIUSB_SUSPEND == hiusb_info_p->hiusb_status) {
@@ -827,6 +888,7 @@ int hiusb_probe_phase1(struct lm_device *_dev)
 	hi->is_allow_connect = 0;
 	hi->gadget_init = 0;
 	hi->charger_type = CHARGER_REMOVED;
+	hiusb_info_p->hiusb_phy_param = 0;
 	sema_init(&hi->hiusb_lock, 0);
 
 	hi->usb_block = iomux_get_block("block_vbusdrv");
@@ -890,6 +952,7 @@ usb20_vcc_fail:
 get_phy_clk_fail:
 	clk_put(hi->dvc_clk);
 get_dvc_clk_fail:
+	wake_lock_destroy(&hi->hiusb_wake_lock);
 	kfree(hi);
 	hiusb_info_p = NULL;
 	return ret;
@@ -912,8 +975,8 @@ int hiusb_request_irq(struct lm_device *_dev)
 
 	irq = IRQ_VBUS_COMP_VBAT_FALLING;
 	ret = request_irq(irq, hiusb_out_interrupt,
-		//IRQF_NO_SUSPEND, "hiusb_out_interrupt", _dev);
-		0, "hiusb_out_interrupt", _dev);
+		IRQF_NO_SUSPEND, "hiusb_out_interrupt", _dev);
+		//0, "hiusb_out_interrupt", _dev);
 	if (ret) {
 		dev_err(&_dev->dev, "request irq failed.\n");
 		irq = IRQ_VBUS_COMP_VBAT_RISING;
@@ -1034,7 +1097,7 @@ int hiusb_remove(struct lm_device *_dev)
 	regulator_disable(hi->phy_regu);
 	regulator_put(hi->dvc_regu);
 	regulator_put(hi->phy_regu);
-
+	wake_lock_destroy(&hi->hiusb_wake_lock);
 	kfree(hi);
 	hiusb_info_p = NULL;
 	dev_info(&_dev->dev, "hiusb_remove done.\n");
@@ -1108,6 +1171,10 @@ int hiusb_resume(struct lm_device *_dev)
 			clearup_dvc_and_phy();
 			hiusb_info_p->hiusb_status = HIUSB_OFF;
 		}
+	/* Deep sleep will power off pctl, so set phy into siddq state when resume */
+	} else if (HIUSB_OFF == hiusb_info_p->hiusb_status) {
+		setup_dvc_and_phy();
+		clearup_dvc_and_phy();
 	}
 	hiusblog("[%s]-\n", __func__);
 	up(&hiusb_info_p->hiusb_lock);

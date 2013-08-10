@@ -2,7 +2,8 @@
 # Makefile for hisilicon K3 soc camera v4l2 driver
 # Author: m55267
 #
-EXTRA_CFLAGS += -Idrivers/media/video/hik3/capture/isp
+EXTRA_CFLAGS += -Idrivers/media/video/hik3/capture/isp \
+				-Idrivers/media/video/hik3/capture
 EXTRA_CFLAGS += -fno-pic
 
 

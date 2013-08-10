@@ -56,15 +56,18 @@
 
 #define	DRIVER_VERSION				"04-Aug-2011"
 
+#define NCM_IPV6_VER 0x6
+
 /* CDC NCM subclass 3.2.1 */
 #define USB_CDC_NCM_NDP16_LENGTH_MIN		0x10
 
 /* Maximum NTB length */
-#define	CDC_NCM_NTB_MAX_SIZE_TX			16384	/* bytes */
-#define	CDC_NCM_NTB_MAX_SIZE_RX			16384	/* bytes */
+#define	CDC_NCM_NTB_MAX_SIZE_TX			8192	/* bytes 16k->8k out of memory */
+#define	CDC_NCM_NTB_MAX_SIZE_RX			63488	/* bytes 64k->62k out of memory */
 
 /* Minimum value for MaxDatagramSize, ch. 6.2.9 */
 #define	CDC_NCM_MIN_DATAGRAM_SIZE		1514	/* bytes */
+#define	CDC_NCM_ETH_HDR_SIZE		14	/* bytes */
 
 #define	CDC_NCM_MIN_TX_PKT			512	/* bytes */
 
@@ -75,7 +78,7 @@
  * Maximum amount of datagrams in NCM Datagram Pointer Table, not counting
  * the last NULL entry. Any additional datagrams in NTB would be discarded.
  */
-#define	CDC_NCM_DPT_DATAGRAMS_MAX		32
+#define	CDC_NCM_DPT_DATAGRAMS_MAX		40
 
 /* Maximum amount of IN datagrams in NTB */
 #define	CDC_NCM_DPT_DATAGRAMS_IN_MAX		0 /* unlimited */
@@ -182,7 +185,7 @@ static u8 cdc_ncm_setup(struct cdc_ncm_ctx *ctx)
 				0, iface_no, &ctx->ncm_parm,
 				sizeof(ctx->ncm_parm), 10000);
 	if (err < 0) {
-		pr_debug("failed GET_NTB_PARAMETERS\n");
+		pr_info("failed GET_NTB_PARAMETERS\n");
 		return 1;
 	}
 
@@ -512,36 +515,45 @@ advance:
 
 	/* check if we got everything */
 	if ((ctx->control == NULL) || (ctx->data == NULL) ||
-	    (ctx->ether_desc == NULL) || (ctx->control != intf))
+	    (ctx->ether_desc == NULL) || (ctx->control != intf)) {
+		dev_info(&dev->udev->dev,"get ctx info err\n");
 		goto error;
+	}
 
 	/* claim interfaces, if any */
 	temp = usb_driver_claim_interface(driver, ctx->data, dev);
 	if (temp)
-		goto error;
+		dev_dbg(&dev->udev->dev, "[usb_driver_claim_interface] error type: %d\n", temp);
 
 	iface_no = ctx->data->cur_altsetting->desc.bInterfaceNumber;
 
 	/* reset data interface */
 	temp = usb_set_interface(dev->udev, iface_no, 0);
-	if (temp)
+	if (temp) {
+		dev_info(&dev->udev->dev,"usb_set_interface iface_no[%d] err[%d]\n",iface_no,temp);
 		goto error2;
+	}
 
 	/* initialize data interface */
-	if (cdc_ncm_setup(ctx))
+	if (cdc_ncm_setup(ctx)) {
+		dev_info(&dev->udev->dev,"cdc_ncm_setup\n");
 		goto error2;
+	}
 
 	/* configure data interface */
 	temp = usb_set_interface(dev->udev, iface_no, 1);
-	if (temp)
+	if (temp) {
+		dev_info(&dev->udev->dev,"usb_set_interface iface_no[%d] err2[%d]\n",iface_no,temp);
 		goto error2;
+	}
 
 	cdc_ncm_find_endpoints(ctx, ctx->data);
 	cdc_ncm_find_endpoints(ctx, ctx->control);
 
-	if ((ctx->in_ep == NULL) || (ctx->out_ep == NULL) ||
-	    (ctx->status_ep == NULL))
+	if ((ctx->in_ep == NULL) || (ctx->out_ep == NULL)) {
+		dev_info(&dev->udev->dev,"ctx in_ep or out_ep is NULL\n");
 		goto error2;
+	}
 
 	dev->net->ethtool_ops = &cdc_ncm_ethtool_ops;
 
@@ -550,8 +562,11 @@ advance:
 	usb_set_intfdata(ctx->intf, dev);
 
 	temp = usbnet_get_ethernet_addr(dev, ctx->ether_desc->iMACAddress);
-	if (temp)
+	if (temp) {
+		dev_info(&dev->udev->dev,"usbnet_get_ethernet_addr iMACAddress[%d] err[%d]\n",
+			  ctx->ether_desc->iMACAddress,temp);
 		goto error2;
+	}
 
 	dev_info(&dev->udev->dev, "MAC-Address: "
 				"0x%02x:0x%02x:0x%02x:0x%02x:0x%02x:0x%02x\n",
@@ -583,6 +598,15 @@ error2:
 error:
 	cdc_ncm_free((struct cdc_ncm_ctx *)dev->data[0]);
 	dev->data[0] = 0;
+	buf = intf->cur_altsetting->extra;
+	len = intf->cur_altsetting->extralen;
+	printk("===================================");
+	for (temp=0; temp<len; temp++) {
+		if (temp % 16 == 0)
+			printk("\n");
+		printk("0x%0x ",buf[temp]);
+	}
+	printk("\n===================================\n");
 	dev_info(&dev->udev->dev, "bind() failure\n");
 	return -ENODEV;
 }
@@ -719,7 +743,8 @@ cdc_ncm_fill_tx_frame(struct cdc_ncm_ctx *ctx, struct sk_buff *skb)
 			break;
 		}
 
-		memcpy(((u8 *)skb_out->data) + offset, skb->data, skb->len);
+		skb->len = skb->len - CDC_NCM_ETH_HDR_SIZE;
+		memcpy(((u8 *)skb_out->data) + offset, &skb->data[CDC_NCM_ETH_HDR_SIZE ], skb->len );
 
 		ctx->tx_ncm.dpe16[n].wDatagramLength = cpu_to_le16(skb->len);
 		ctx->tx_ncm.dpe16[n].wDatagramIndex = cpu_to_le16(offset);
@@ -925,6 +950,40 @@ error:
 	return NULL;
 }
 
+static void cdc_ncm_init_skb_in(struct usbnet *dev, struct sk_buff *skb)
+{
+	struct sk_buff *skb_ip = skb;
+	if (skb_ip->len > CDC_NCM_MIN_DATAGRAM_SIZE) {
+		pr_warn("!!!!!!!!!!!!Large than MTU: pkt_len = %d\n\n", skb_ip->len);
+		skb_ip = NULL;
+		return;
+	} else {
+		/* modifying ethernet header */
+		{
+			char mac_addr[] = {0xB6,0x91,0x24,0xa8,0x14,0x72,0xb6,0x91,0x24,
+						   0xa8,0x14,0x72,0x08,0x0};
+			struct ethhdr *eth_hdr = (struct ethhdr *) mac_addr;
+			char *ptr = (char*)(((u8 *)skb_ip->data) + 14);
+			int ver = 0;
+			ver =(ptr[0] & 0xF0) >> 4;
+
+			if (ver == NCM_IPV6_VER) {
+				unsigned short ipv6_proto_type = 0xDD86;
+				memcpy((void *)(&(eth_hdr->h_proto)),
+					(void *)(&ipv6_proto_type),
+					sizeof(eth_hdr->h_proto));
+			}
+			memcpy((void *)eth_hdr->h_dest,
+				   (void*)dev->net->dev_addr,
+				   sizeof(eth_hdr->h_dest));
+			memcpy((void *)skb_ip->data,
+				   (void *)eth_hdr,
+				   sizeof(struct ethhdr));
+		}
+	}
+	return;
+}
+
 static int cdc_ncm_rx_fixup(struct usbnet *dev, struct sk_buff *skb_in)
 {
 	struct sk_buff *skb;
@@ -992,12 +1051,13 @@ static int cdc_ncm_rx_fixup(struct usbnet *dev, struct sk_buff *skb_in)
 					sizeof(struct usb_cdc_ncm_dpe16));
 	nframes--; /* we process NDP entries except for the last one */
 
-	pr_debug("nframes = %u\n", nframes);
+	if(nframes > CDC_NCM_DPT_DATAGRAMS_MAX)
+		pr_info("nframes = %u\n", nframes);
 
 	temp += sizeof(ctx->rx_ncm.ndp16);
 
 	if ((temp + nframes * (sizeof(struct usb_cdc_ncm_dpe16))) > actlen) {
-		pr_debug("Invalid nframes = %d\n", nframes);
+		pr_info("Invalid nframes = %d\n", nframes);
 		goto error;
 	}
 
@@ -1019,28 +1079,46 @@ static int cdc_ncm_rx_fixup(struct usbnet *dev, struct sk_buff *skb_in)
 		 * All entries after first NULL entry are to be ignored
 		 */
 		if ((offset == 0) || (temp == 0)) {
-			if (!x)
+			if (!x){
+				pr_info("cdc_ncm_rx_fixup !!!!! error1~~~~~~!!!!!!\n");
 				goto error; /* empty NTB */
+			}
 			break;
 		}
 
 		/* sanity checking */
 		if (((offset + temp) > actlen) ||
 		    (temp > CDC_NCM_MAX_DATAGRAM_SIZE) || (temp < ETH_HLEN)) {
-			pr_debug("invalid frame detected (ignored)"
+			pr_info("invalid frame detected (ignored)"
 					"offset[%u]=%u, length=%u, skb=%p\n",
 					x, offset, temp, skb_in);
-			if (!x)
+			if (!x){
+				pr_info("cdc_ncm_rx_fixup !!!!! error2~~~~~~!!!!!!\n");
 				goto error;
+			}
 			break;
 
 		} else {
-			skb = skb_clone(skb_in, GFP_ATOMIC);
-			if (!skb)
+			char *ptr = (char*)(((u8 *)skb_in->data) + offset);
+
+			if(ptr[14] != 0x45 && ptr[14] != 0x60){
+				pr_info("ncm error frame! [%d|%d] %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x %x\n",
+					x,nframes,
+					ptr[0], ptr[1], ptr[2], ptr[3], ptr[4],
+					ptr[5], ptr[6], ptr[7], ptr[8], ptr[9],
+					ptr[10],ptr[11],ptr[12],ptr[13],ptr[14],
+					ptr[15],ptr[16],ptr[17],ptr[18],ptr[19]);
+			}
+
+			skb = dev_alloc_skb(temp);
+			if (!skb){
+				pr_info("ncm alloc rx skb failed\n");
 				goto error;
+			}
 			skb->len = temp;
-			skb->data = ((u8 *)skb_in->data) + offset;
+			memcpy(skb->data, (((u8 *)skb_in->data) + offset), temp);
 			skb_set_tail_pointer(skb, temp);
+			cdc_ncm_init_skb_in(dev, skb);
 			usbnet_skb_return(dev, skb);
 		}
 	}

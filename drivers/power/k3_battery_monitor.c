@@ -294,7 +294,6 @@ static int k3_battery_monitor_capacity_changed(struct k3_battery_monitor_device_
 
 		di->capacity = curr_capacity;
 		//di->bat_capacity = curr_capacity;
-		di->amb_temperature = ambient_temperature;
 		di->temperature = curr_temperature;
 		di->capacity_debounce_count = 0;
         if((di->usb_online || di->ac_online)&&(di->charge_status == POWER_SUPPLY_STATUS_FULL))

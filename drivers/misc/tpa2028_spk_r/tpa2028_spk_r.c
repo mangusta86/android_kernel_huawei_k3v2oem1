@@ -11,9 +11,9 @@
 
 #define LOG_TAG "TPA2028_R"
 
-#define PRINT_INFO  1
-#define PRINT_WARN  1
-#define PRINT_DEBUG 1
+#define PRINT_INFO  0
+#define PRINT_WARN  0
+#define PRINT_DEBUG 0
 #define PRINT_ERR   1
 
 #if PRINT_INFO

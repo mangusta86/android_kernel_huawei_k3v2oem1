@@ -62,7 +62,7 @@
 #define	ERROR_TIME					(8)
 /***********ADD BY WANGYUE BEGIN**********/
 /*gpio_170*/
-#define ADCSENSOR_PIN				"g28"
+#define ADCSENSOR_PIN				"gpio_170"
 /***********ADD BY WANGYUE END**********/
 
 /* added for Firmware upgrade begine */

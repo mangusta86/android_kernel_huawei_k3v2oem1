@@ -362,7 +362,8 @@ void bigdivmod(void *mem_ctx, Bignum p, Bignum mod, Bignum result, Bignum quotie
 Bignum bigmod(void *mem_ctx, Bignum a, Bignum b)
 {
     Bignum r = newbn(mem_ctx, b[0]);
-    bigdivmod(mem_ctx, a, b, r, NULL);
+    if (r)
+        bigdivmod(mem_ctx, a, b, r, NULL);
     return r;
 }
 
@@ -371,10 +372,10 @@ Bignum bigmod(void *mem_ctx, Bignum a, Bignum b)
  */
 Bignum dwc_modpow(void *mem_ctx, Bignum base_in, Bignum exp, Bignum mod)
 {
-    BignumInt *a, *b, *n, *m;
+    BignumInt *a = NULL, *b = NULL, *n = NULL, *m = NULL;
     int mshift;
     int mlen, i, j;
-    Bignum base, result;
+    Bignum base = NULL, result = NULL;
 
     /*
      * The most significant word of mod needs to be non-zero. It
@@ -387,13 +388,15 @@ Bignum dwc_modpow(void *mem_ctx, Bignum base_in, Bignum exp, Bignum mod)
      * it modulo the modulus if not.
      */
     base = bigmod(mem_ctx, base_in, mod);
+	if (!base)
+		goto error;
 
     /* Allocate m of size mlen, copy mod to m */
     /* We use big endian internally */
     mlen = mod[0];
     m = snewn(mem_ctx, mlen, BignumInt);
     if (!m)
-		return 0;
+		goto error;
 
     for (j = 0; j < mlen; j++)
 	m[j] = mod[mod[0] - j];
@@ -413,7 +416,7 @@ Bignum dwc_modpow(void *mem_ctx, Bignum base_in, Bignum exp, Bignum mod)
     /* Allocate n of size mlen, copy base to n */
     n = snewn(mem_ctx, mlen, BignumInt);
     if (!n)
-		return 0;
+		goto error;
     i = mlen - base[0];
     for (j = 0; j < i; j++)
 	n[j] = 0;
@@ -423,10 +426,10 @@ Bignum dwc_modpow(void *mem_ctx, Bignum base_in, Bignum exp, Bignum mod)
     /* Allocate a and b of size 2*mlen. Set a = 1 */
     a = snewn(mem_ctx, 2 * mlen, BignumInt);
     if (!a)
-		return 0;
+		goto error;
     b = snewn(mem_ctx, 2 * mlen, BignumInt);
     if (!b)
-		return 0;
+		goto error;
     for (i = 0; i < 2 * mlen; i++)
 	a[i] = 0;
     a[2 * mlen - 1] = 1;
@@ -480,28 +483,38 @@ Bignum dwc_modpow(void *mem_ctx, Bignum base_in, Bignum exp, Bignum mod)
     result = newbn(mem_ctx, mod[0]);
 
     if (!result)
-		return result;
+		goto error;
 
     for (i = 0; i < mlen; i++)
 	result[result[0] - i] = a[i + mlen];
     while (result[0] > 1 && result[result[0]] == 0)
 	result[0]--;
 
-    /* Free temporary arrays */
-    for (i = 0; i < 2 * mlen; i++)
-	a[i] = 0;
-    sfree(mem_ctx, a);
-    for (i = 0; i < 2 * mlen; i++)
-	b[i] = 0;
-    sfree(mem_ctx, b);
-    for (i = 0; i < mlen; i++)
-	m[i] = 0;
-    sfree(mem_ctx, m);
-    for (i = 0; i < mlen; i++)
-	n[i] = 0;
-    sfree(mem_ctx, n);
-
-    freebn(mem_ctx, base);
+error:
+    if (a) {
+	    /* Free temporary arrays */
+	    for (i = 0; i < 2 * mlen; i++)
+		a[i] = 0;
+	    sfree(mem_ctx, a);
+    }
+    if (b) {
+	    for (i = 0; i < 2 * mlen; i++)
+		b[i] = 0;
+	    sfree(mem_ctx, b);
+    }
+    if (m) {
+	    for (i = 0; i < mlen; i++)
+		m[i] = 0;
+	    sfree(mem_ctx, m);
+    }
+    if (n) {
+	    for (i = 0; i < mlen; i++)
+		n[i] = 0;
+	    sfree(mem_ctx, n);
+    }
+    if (base) {
+        freebn(mem_ctx, base);
+    }
 
     return result;
 }

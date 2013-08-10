@@ -143,10 +143,10 @@
 #define DEFAULT_TARGET_Y_HIGH			0x4c
 #define DEFAULT_TARGET_Y_FLASH		0x30
 
-#define METERING_CWA_WIDTH_PERCENT		75
-#define METERING_CWA_HEIGHT_PERCENT	75
-#define METERING_SPOT_WIDTH_PERCENT	75	/* y36721 temp */
-#define METERING_SPOT_HEIGHT_PERCENT	75
+#define METERING_CWA_WIDTH_PERCENT		60
+#define METERING_CWA_HEIGHT_PERCENT	60
+#define METERING_SPOT_WIDTH_PERCENT	60
+#define METERING_SPOT_HEIGHT_PERCENT	60
 
 /* AE registers */
 #define REG_ISP_CURRENT_Y				(0x1c75e)
@@ -176,8 +176,7 @@
 #define REG_ISP_AECAGC_STATWIN_RIGHT		(0x66405)
 #define REG_ISP_AECAGC_STATWIN_BOTTOM		(0x66407)
 
-#define DEFAULT_AECAGC_STATWIN_XOFFSET		0x20
-#define DEFAULT_AECAGC_STATWIN_YOFFSET		0x20
+#define METERING_AECAGC_WINDOW_PERCENT	85
 
 #define REG_ISP_AECAGC_CENTER_LEFT			(0x66409)
 #define REG_ISP_AECAGC_CENTER_LEFT_SHORT	(0x6640b)
@@ -219,9 +218,6 @@
 
 /* 0x1cddf for aec stable status. 1 for stable, 0 for unstable. */
 #define REG_ISP_AECAGC_STABLE	(0x1cddf)
-
-
-
 
 #define YUV_EDGE_STAT_MODE
 
@@ -325,6 +321,8 @@ typedef enum {
 	FOCUS_SCHEDULE_CASE_CAF_VIDEO_MOVE,
 
 	FOCUS_SCHEDULE_CASE_AF_HOLDING,
+
+	FOCUS_SCHEDULE_CASE_VAF_MOVE,
 } focus_schedule_case;
 
 #define VCAF_RUN_RETRY_COUNT_MAX		100
@@ -432,8 +430,6 @@ typedef struct _lum_table_s {
 } lum_table_s;
 
 typedef struct _ispv1_afae_ctrl_s {
-	metering_area_s ae_area;
-
 	focus_area_s af_area;
 
 	bool area_changed;
@@ -446,7 +442,7 @@ typedef struct _ispv1_afae_ctrl_s {
 
 	camera_rect_s cur_rect;
 
-	u32 raw_unit_area;
+	/* u32 raw_unit_area; */
 
 	int binning;
 	int multi_win;
@@ -508,6 +504,7 @@ int ispv1_set_focus_mode(camera_focus focus_mode);
 int ispv1_set_focus_area(focus_area_s *area, u32 zoom);
 int ispv1_get_focus_result(focus_result_s *result);
 int ispv1_set_focus_zoom(u32 zoom);
+int ispv1_set_sharpness_zoom(u32 zoom);
 
 /* For auto focus, following are private functions for ispv1*/
 
@@ -528,7 +525,7 @@ int ispv1_set_metering_mode(camera_metering mode);
 /*
  * set metering area
  */
-int ispv1_set_metering_area(metering_area_s *area);
+int ispv1_set_metering_area(metering_area_s *area, u32 zoom);
 int ispv1_set_focus_range(camera_focus focus_mode);
 int ispv1_get_focus_distance(void);
 
@@ -537,7 +534,7 @@ focus_state_e get_focus_state(void);
 bool afae_ctrl_is_null(void);
 
 int ispv1_set_gsensor_stat(axis_triple *xyz);
-int ispv1_set_ae_statwin(pic_attr_t *pic_attr);
+int ispv1_set_ae_statwin(pic_attr_t *pic_attr, u32 zoom);
 void ispv1_wakeup_focus_schedule(bool force_flag);
 
 void ispv1_get_raw_lum_info(aec_data_t *ae_data, u32 stat_unit_area);

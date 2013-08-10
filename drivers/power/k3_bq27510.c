@@ -28,6 +28,9 @@
 #include <linux/fcntl.h>
 #include <linux/ctype.h>
 #include <linux/slab.h>
+#ifdef CONFIG_IPPS_SUPPORT
+#include <linux/ipps.h>
+#endif
 #include <mach/gpio.h>
 #include <linux/mutex.h>
 #include <linux/power/k3_bq24161.h>
@@ -110,6 +113,22 @@ struct bq27510_context gauge_context =
 	.state = BQ27510_NORMAL_MODE,
 	.i2c_error_count = 0
 };
+
+#ifdef CONFIG_IPPS_SUPPORT
+static void ippsclient_add(struct ipps_device *device)
+{
+}
+
+static void ippsclient_remove(struct ipps_device *device)
+{
+}
+
+static struct ipps_client ipps_client = {
+	.name   = "k3_bq27510",
+	.add    = ippsclient_add,
+	.remove = ippsclient_remove
+};
+#endif
 
 #define GAS_GAUGE_I2C_ERR_STATICS() ++gauge_context.i2c_error_count
 #define GAS_GAUGE_LOCK_STATICS() ++gauge_context.lock_count
@@ -500,22 +519,23 @@ short k3_bq27510_battery_current(struct k3_bq27510_device_info *di)
  */
 int k3_bq27510_battery_capacity(struct k3_bq27510_device_info *di)
 {
-	int data 				= 0;
+	int data = 0;
 
+	if (!bq27510_is_accessible())
+		return gauge_context.capacity;
 
-    if(!bq27510_is_accessible())
-        return gauge_context.capacity;
-
-		data = k3_bq27510_i2c_read_word(di, BQ27510_REG_SOC);
-    if((data < 0)||(data > 100)) {
-        BQ27510_ERR("i2c error in reading capacity!");
-        data = gauge_context.capacity;
-    }
-    else
-        gauge_context.capacity = data;
-
+	data = k3_bq27510_i2c_read_word(di, BQ27510_REG_SOC);
+	if ((data < 0)||(data > 100)) {
+		BQ27510_ERR("i2c error in reading capacity!");
+		data = gauge_context.capacity;
+	} else {
+		gauge_context.capacity = data;
+#ifdef CONFIG_IPPS_SUPPORT
+		ipps_update_power_capacity(&ipps_client, IPPS_OBJ_CPU, &data);
+#endif
+	}
 	BQ27510_DBG("read soc result = %d Hundred Percents\n", data);
-    return data;
+	return data;
 }
 
 
@@ -1911,7 +1931,13 @@ static int k3_bq27510_battery_probe(struct i2c_client *client,
 	}
 
 	BQ27510_DBG("bq27510 support ver. %s enabled\n", DRIVER_VERSION);
+#ifdef CONFIG_IPPS_SUPPORT
+	ret = ipps_register_client(&ipps_client);
 
+	if (ret != 0)
+		pr_err("%s ipps_register_client err=%x\n",
+			__func__, ret);
+#endif
 	return 0;
 
 	/**********ADD BY 00186176 begin****************/
@@ -1948,7 +1974,9 @@ static int k3_bq27510_battery_remove(struct i2c_client *client)
 	/**********ADD BY 00186176 END****************/
 
 	/*power_supply_unregister(&di->bat);*/
-
+#ifdef CONFIG_IPPS_SUPPORT
+	ipps_unregister_client(&ipps_client);
+#endif
 	kfree(di->bat.name);
 	g_battery_measure_by_bq27510_i2c_client = NULL;
 

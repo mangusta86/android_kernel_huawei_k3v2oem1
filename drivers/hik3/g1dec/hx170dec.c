@@ -570,12 +570,16 @@ static int hx170dec_dev_probe(struct platform_device *pdev)
 
 	if (IS_ERR(hx170dec_data.clock)) {
 		printk(KERN_ERR "hx170dec: hx170dec_dev_probe get dec clock failed\n");
+		ret = PTR_ERR( hx170dec_data.clock );
+		return ret;
 	}
 
 	hx170dec_data.reg = NULL;
 	hx170dec_data.reg= regulator_get( NULL ,"vcc_vdec");
 	if (IS_ERR(hx170dec_data.reg)) {
 		printk(KERN_ERR "hx170dec: hx170dec_dev_probe get dec regulator failed\n");
+		ret = PTR_ERR( hx170dec_data.reg );
+		return ret;
 	}
 
 	/*Clock on*/

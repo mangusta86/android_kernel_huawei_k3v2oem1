@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: bcmdefs.h,v 13.68.2.8 2011-01-08 04:04:19 Exp $
+ * $Id: bcmdefs.h 279282 2011-08-23 22:44:02Z $
  */
 
 
@@ -30,7 +30,11 @@
 
 
 
+
 #define BCM_REFERENCE(data)	((void)(data))
+
+
+
 #define bcmreclaimed 		0
 #define _data	_data
 #define _fn	_fn
@@ -79,14 +83,14 @@
 
 
 
-#define	SI_BUS			0
-#define	PCI_BUS			1
-#define	PCMCIA_BUS		2
-#define SDIO_BUS		3
-#define JTAG_BUS		4
-#define USB_BUS			5
-#define SPI_BUS			6
-#define RPC_BUS			7
+#define	SI_BUS			0	
+#define	PCI_BUS			1	
+#define	PCMCIA_BUS		2	
+#define SDIO_BUS		3	
+#define JTAG_BUS		4	
+#define USB_BUS			5	
+#define SPI_BUS			6	
+#define RPC_BUS			7	
 
 
 #ifdef BCMBUSTYPE
@@ -126,14 +130,14 @@
 #endif
 
 
-#define DMADDR_MASK_32 0x0
-#define DMADDR_MASK_30 0xc0000000
-#define DMADDR_MASK_0  0xffffffff
+#define DMADDR_MASK_32 0x0		
+#define DMADDR_MASK_30 0xc0000000	
+#define DMADDR_MASK_0  0xffffffff	
 
-#define	DMADDRWIDTH_30  30
-#define	DMADDRWIDTH_32  32
-#define	DMADDRWIDTH_63  63
-#define	DMADDRWIDTH_64  64
+#define	DMADDRWIDTH_30  30 
+#define	DMADDRWIDTH_32  32 
+#define	DMADDRWIDTH_63  63 
+#define	DMADDRWIDTH_64  64 
 
 #ifdef BCMDMA64OSL
 typedef struct {
@@ -162,7 +166,7 @@ typedef unsigned long dmaaddr_t;
 	do { \
 		(_pa) = (_val);			\
 	} while (0)
-#endif
+#endif 
 
 
 typedef struct  {
@@ -174,8 +178,8 @@ typedef struct  {
 
 
 typedef struct {
-	void *oshdmah;
-	uint origsize;
+	void *oshdmah; 
+	uint origsize; 
 	uint nsegs;
 	hnddma_seg_t segs[MAX_DMA_SEGS];
 } hnddma_seg_map_t;
@@ -199,7 +203,7 @@ typedef struct {
 
 #if defined(BCMASSERT_LOG)
 #define BCMASSERT_SUPPORT
-#endif
+#endif 
 
 
 #define BITFIELD_MASK(width) \
@@ -213,10 +217,10 @@ typedef struct {
 
 #ifdef BCMSMALL
 #undef	BCMSPACE
-#define bcmspace	FALSE
+#define bcmspace	FALSE	
 #else
 #define	BCMSPACE
-#define bcmspace	TRUE
+#define bcmspace	TRUE	
 #endif
 
 

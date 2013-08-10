@@ -42,8 +42,8 @@ static struct lis3dh_acc_platform_data gs_platform_data = {
 	.axis_map_y = 1,
 	.axis_map_z = 2,
 
-	.negate_x = 1,	
-	.negate_y = 1,	
+	.negate_x = 1,
+	.negate_y = 1,
 	.negate_z = 0,
 
 	.gpio_int1 = -1, /* if used this irq,set gpio_int1=GPIO_18_4 */
@@ -54,7 +54,7 @@ struct mma8452_acc_platform_data mma8452_platform_data = {
 };
 
 static struct akm8975_platform_data compass_platform_data = {
-	.gpio_DRDY = GPIO_15_5 ,/* GPIO-125	*/ 
+	.gpio_DRDY = GPIO_15_5 ,
 };
 #ifdef CONFIG_HUAWEI_FEATURE_SENSORS_AKM8963
 static struct akm8963_platform_data compass_akm8963_platform_data = {
@@ -69,7 +69,7 @@ static struct l3g4200d_gyr_platform_data l3g4200d_gyr_platform_data = {
 
 	.fs_range = 0x30,
 
-	.axis_map_x = 1,	
+	.axis_map_x = 1,
 	.axis_map_y = 0,
 	.axis_map_z = 2,
 

@@ -353,7 +353,8 @@ int32_t dwc_otg_hcd_handle_port_intr(dwc_otg_hcd_t * dwc_otg_hcd)
 			hprt0_modify.b.prtconndet = 1;
 	
 			/* B-Device has connected, Delete the connection timer. */
-			DWC_TIMER_CANCEL(dwc_otg_hcd->conn_timer);
+			if (dwc_otg_hcd->conn_timer)
+				DWC_TIMER_CANCEL(dwc_otg_hcd->conn_timer);
 		}
 		/* The Hub driver asserts a reset when it sees port connect
 		 * status change flag */

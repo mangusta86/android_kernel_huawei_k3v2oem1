@@ -26,6 +26,7 @@
 #define LOG_TAG "hdmi-hdcp"
 #include "k3_hdmi_log.h"
 
+#define DELAY_REAUTHENTATION_REQ  200
 hdcp_info hdcp_para = {0};
 
 static void hdcp_sendcp_packet(bool on);
@@ -34,6 +35,7 @@ static u32 hdcp_mddc_read_rx(u32 NBytes, u32 addr, u8 * pData);
 void hdcp_auto_ri_check ( bool bOn );
 static u32 hdcp_is_in_hdmi_mode( void );
 static bool hdcp_suspend_auto_richeck(bool state);
+static void hdcp_anth_part3(void);
 
 /******************************************************************************
 * Function:       hdcp_set_auth_status
@@ -328,25 +330,23 @@ static void hdcp_enable_hdmi_mode(u8 benabled)
 * Description:    set vide blank
 * Data Accessed:
 * Data Updated:
-* Input:          u8 benabled : 0:need blank, not 0: need not blank
+* Input:          bool benabled : true:need blank, false: need not blank
 * Output:         NA
 * Return:         NA
 * Others:
 ***********************************************************************************/
-static void hdcp_blank_video(u8 benabled)
+static void hdcp_blank_video(bool benabled)
 {
     u32 regval = 0;
     u8 blankValue[3] = {0};
 
     regval = read_reg( HDMI_CORE_SYS,HDMI_CORE_SYS_DATA_CTRL);
-
     if (benabled) {
-        write_reg( HDMI_CORE_SYS,HDMI_CORE_SYS_DATA_CTRL, regval & (~BIT_VID_BLANK));
-    } else {
         hdcp_write_tx(3, HDMI_CORE_SYS_VID_BLANK1, blankValue);
         write_reg( HDMI_CORE_SYS,HDMI_CORE_SYS_DATA_CTRL, regval | BIT_VID_BLANK);
+    } else {
+        write_reg( HDMI_CORE_SYS,HDMI_CORE_SYS_DATA_CTRL, regval & (~BIT_VID_BLANK));
     }
-
     return;
 }
 
@@ -360,13 +360,29 @@ static void hdcp_blank_video(u8 benabled)
 * Return:         0x40: device is a repeater, other: device is not a repeater
 * Others:
 ***********************************************************************************/
-static u32 hdcp_is_repeater(void)
+static bool hdcp_is_repeater(void)
+{
+#define MAX_CHECK_COUNT 3
+    int i = 0;
+    u8 regval = 0;
+    for (; i < MAX_CHECK_COUNT; i++) {
+        hdcp_mddc_read_rx(1, DDC_BCAPS_ADDR , &regval);
+        if ((regval & DDC_BIT_REPEATER)) {
+            break;
+        } 
+        mdelay(1);
+    }
+    logi("The hdcp device is %s\n", (regval & DDC_BIT_REPEATER) ? "Repeater" : "Sink");
+    return (regval & DDC_BIT_REPEATER) ;
+}
+
+static u32 hdcp_is_ready(void)
 {
     u8 regval = 0;
 
     hdcp_mddc_read_rx(1, DDC_BCAPS_ADDR , &regval);
 
-    return regval & DDC_BIT_REPEATER;
+    return regval & DDC_BIT_FIFO_READY;
 }
 
 /***********************************************************************************
@@ -395,9 +411,9 @@ static u8 hdcp_are_r0s_match(u8 * pMatch)
     }
 
     hdcp_read_tx(2, HDMI_CORE_SYS_HDCP_Ri_ADDR, r0tx);
+    logi("rx_r0 = 0x%02x%02x, tx_r0 = 0x%02x%02x\n", r0rx[0],r0rx[1], r0tx[0],r0tx[1]);
 
     while ((j < 2) && (r0rx[j] == r0tx[j])) {
-        logd("j = %d, r0rx[j] = %#x, r0tx[j] = %#x\n",j,r0rx[j],r0tx[j]);
         j++;
     }
 
@@ -469,6 +485,17 @@ static bool hdcp_check_device(u8 * pKSV)
     }
 }
 
+static void hdcp_wait_tmds_stable()
+{
+    #define HDCP_CHECK_NUM 256
+    u32 timeout = HDCP_CHECK_NUM;
+    while ( !(read_reg(HDMI_CORE_SYS, HDMI_CORE_SYS_SYS_STAT) & 0x01) && (timeout--)) {
+        msleep(1);
+    }
+//    logi("count:%d\n", HDCP_CHECK_NUM - timeout);
+    return;
+}
+
 /***********************************************************************************
 * Function:       hdcp_sendcp_packet
 * Description:    set avi mute or not
@@ -481,18 +508,14 @@ static bool hdcp_check_device(u8 * pKSV)
 ***********************************************************************************/
 static void hdcp_sendcp_packet(bool on)
 {
-    u32 timeoutCount = 64;
+    #define HDCP_CP_CHECK_NUM 64
+    u32 timeoutCount = HDCP_CP_CHECK_NUM;
     u32 regval       = 0;
-
-    /* Send CP packets only if in HDMI mode */
-    if (hdcp_is_in_hdmi_mode()) {
+    bool is_hdmi = hdcp_is_in_hdmi_mode();
+    logi("send cp to output video:%s\n", on ? "blank" : "normal");
+    if(is_hdmi) {
         regval = read_reg( HDMI_CORE_AV,HDMI_CORE_AV_PB_CTRL2 );
         write_reg(HDMI_CORE_AV,HDMI_CORE_AV_PB_CTRL2, regval & (~BIT_CP_REPEAT));
-        if (on) {
-            write_reg(HDMI_CORE_AV, HDMI_CORE_AV_CP_BYTE1, BIT_CP_AVI_MUTE_SET);
-        } else {
-            write_reg(HDMI_CORE_AV, HDMI_CORE_AV_CP_BYTE1, BIT_CP_AVI_MUTE_CLEAR);
-        }
 
         while (timeoutCount--) {
             if (!(read_reg( HDMI_CORE_AV,HDMI_CORE_AV_PB_CTRL2 )& BIT_CP_ENABLE)) {
@@ -500,16 +523,16 @@ static void hdcp_sendcp_packet(bool on)
             }
             msleep(1);
         }
+    }
+        //logi("check timeoutCount:%d\n", HDCP_CP_CHECK_NUM - timeoutCount);
+    if (on) {
+        write_reg(HDMI_CORE_AV, HDMI_CORE_AV_CP_BYTE1, BIT_CP_AVI_MUTE_SET);
+    } else {
+        write_reg(HDMI_CORE_AV, HDMI_CORE_AV_CP_BYTE1, BIT_CP_AVI_MUTE_CLEAR);
+    }
 
-        if (timeoutCount) {
-            write_reg(HDMI_CORE_AV,HDMI_CORE_AV_PB_CTRL2, regval | BIT_CP_ENABLE | BIT_CP_REPEAT);
-        }
-    } else {  /* DVI Mode */
-        if (on) {
-            hdcp_blank_video(false);
-        } else {
-            hdcp_blank_video(true);
-        }
+    if(is_hdmi) {
+        write_reg(HDMI_CORE_AV,HDMI_CORE_AV_PB_CTRL2, regval | BIT_CP_ENABLE | BIT_CP_REPEAT);
     }
 
     return;
@@ -672,9 +695,12 @@ static u32 hdcp_read_mddc(mddc_type * pMddcCmd)
     
     BUG_ON(NULL == pMddcCmd);
 
-    hdcp_suspend_auto_richeck(true);
-
     REG_FLD_MOD(HDMI_CORE_AV,HDMI_CORE_AV_DPD, 0x7, 2, 0);
+
+    if (!hdcp_suspend_auto_richeck(true)) {
+        loge("hdcp_suspend_auto_richeck failed, not use ddc, return.\n");
+        return -1;
+    }
 
     usleep_range(800, 1000);
 
@@ -721,8 +747,8 @@ static u32 hdcp_read_mddc(mddc_type * pMddcCmd)
     }
 
     size = pMddcCmd->nbyteslsb + (pMddcCmd->nbytemsb << 8);
-    while ((timer < 50) && (i != size)) {
 
+    while ((timer < 50) && (i != size) && (read_reg(HDMI_CORE_SYS,HDMI_CORE_SYS_SYS_STAT) & BIT_HPD_PIN)) {
         if (((1 == FLD_GET(read_reg(HDMI_CORE_SYS, HDMI_CORE_DDC_STATUS), 4, 4))
                 ||(0 == FLD_GET(read_reg(HDMI_CORE_SYS, HDMI_CORE_DDC_STATUS), 2, 2)))
                && (i < size)) {
@@ -741,7 +767,7 @@ static u32 hdcp_read_mddc(mddc_type * pMddcCmd)
                 i++;
             }
         } else {
-            logi("wait for ddc process status\n");
+            //logi("wait for ddc process status\n");
             msleep(10);
             timer++;
         }
@@ -752,6 +778,7 @@ static u32 hdcp_read_mddc(mddc_type * pMddcCmd)
         /* can happen if Rx is clock stretching the SCL line. DDC bus unusable */
         if (_MDDC_NOACK == status) {
             /* mute audio and video */
+            loge("_MDDC_NOACK, mute av\n");
             hdcp_sendcp_packet(true);
             hdcp_set_encryption(false);
             /* force re-authentication */
@@ -790,7 +817,10 @@ static u32 hdcp_write_mddc(mddc_type * pMddcCmd)
 
     BUG_ON(NULL == pMddcCmd);
 
-    hdcp_suspend_auto_richeck(true);
+    if (!hdcp_suspend_auto_richeck(true)) {
+         loge("hdcp_suspend_auto_richeck failed, not use ddc, return.\n");
+        return -1;
+    }
 
     /* Clear FIFO */
     REG_FLD_MOD(HDMI_CORE_SYS,HDMI_CORE_DDC_CMD, MASTER_CMD_CLEAR_FIFO, 3, 0);
@@ -1210,6 +1240,7 @@ static bool hdcp_sha_compare_vi(sha_ctx * pSha)
 static u32 hdcp_sha_get_byte_bstatus_mx(u32 addr)
 {
     u8 data[2] = {0};
+    BUG_ON((addr-2) >= 8);
 
     if (addr < 2) {
         /* Read B Status */
@@ -1407,13 +1438,8 @@ static void hdcp_sha_handler(int status)
     }
 
     if (hdcp_sha_compare_vi(&sha)) {
-        hdcp_set_auth_status(AUTHENTICATED);
-        if (hdcp_para.hdcp_notify) {
-            hdcp_para.hdcp_notify(HDCP_AUTH_SUCCESS);
-        }
-
-        hdcp_auto_ri_check ( true );
-        logd("SI_SHAHandler ok, enter hdcp protocol 3\n");
+        hdcp_anth_part3();
+        logi("SI_SHAHandler ok, enter hdcp protocol 3\n");
     } else {
         loge("SI_SHAHandler(hdcp protocol 2) fail\n");
         goto error;
@@ -1427,7 +1453,7 @@ error:
     if (hdcp_para.hdcp_notify) {
         hdcp_para.hdcp_notify(HDCP_AUTH_FAILED);
     }
-    hdcp_handle_work(0,0);
+    hdcp_handle_work(0, DELAY_REAUTHENTATION_REQ);
 
     OUT_FUNCTION;
     return;
@@ -1450,7 +1476,7 @@ static u8 hdcp_read_aksvlist_timeout(void)
     u32 jiffies_now = jiffies;
 
     tick_to_jiffies = msecs_to_jiffies(5000);
-
+    //logi("time out tick jifies:%d now:%d ori:%d\n", tick_to_jiffies, jiffies_now, hdcp_para.jiffies_ori);
     if (jiffies_now > hdcp_para.jiffies_ori) {
         if (tick_to_jiffies < (jiffies_now - hdcp_para.jiffies_ori)) {
             /* >= 5, we will think timeout is occur!!¡¡*/
@@ -1482,11 +1508,12 @@ static u8 hdcp_read_aksvlist_timeout(void)
 ***********************************************************************************/
 static void hdcp_disable(void)
 {
+    logi("\n");
     hdcp_auto_ri_check( false );
     hdcp_auto_ksvready_check( false );
     hdcp_sendcp_packet(false);
     hdcp_set_encryption(false);
-    hdcp_blank_video(true);
+    hdcp_blank_video(false);
     hw_core_mute_audio(false);
     return;
 }
@@ -1522,6 +1549,8 @@ void hdcp_auto_ri_check ( bool bOn )
          * OFF bit 6 Ri did not change between frame 127 and 0
          * ON  bit 5 Ri did not match during 2nd frame test (0)
          * ON  bit 4 Ri did not match during 1st frame test (127) */
+        write_reg(HDMI_CORE_SYS,  HDMI_CORE_SYS_INTR3,
+                      ((read_reg(HDMI_CORE_SYS, HDMI_CORE_SYS_INTR3_MASK )) | MASK_AUTO_RI_9134_SPECIFIC ));
         write_reg(HDMI_CORE_SYS,  HDMI_CORE_SYS_INTR3_MASK,
                   ((read_reg(HDMI_CORE_SYS, HDMI_CORE_SYS_INTR3_MASK )) | MASK_AUTO_RI_9134_SPECIFIC ));
         write_reg(HDMI_CORE_SYS, HDMI_CORE_SYS_RI_CMD,
@@ -1606,7 +1635,7 @@ static bool hdcp_suspend_auto_richeck(bool state)
         }
 
         /* MDDC bus not relinquished. */
-        if (!timeout) {
+        if (!timeout && oldRiCommand) {
             /* enable Auto Ri Check */
             hdcp_auto_ri_check( true );
             return false;
@@ -1618,6 +1647,7 @@ static bool hdcp_suspend_auto_richeck(bool state)
     } else {
         if ((true == oldRistate) && ( true == oldRiCommand )) {
             /* re-enable Auto Ri */
+            logi("hdcp_auto_ri_check\n");
             hdcp_auto_ri_check( true );
         }/* If Auto Ri was enabled before it was suspended */
     }
@@ -1636,77 +1666,78 @@ static bool hdcp_suspend_auto_richeck(bool state)
 ***********************************************************************************/
 static int hdcp_anth_part1(void)
 {
+#define CHECK_IS_STOPED if (!hdcp_para.bhdcpstart) {err = -1; goto error;}
     u32 err           = 0;
     u8 an_ksv_data[8] = {0};
     u8 isR0Match      = false;
     bool isHdcpDev    = false;
     
     IN_FUNCTION;
+    logi("hdcp part1 begin\n");
 
     hdcp_release_cp_reset();
 
-    if (hdcp_is_repeater()) {
-        logi(" the hdcp device is repeater\n");
-        hdcp_set_repeater_bit( true);
-    } else {
-        hdcp_set_repeater_bit( false );
-    }
+    hdcp_set_repeater_bit(hdcp_is_repeater());
     
-    if (false == hdcp_para.bhdcpstart) {
-        err = -1;
-        goto error;
-    }
+    CHECK_IS_STOPED;
     
     hdcp_generate_an();
-    
     /* Read AN */
     hdcp_read_tx(8, HDMI_CORE_SYS_HDCP_AN_ADDR, an_ksv_data);
-    if (false == hdcp_para.bhdcpstart) {
+    /* Write AN to RX */
+    err = hdcp_mddc_write_rx(8, DDC_AN_ADDR, an_ksv_data);
+    if (err) {
+        loge("write an failed\n");
         err = -1;
         goto error;
     }
-    /* Write AN to RX */
-    err = hdcp_mddc_write_rx(8, DDC_AN_ADDR, an_ksv_data);
-    if (!err) {
-        logd("write an sucess.\n");
-        /* Exchange KSVs values
-         * read AKSV from TX */
-        memset(an_ksv_data, 0, sizeof(an_ksv_data));
-        hdcp_read_tx(5, HDMI_CORE_SYS_HDCP_AKSV_ADDR, an_ksv_data);
-        isHdcpDev = hdcp_check_device(an_ksv_data);
-        if (false == isHdcpDev) {
-            loge(" the device is not surport hdcp,AKSV is error,isHdcpDev = %d\n",isHdcpDev);
-            err = -1;
-            goto error;
-        }
-        if (false == hdcp_para.bhdcpstart) {
-            err = -1;
-            goto error;
-        }
-        /* write AKSV into RX */
-        err = hdcp_mddc_write_rx(5, DDC_AKSV_ADDR, an_ksv_data);
-        if (!err) {
-            logd("write Aksv sucess.\n");
-            memset(an_ksv_data, 0, sizeof(an_ksv_data));
-            /* read BKSV from RX */
-            err = hdcp_mddc_read_rx(5, DDC_BKSV_ADDR , an_ksv_data);
-            if(err) {
-                loge(" hdcp_mddc_read_rx ERROR\n");
-                goto error;
-            }
-            if (false == hdcp_para.bhdcpstart) {
-                err = -1;
-                goto error;
-            }
-            isHdcpDev = hdcp_check_device(an_ksv_data);
-            if (false == isHdcpDev) {
-                loge(" the device is not surport hdcp,BKSV is error,isHdcpDev = %d\n",isHdcpDev);
-                err = -1;
-                goto error;
-            }
+    logi("write an sucess.\n");
 
-        }
+    CHECK_IS_STOPED;
+
+    /* Exchange KSVs values
+     * read AKSV from TX */
+    memset(an_ksv_data, 0, sizeof(an_ksv_data));
+    hdcp_read_tx(5, HDMI_CORE_SYS_HDCP_AKSV_ADDR, an_ksv_data);
+    isHdcpDev = hdcp_check_device(an_ksv_data);
+    if (false == isHdcpDev) {
+        loge(" the device is not surport hdcp,AKSV is error,isHdcpDev = %d\n",isHdcpDev);
+        err = -1;
+        goto error;
     }
+
+    CHECK_IS_STOPED;
+
+    /* write AKSV into RX */
+    err = hdcp_mddc_write_rx(5, DDC_AKSV_ADDR, an_ksv_data);
+    if (err) {
+        loge("write aksv failed\n");
+        err = -1;
+        goto error;
+    }
+    logi("write aksv sucess.\n");
+
+    memset(an_ksv_data, 0, sizeof(an_ksv_data));
+    /* read BKSV from RX */
+    err = hdcp_mddc_read_rx(5, DDC_BKSV_ADDR , an_ksv_data);
+    if(err) {
+        loge("read bksv failed\n");
+        err = -1;
+        goto error;
+    }
+
+    CHECK_IS_STOPED;
+
+    isHdcpDev = hdcp_check_device(an_ksv_data);
+    if (false == isHdcpDev) {
+        loge(" the device is not surport hdcp,BKSV is error,isHdcpDev = %d\n",isHdcpDev);
+        err = -1;
+        goto error;
+    }
+    logi("read bksv sucess.\n");
+
+	//recheck repeater
+    hdcp_set_repeater_bit(hdcp_is_repeater());
 
     /* Write BKSV into TX */
     hdcp_write_tx(5, HDMI_CORE_SYS_HDCP_BKSV_ADDR, an_ksv_data);
@@ -1724,11 +1755,14 @@ static int hdcp_anth_part1(void)
     /* Delay for R0 calculation */
     msleep(100);
 
+    CHECK_IS_STOPED;
+
     err = hdcp_are_r0s_match(&isR0Match);
     if (err) {
         loge(" AreR0sMatch erroror:NO_ACK_FROM_HDCP_DEV\n");
         goto error;
     }
+    logi("hdcp part1 check r0 is match: %d\n", isR0Match);
 
     if (!isR0Match) {
         loge("r0 is unmatch.\n");
@@ -1756,13 +1790,60 @@ error:
 ***********************************************************************************/
 static void hdcp_anth_part2(void)
 {
+#define KSV_READY_TIMEOUT 5000
+#define KSV_READY_CHECK_INTERVAL 100
+    int i = 0;
+    u32 tick_to_jiffies = msecs_to_jiffies(5000);
+
     IN_FUNCTION;
+    logi("hdcp part2 begin\n");
+
+    hdcp_para.jiffies_ori = jiffies;   /* clock */
+    hdcp_set_auth_status(REPEATER_AUTH_REQ);
 
     hdcp_make_copy_m0();
     
     /* enable ksv ready auto check interrupt */
+    hdcp_sendcp_packet(false);
     hdcp_auto_ksvready_check ( true );
 
+#if HDCP_FOR_CERTIFICATION
+    hdcp_para.is_checking_ksv = true;
+    for (i = 1; i <= (KSV_READY_TIMEOUT/KSV_READY_CHECK_INTERVAL) && hdcp_para.is_checking_ksv; i++) {
+        msleep(KSV_READY_CHECK_INTERVAL);
+	    logi("check ksv fifo is ready time:%d\n", i);
+	    if (hdcp_is_ready()) {
+	  	    hdcp_para.is_checking_ksv = false;
+	  	    logi("ksv fifo is ready\n");
+            break;
+	    }
+	    if ((u32)(jiffies - hdcp_para.jiffies_ori) > tick_to_jiffies) {
+	  	    logi("ksv fifo check timeout \n");
+            break;
+	    }
+    }
+    if (hdcp_para.is_checking_ksv) {
+        hdcp_para.is_checking_ksv = false;
+        logi("ksv ready check fail, retry...\n");
+        hdcp_auto_ri_check( false );
+        hdcp_auto_ksvready_check( false );
+        hdcp_sendcp_packet(true);
+        hdcp_set_encryption(false);
+
+        if (hdcp_para.wait_anth_stop) {
+            hdcp_set_auth_status(NO_HDCP);
+        } else {
+            hdcp_set_auth_status(REAUTHENTATION_REQ);
+            if (hdcp_para.hdcp_notify) {
+                hdcp_para.hdcp_notify(HDCP_AUTH_FAILED);
+            }
+    
+            hdcp_handle_work(0, DELAY_REAUTHENTATION_REQ);
+        }
+    } else {
+        logi("ksv ready check ok, time %dms\n", i*KSV_READY_CHECK_INTERVAL);
+    }
+#endif
     OUT_FUNCTION;
 
     return;
@@ -1781,8 +1862,22 @@ static void hdcp_anth_part2(void)
 static void hdcp_anth_part3(void)
 {
     IN_FUNCTION;
+    logi("hdcp part3 begin\n");
 
     hdcp_auto_ri_check ( true );
+
+    hdcp_sendcp_packet(false);
+    hdcp_blank_video(false);
+    if (!hdcp_is_in_hdmi_mode()) {
+        hw_core_mute_audio(true);
+    } else {
+        hw_core_mute_audio(false);
+    }
+
+    hdcp_set_auth_status(AUTHENTICATED);
+    if (hdcp_para.hdcp_notify) {
+        hdcp_para.hdcp_notify(HDCP_AUTH_SUCCESS);
+    }
 
     OUT_FUNCTION;
 
@@ -1810,31 +1905,17 @@ static void hdcp_authentication( void )
         loge("auth part1 fail\n");
         goto error;
     }
-    logd("**************Protocol step 1 sucess!********************\n");
+
     /* enable encryption */
     hdcp_set_encryption(true);
 
     if (hdcp_is_repeater()) {
         hdcp_anth_part2();
+    } else {
         hdcp_anth_part3();
-        hdcp_para.jiffies_ori = jiffies;   /* clock */
-        hdcp_set_auth_status(REPEATER_AUTH_REQ);
-        logd("**************Protocol step 2¡¢3 end!********************\n");
-        
-        OUT_FUNCTION;
-        return;
     }
-
-    hdcp_anth_part3();
-    logd("**************Protocol step 3 end!********************\n");
-    if (hdcp_para.hdcp_notify) {
-        hdcp_para.hdcp_notify(HDCP_AUTH_SUCCESS);
-    }
-    
-    hdcp_set_auth_status(AUTHENTICATED);
 
     OUT_FUNCTION;
-
     return;
 
 error:
@@ -1842,7 +1923,7 @@ error:
     if (hdcp_para.hdcp_notify) {
         hdcp_para.hdcp_notify(HDCP_AUTH_FAILED);
     }
-    hdcp_handle_work(0,100);
+    hdcp_handle_work(0, DELAY_REAUTHENTATION_REQ);
 
     OUT_FUNCTION;
 
@@ -1851,8 +1932,8 @@ error:
 
 static void hdcp_reathentication( void )
 {
-    u32 mode          = 0;
     u32 uRsen         = 0;
+    int is_hdmi       = 0;
 
     IN_FUNCTION;
 
@@ -1863,16 +1944,19 @@ static void hdcp_reathentication( void )
         return;
     }
 
-    if (hdcp_is_in_hdmi_mode()) {
-        mode = _HDMI_;
-    }  else {
-        mode = _DVI_;
-        logd("[HDCP.C](hdcp_reathentication): \n");
-        hdcp_enable_hdmi_mode(false);
-    }
+    hdcp_disable();
 
-    logd(" mode = %d\n",mode);
-    hdcp_blank_video(true);        /* Video Must be ON */
+    hdcp_wait_tmds_stable();
+
+    is_hdmi = hdcp_is_in_hdmi_mode();
+
+    logi("begin reathentication mode = %s\n", is_hdmi ? "HDMI" : "DVI");
+
+    //set dvi mode
+    hdcp_enable_hdmi_mode(is_hdmi);
+    REG_FLD_MOD(HDMI_CORE_SYS, 0xCF*4, is_hdmi, 4, 4);
+
+    hdcp_blank_video(false);        /* Video Must be ON */
     hdcp_sendcp_packet(true);
     hdcp_set_encryption(false);        /* Must turn encryption off when AVMUTE */
 
@@ -1882,17 +1966,7 @@ static void hdcp_reathentication( void )
     write_reg( HDMI_CORE_SYS,HDMI_CORE_SYS_EPCM,0x20);
 
     hdcp_authentication();
-    if ((AUTHENTICATED == hdcp_para.auth_state )||( REPEATER_AUTH_REQ == hdcp_para.auth_state )) {
-        hdcp_sendcp_packet(false);
-        hdcp_richeck_interrupt_mask(false);
-        if (_DVI_ == mode ) {
-            hdcp_blank_video(true);
-            hw_core_mute_audio(true);
-        } else {
-            hdcp_blank_video(true);
-            hw_core_mute_audio(false);
-        }
-    }
+    //move to part3
 
     OUT_FUNCTION;
     return;
@@ -1924,7 +1998,7 @@ static void hdcp_work_queue(struct work_struct *ws)
         mutex_lock(hdcp_para.videolock);
     }
     state = work->state;
-    logd("***********status = %d, irq state= %d\n",hdcp_para.auth_state, state);
+    logi("hdcp status = %d, irq state= %d\n",hdcp_para.auth_state, state);
 
     if (!hdcp_get_start()) {
         logi("edid not read complete\n");
@@ -1944,8 +2018,10 @@ static void hdcp_work_queue(struct work_struct *ws)
         logi("state is HDMI_RI_ERR\n");
         hdcp_auto_rifailure_handle( MASK_AUTO_RI_9134_SPECIFIC );
         hdcp_set_auth_status(REAUTHENTATION_REQ);
+        msleep(DELAY_REAUTHENTATION_REQ);
     } else if (state & HDMI_BCAP) {
         logi("state is HDMI_BCAP\n");
+        hdcp_para.is_checking_ksv = false;
         if (REPEATER_AUTH_REQ == hdcp_para.auth_state) {
             hdcp_set_auth_status(REQ_SHA_CALC);
         }
@@ -1970,11 +2046,12 @@ static void hdcp_work_queue(struct work_struct *ws)
         goto done;
     }
     
-    if ((REPEATER_AUTH_REQ == hdcp_para.auth_state)
-        || (REQ_SHA_CALC == hdcp_para.auth_state)) {
+    if (REPEATER_AUTH_REQ == hdcp_para.auth_state) {
+        logi("in REPEATER_AUTH_REQ, wait ksv fifo ready\n");
+    } else if (REQ_SHA_CALC == hdcp_para.auth_state) {
 
         if (true == hdcp_read_aksvlist_timeout()) {
-            loge("timeout to read KSVList\n");
+            loge("hdcp timeout to read KSVList\n");
             hdcp_auto_ri_check( false );
             hdcp_auto_ksvready_check( false );
             hdcp_sendcp_packet(true);
@@ -1985,7 +2062,7 @@ static void hdcp_work_queue(struct work_struct *ws)
                 hdcp_para.hdcp_notify(HDCP_AUTH_FAILED);
             }
 
-            hdcp_handle_work(0,0);
+            hdcp_handle_work(0, DELAY_REAUTHENTATION_REQ);
             goto done;
         }
         
@@ -1995,6 +2072,7 @@ static void hdcp_work_queue(struct work_struct *ws)
         }
         
         if ( REQ_SHA_CALC == hdcp_para.auth_state ) {
+            logi("hdcp part2 stat sha_calc\n");
             hdcp_sha_handler(hdcp_para.auth_state);
         }
     } else if (NO_HDCP == hdcp_para.auth_state ) {
@@ -2068,7 +2146,8 @@ void hdcp_handle_work(u32 irq_state, int delay)
 void hdcp_set_enable(bool enable)
 {
     IN_FUNCTION;
-    
+    logi(" enable:%d\n", enable);
+
     if (hdcp_para.enable == enable) {
         logi("the enable equals enable\n");
         OUT_FUNCTION;
@@ -2177,7 +2256,7 @@ void hdcp_exit(void)
 void hdcp_set_start(bool bstart)
 {
     IN_FUNCTION;
-    
+    logi("hdcp process state %d.\n", bstart);
     hdcp_para.bhdcpstart = bstart;
     if (false == bstart) {
         hdcp_disable();
@@ -2221,12 +2300,17 @@ void hdcp_wait_anth_stop(void)
     int times = 0;
     hdcp_para.bhdcpstart = false;
     hdcp_para.wait_anth_stop = true;
+    hdcp_para.is_checking_ksv = false;
+
+    logi("hdcp stop state:%d\n", hdcp_para.auth_state);
     for (; times < 50; times++) {
-        if ((NO_HDCP == hdcp_para.auth_state ) || ( AUTHENTICATED == hdcp_para.auth_state )) {
+        if ((NO_HDCP == hdcp_para.auth_state) || (AUTHENTICATED == hdcp_para.auth_state) || (REPEATER_AUTH_REQ == hdcp_para.auth_state)) {
             break;
         }
         msleep(10);
     }
+    
+    hdcp_set_auth_status(NO_HDCP);
     hdcp_disable();
     hdcp_para.wait_anth_stop = false;
     if (50 == times) {

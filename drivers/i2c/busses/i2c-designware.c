@@ -132,14 +132,7 @@
 
 #define TIMEOUT			20 /* ms */
 #define RETRY_TIMES			2  	/* retry times for i2c-core.c*/	
-#define WAIT_FOR_COMPLETION		(((HZ*totallen)/40+HZ)/10+1)
-					/* 
-					* Wait at least 50ms
-					* Time to wait will increase when 
-					*bytes increase
-					* Every 10 more bytes will bring more 10ms 
-					*
-					*/
+
 #define WAIT_FOR_COMPLETION		((HZ*totallen)/400+HZ)   /* wait 1s add 2.5ms every byte. */
 
 #define I2C_POLL_DISABLE		40   /* this value must be 10 times the signaling
@@ -769,10 +762,10 @@ static void i2c_print_controller_reg(struct dw_i2c_dev *dev)
 	{
 		/* can't dump  DW_IC_DATA_CMD */
 		if(i != DW_IC_DATA_CMD){
-			printk(KERN_ERR "%08x: %08x, %08x, %08x, %08x\n", dev->base + i, readl(dev->base + i),
+			printk(KERN_ERR "%08x: %08x, %08x, %08x, %08x\n", (unsigned)(dev->base + i), readl(dev->base + i),
 				readl(dev->base + i + 4), readl(dev->base + i + 8), readl(dev->base + i + 12));
 		}else{
-			printk(KERN_ERR "%08x: ........, %08x, %08x, %08x\n", dev->base + i,
+			printk(KERN_ERR "%08x: ........, %08x, %08x, %08x\n", (unsigned)(dev->base + i),
 				readl(dev->base + i + 4), readl(dev->base + i + 8), readl(dev->base + i + 12));
 		}
 	}
@@ -1210,9 +1203,9 @@ i2c_dw_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[], int num)
 	ret = wait_for_completion_timeout(&dev->cmd_complete, WAIT_FOR_COMPLETION);
 	if (ret == 0) {
 		int retry_num = 20;
-		dev_err(dev->dev, "controller timed out, transfer %d, len = "
-			"%d, slave_addr = 0x%x, clk = 0x%x.\n", WAIT_FOR_COMPLETION, totallen, msgs[0].addr, clk_get_rate(dev->clk));
-		i2c_print_controller_reg(dev);
+        dev_err(dev->dev, "controller timed out, transfer %d, len = "
+			"%d, slave_addr = 0x%x, clk = %lu.\n", WAIT_FOR_COMPLETION, totallen, msgs[0].addr, clk_get_rate(dev->clk));
+        i2c_print_controller_reg(dev);
 		do {
 			writel(0, dev->base + DW_IC_INTR_MASK);
 			msleep(5);
@@ -1248,7 +1241,7 @@ i2c_dw_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[], int num)
 		ret = wait_for_completion_timeout(&dev->dma_complete, WAIT_FOR_COMPLETION);
 		if (ret == 0) {
 			dev_err(dev->dev, "wait for dma complete timed out, transfer %d, len = "
-			"%d, slave_addr = 0x%x, clk = 0x%x.\n", WAIT_FOR_COMPLETION, totallen, msgs[0].addr, clk_get_rate(dev->clk));
+			"%d, slave_addr = 0x%x, clk = %lu.\n", WAIT_FOR_COMPLETION, totallen, msgs[0].addr, clk_get_rate(dev->clk));
 			i2c_print_controller_reg(dev);
 			reset_i2c_controller(dev);
 			ret = -ETIMEDOUT;

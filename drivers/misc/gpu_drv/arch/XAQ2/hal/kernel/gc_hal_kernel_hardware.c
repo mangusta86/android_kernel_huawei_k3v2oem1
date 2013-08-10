@@ -16,6 +16,7 @@
 #include "gc_hal.h"
 #include "gc_hal_kernel.h"
 #include <linux/delay.h>
+#include <mach/hisi_mem.h>
 
 #define _GC_OBJ_ZONE    gcvZONE_HARDWARE
 
@@ -378,6 +379,52 @@ OnError:
     return status;
 }
 
+static gceSTATUS
+_IsGPUPresent(
+    IN gckHARDWARE Hardware
+    )
+{
+    gceSTATUS status;
+    gcsHAL_QUERY_CHIP_IDENTITY identity;
+
+    gcmkHEADER_ARG("Hardware=0x%x", Hardware);
+
+    /* Verify the arguments. */
+    gcmkVERIFY_OBJECT(Hardware, gcvOBJ_HARDWARE);
+
+    gcmkONERROR(gckOS_WriteRegisterEx(Hardware->os,
+                Hardware->core,
+                0x0,
+                0x00000900));
+
+    /* Identify the hardware. */
+    gcmkONERROR(_IdentifyHardware(Hardware->os,
+                                  Hardware->core,
+                                  &identity));
+
+    /* Check if these are the same values as saved before. */
+    if ((Hardware->identity.chipModel != identity.chipModel)
+    ||  (Hardware->identity.chipRevision != identity.chipRevision)
+    ||  (Hardware->identity.chipFeatures != identity.chipFeatures)
+    ||  (Hardware->identity.chipMinorFeatures  != identity.chipMinorFeatures)
+    ||  (Hardware->identity.chipMinorFeatures1 != identity.chipMinorFeatures1)
+    ||  (Hardware->identity.chipMinorFeatures2 != identity.chipMinorFeatures2)
+    )
+    {
+        printk("[galcore]: GPU is not present.\n");
+        gcmkONERROR(gcvSTATUS_GPU_NOT_RESPONDING);
+    }
+
+    /* Success. */
+    gcmkFOOTER_NO();
+    return gcvSTATUS_OK;
+
+OnError:
+    /* Return the error. */
+    gcmkFOOTER();
+    return status;
+}
+
 /******************************************************************************\
 ****************************** gckHARDWARE API code *****************************
 \******************************************************************************/
@@ -528,6 +575,12 @@ gckHARDWARE_Construct(
 #endif
 
     gcmkONERROR(gckOS_AtomConstruct(Os, &hardware->pageTableDirty));
+
+#if gcdLINK_QUEUE_SIZE
+    hardware->linkQueue.front = 0;
+    hardware->linkQueue.rear = 0;
+    hardware->linkQueue.count = 0;
+#endif    
 
     /* Return pointer to the gckHARDWARE object. */
     *Hardware = hardware;
@@ -970,8 +1023,8 @@ gckHARDWARE_QueryMemory(
 
     if (ExternalSize != gcvNULL)
     {
-        /* No external memory. */
-        *ExternalSize = 0;
+        /* false external memory.*/
+        *ExternalSize = HISI_MEM_COPYBIT_SIZE;
     }
 
     if (HorizontalTileSize != gcvNULL)
@@ -2112,6 +2165,13 @@ gckHARDWARE_Link(
         /* Memory barrier. */
         gcmkONERROR(
             gckOS_MemoryBarrier(Hardware->os, logical));
+
+#if gcdLINK_QUEUE_SIZE && gcdVIRTUAL_COMMAND_BUFFER
+        if (address >= 0x80000000)
+        {
+            gckLINKQUEUE_Enqueue(&Hardware->linkQueue, address, address + bytes);
+        }
+#endif
     }
 
     if (Bytes != gcvNULL)
@@ -3308,7 +3368,7 @@ gckHARDWARE_SetFastClear(
         }
         else if(Hardware->core == gcvCORE_MAJOR)
         {
-            debug = (debug & 0xffffffe0) | 6;
+            debug = (debug & 0xffffffe0) | 8;
         }
     #else
         if(Hardware->core == gcvCORE_2D)
@@ -3433,6 +3493,7 @@ gckHARDWARE_SetPowerManagementState(
     gctBOOL globalAcquired = gcvFALSE;
     gctBOOL commandStarted = gcvFALSE;
     gctBOOL isrStarted = gcvFALSE;
+    gctBOOL powerOn = gcvFALSE;
 
     /* State transition flags. */
     static const gctUINT flags[4][4] =
@@ -3806,12 +3867,58 @@ gckHARDWARE_SetPowerManagementState(
 
     if (flag & (gcvPOWER_FLAG_INITIALIZE | gcvPOWER_FLAG_CLOCK_ON))
     {
+        gctINT i;
+
         /* Turn on the power. */
         gcmkONERROR(gckOS_SetGPUPower(os, Hardware->core, gcvTRUE, gcvTRUE));
 
         /* Mark clock and power as enabled. */
         Hardware->clockState = gcvTRUE;
         Hardware->powerState = gcvTRUE;
+
+        for (i = 0; i < 10; i++) // try 10 times
+        {
+            /* Check if GPU is present and awake. */
+            status = _IsGPUPresent(Hardware);
+
+            /* Check if the GPU is not responding. */
+            if (status == gcvSTATUS_GPU_NOT_RESPONDING)
+            {
+                /* Turn off the power and clock. */
+                gcmkONERROR(gckOS_SetGPUPower(os, Hardware->core, gcvFALSE, gcvFALSE));
+
+                /* Mark clock and power as disabled. */
+                Hardware->clockState = gcvFALSE;
+                Hardware->powerState = gcvFALSE;
+
+                /* Wait a little. */
+                gckOS_Delay(os, 1);
+
+                /* Turn on the power and clock. */
+                gcmkONERROR(gckOS_SetGPUPower(os, Hardware->core, gcvTRUE, gcvTRUE));
+
+                /* Mark clock and power as enabled. */
+                Hardware->clockState = gcvTRUE;
+                Hardware->powerState = gcvTRUE;
+
+                /* We need to initialize the hardware and start the command
+                 * processor. */
+                flag |= gcvPOWER_FLAG_INITIALIZE | gcvPOWER_FLAG_START;
+            }
+            else
+            {
+                /* Test for error. */
+                gcmkONERROR(status);
+
+                /* Break out of loop. */
+                break;
+            }
+        }
+
+        if (i >= 10)
+            BUG_ON(1);
+
+        powerOn = gcvTRUE;
     }
 
     /* Get time until powered on. */
@@ -4081,6 +4188,18 @@ OnError:
     if (isrStarted)
     {
         gcmkVERIFY_OK(Hardware->stopIsr(Hardware->isrContext));
+    }
+
+    if (powerOn)
+    {
+        gckOS_SetGPUPower(os,
+                                           Hardware->core,
+                                           gcvFALSE,
+                                           gcvFALSE);
+
+        /* Restore current hardware power and clock states. */
+        Hardware->clockState = gcvFALSE;
+        Hardware->powerState = gcvFALSE;
     }
 
     if (commitEntered)

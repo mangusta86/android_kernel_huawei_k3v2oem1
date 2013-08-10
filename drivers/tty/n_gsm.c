@@ -524,31 +524,6 @@ static int gsm_stuff_frame(const u8 *input, u8 *output, int len)
 	return olen;
 }
 
-static void hex_packet(const unsigned char *p, int len, int dirct)
-{
-	int i,lenT = 0;
-	char AtBuffer[100] = {0};
-
-	for(i = 0; i < len; i++) {
-		if(lenT < (sizeof(AtBuffer) - 3)) {
-			if(dirct) {
-				lenT += sprintf(&AtBuffer[lenT],"%02X ",*p++);
-			} else {
-				lenT += sprintf(&AtBuffer[lenT],"%02x ",*p++);
-			}
-		} else {
-			break;
-		}
-	}
-
-	AtBuffer[lenT] = 0x00;
-
-	if(dirct)
-		printk("==>>%s\n",AtBuffer);
-	else
-		printk("==<<%s\n",AtBuffer);
-}
-
 /**
  *  gsm_send    -   send a control frame
  *  @gsm: our GSM mux

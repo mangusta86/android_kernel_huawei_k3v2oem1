@@ -1274,6 +1274,12 @@ int pcd_init(
 
 	otg_dev->pcd->otg_dev = otg_dev;
 	gadget_wrapper = alloc_wrapper(_dev);
+	if (!gadget_wrapper){
+		DWC_ERROR("gadget_wrapper alloc failed\n");
+		dwc_otg_pcd_remove(otg_dev->pcd);
+		return -ENOMEM;
+	}
+
 
 	/*
 	 * Initialize EP structures

@@ -54,21 +54,24 @@ struct usbnet {
 	struct sk_buff_head	txq;
 	struct sk_buff_head	done;
 	struct sk_buff_head	rxq_pause;
+	struct sk_buff_head	freeq;
 	struct urb		*interrupt;
 	struct usb_anchor	deferred;
 	struct tasklet_struct	bh;
 
 	struct work_struct	kevent;
 	unsigned long		flags;
-#		define EVENT_TX_HALT	0
-#		define EVENT_RX_HALT	1
-#		define EVENT_RX_MEMORY	2
-#		define EVENT_STS_SPLIT	3
-#		define EVENT_LINK_RESET	4
-#		define EVENT_RX_PAUSED	5
-#		define EVENT_DEV_WAKING 6
-#		define EVENT_DEV_ASLEEP 7
-#		define EVENT_DEV_OPEN	8
+#define EVENT_TX_HALT	0
+#define EVENT_RX_HALT	1
+#define EVENT_RX_MEMORY	2
+#define EVENT_STS_SPLIT	3
+#define EVENT_LINK_RESET	4
+#define EVENT_RX_PAUSED	5
+#define EVENT_DEV_WAKING 6
+#define EVENT_DEV_ASLEEP 7
+#define EVENT_DEV_OPEN	8
+#define EVENT_DEV_DISCONNECTED	9
+
 };
 
 static inline struct usb_driver *driver_of(struct usb_interface *intf)

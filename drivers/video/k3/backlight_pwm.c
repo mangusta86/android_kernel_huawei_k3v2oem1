@@ -38,11 +38,9 @@
 
 #define PWM_MAX_DIV			(0xE0)
 
-
 static DEFINE_MUTEX(k3led_backlight_lock);
-
 static int bklclk_cnt;
-
+static u32 brightness_old = 0;
 int pwm_set_backlight(int bl_lvl, struct k3_panel_info *pinfo)
 {
 	int ret = 0;
@@ -58,7 +56,7 @@ int pwm_set_backlight(int bl_lvl, struct k3_panel_info *pinfo)
 	if (!bklclk_cnt++) {
 		ret = clk_enable(pinfo->pwm_clk);
 		if (ret != 0) {
-			pr_err("k3fb, %s: backlight failed to enable pwm_clk! \n", __func__);
+			k3fb_loge("backlight failed to enable pwm_clk!\n");
 			mutex_unlock(&k3led_backlight_lock);
 			return ret;
 		}
@@ -81,14 +79,23 @@ int pwm_set_backlight(int bl_lvl, struct k3_panel_info *pinfo)
 		}
 
 		if (i >= WAIT_NUMBER) {
-			pr_err("k3fb, %s, backlight is time out!\n", __func__);
+			k3fb_loge("backlight is time out!\n");
 		}
 
 		outp32(base, BACKLIGHT_ENABLE);
 		outp32(base + PWM_DIV_OFFSET, PWM_MAX_DIV);
-		outp32(base + PWM_OUT_OFFSET, brightness);
+
+		if (brightness_old < brightness) {
+		    for (i = brightness_old + 1; i <= brightness; i++) {
+				udelay(50);
+				outp32(base + PWM_OUT_OFFSET, i);
+		    }
+		} else {
+				outp32(base + PWM_OUT_OFFSET, brightness);
+		}
 	}
 
+	brightness_old = brightness;
 	mutex_unlock(&k3led_backlight_lock);
 
 	return 0;

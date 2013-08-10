@@ -2401,18 +2401,31 @@ config FB_K3_CLCD
 	  here and read <file:Documentation/kbuild/modules.txt>.  The module
 	  will be called amba-clcd.
 
-config LCD_TOSHIBA_MDW70
-    tristate "Toshiba 720p LCD support on K3 platform"
+config FASTBOOT_DISP_ENABLE
+	tristate "Hisilicon K3 ARM fastboot display enable support"
+	depends on FB && ARM && ARM_AMBA && ARCH_K3V2_Hi362x_SOC
+	help
+	  Display system have already initialized in fastboot.
+
+config LCD_1080P
+	tristate "1080p LCD support on K3 platform"
 	depends on FB_K3_CLCD
 	help
-		Toshiba 720p LCD support on K3 platform. If you are using Phone
+	  1080p LCD support on K3 platform.	If you are using 1080p LCD,
+	  please choose it.
+
+config LCD_TOSHIBA_MDW70
+	tristate "Toshiba 720p LCD support on K3 platform"
+	depends on FB_K3_CLCD
+	help
+	  Toshiba 720p LCD support on K3 platform. If you are using Phone
 
 config LCD_PANASONIC_VVX10F002A00
-    tristate "Panasonic 1080p LCD support on K3 platform"
+	tristate "Panasonic 1080p LCD support on K3 platform"
 	depends on FB_K3_CLCD
 	help
-		Panasonic 1080p LCD support on K3 platform.	If you are using S10 Pad,
-		please choose it.
+	  Panasonic 1080p LCD support on K3 platform.	If you are using S10 Pad,
+	  please choose it.
 
 config LCD_CMI_OTM1280A
 	tristate "CMI 720p LCD support on K3 platform"
@@ -2421,12 +2434,40 @@ config LCD_CMI_OTM1280A
 	  CMI 720p LCD support on K3 platform. If you are using U9508,
 	  please choose it.
 
-config LCD_1080P
-    tristate "1080p LCD support on K3 platform"
+config LCD_CMI_PT045TN07
+	tristate "CMIMEI Innolux QHD LCD support on K3 platform"
 	depends on FB_K3_CLCD
 	help
-		1080p LCD support on K3 platform.	If you are using 1080p LCD,
-		please choose it.
+	  CMIMEI Innolux QHD LCD support on K3 platform. If you are using T9508,
+	  please choose it.
+
+config LCD_SAMSUNG_S6E39A
+	tristate "Samsung 960x540 LCD support on K3 platform"
+	depends on FB_K3_CLCD
+	help
+	  Samsung 960x540 LCD support on K3 platform. If you are using k3,
+	  please choose it.
+
+config LCD_SAMSUNG_LMS350DF04
+	tristate "Samsung 480x320 LCD support on K3 platform"
+	depends on FB_K3_CLCD
+	help
+	  Samsung 480x320 LCD support on K3 platform. If you are using k3,
+	  please choose it.
+
+config LCD_SHARP_LS035B3SX
+	tristate "Sharp 960x640 LCD support on K3 platform"
+	depends on FB_K3_CLCD
+	help
+	  Sharp 960x640 LCD support on K3 platform. If you are using k3,
+	  please choose it.
+
+config LCD_JDI_OTM1282B
+	tristate "JDI 720p LCD support on K3 platform"
+	depends on FB_K3_CLCD
+	help
+	  JDI 720p LCD support on K3 platform. If you are using U9700,
+	  please choose it.
 
 config K3_HDMI_SII9134 
     tristate "K3_HDMI_SII9244"
@@ -2438,6 +2479,10 @@ config K3_HDMI_SII9134
       
 config HDCP_ENABLE
 	tristate "HDCP_ENABLE"
+	default n
+
+config HDMI_CEC_ENABLE
+	tristate "HDMI_CEC_ENABLE"
 	default n
 
 config K3_FAKE_FB
@@ -2485,5 +2530,12 @@ endif
 if FB || SGI_NEWPORT_CONSOLE
 	source "drivers/video/logo/Kconfig"
 endif
+
+#OverlayCompose:
+config OVERLAY_COMPOSE
+    tristate "overlay compose support on K3 platform"
+	default n
+    help
+	    overlay compose
 
 endmenu

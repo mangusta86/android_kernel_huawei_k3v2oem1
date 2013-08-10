@@ -22,7 +22,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: sdioh.h,v 13.17.2.3 2011-01-08 05:28:21 Exp $
+ * $Id: sdioh.h 300017 2011-12-01 20:30:27Z $
  */
 
 #ifndef	_SDIOH_H
@@ -71,6 +71,7 @@
 #define	SD_GPIO_Reg			0x100
 #define	SD_GPIO_OE			0x104
 #define	SD_GPIO_Enable			0x108
+
 
 /* SD specific registers in PCI config space */
 #define SD_SlotInfo	0x40
@@ -412,6 +413,7 @@
 /* SD_SlotInterruptStatus: Offset 0x0FC , size = bytes */
 /* SD_HostControllerVersion : Offset 0x0FE , size = bytes */
 
+/* SDIO Host Control Register DMA Mode Definitions */
 #define SDIOH_SDMA_MODE			0
 #define SDIOH_ADMA1_MODE		1
 #define SDIOH_ADMA2_MODE		2

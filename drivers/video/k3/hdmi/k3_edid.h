@@ -199,6 +199,7 @@
 #define HDMI_EDID_VESA_VIDEO_1680x1050p_60Hz_16_9       58+HDMI_CODE_VESA_OFFSET
 #define HDMI_EDID_VESA_VIDEO_1680x1050p_75Hz_16_9       59+HDMI_CODE_VESA_OFFSET
 #define HDMI_EDID_VESA_VIDEO_1680x1050p_85Hz_16_9       60+HDMI_CODE_VESA_OFFSET
+#define HDMI_EDID_VESA_VIDEO_1920x1080p_60Hz_16_9       82+HDMI_CODE_VESA_OFFSET
 
 #define HDMI_TIMINGS_VESA_START                     27  /* start of VESA timing code in timing array */
 #define HDMI_TIMINGS_VESA_END                       95  /* end of VESA timing code in timing array */
@@ -209,6 +210,9 @@
 /* default timing mode */
 #define HDMI_DEFAULT_TIMING_MODE  HDMI_CODE_TYPE_CEA
 /* default timing code */
+
+//for hdcp test
+#define HDCP_DEFAULT_TIMING_CODE HDMI_EDID_EX_VIDEO_720x480p_60Hz_4_3
 #define HDMI_DEFAULT_TIMING_CODE  HDMI_EDID_EX_VIDEO_1280x720p_60Hz_16_9
 #define HDMI_DEFAULT_MHL_TIMING_CODE  HDMI_EDID_EX_VIDEO_1280x720p_60Hz_16_9
 
@@ -534,6 +538,7 @@ int  edid_get_vesa_timing_order(int code, bool mhl_check);
 int  edid_get_default_code(void);
 bool edid_is_valid_edid(u8 *edid);
 bool edid_has_vcdb(u8 *edid);
+bool edid_cec_getphyaddr(u8 *edid, u8* physical_addr);
 
 #endif
 

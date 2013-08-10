@@ -22,7 +22,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: siutils.h,v 13.251.2.10 2011-02-04 05:06:32 Exp $
+ * $Id: siutils.h 335486 2012-05-28 09:47:55Z $
  */
 
 
@@ -58,6 +58,7 @@ struct si_pub {
 
 
 typedef const struct si_pub si_t;
+
 
 
 #define	SI_OSH		NULL	
@@ -221,6 +222,8 @@ static INLINE void * si_seci_init(si_t *sih, uint8 use_seci) {return NULL;}
 extern bool si_is_otp_disabled(si_t *sih);
 extern bool si_is_otp_powered(si_t *sih);
 extern void si_otp_power(si_t *sih, bool on);
+extern void si_set_otp_wr_volts(si_t *sih);
+extern void si_set_otp_rd_volts(si_t *sih);
 
 
 extern bool si_is_sprom_available(si_t *sih);
@@ -234,10 +237,10 @@ extern int si_cis_source(si_t *sih);
 #define CIS_OTP		2
 
 
-#define	DEFAULT_FAB	0x0
-#define	CSM_FAB7	0x1
-#define	TSMC_FAB12	0x2
-#define	SMIC_FAB4	0x3
+#define	DEFAULT_FAB	0x0	
+#define	CSM_FAB7	0x1	
+#define	TSMC_FAB12	0x2	
+#define	SMIC_FAB4	0x3	
 extern int si_otp_fabid(si_t *sih, uint16 *fabid, bool rw);
 extern uint16 si_fabid(si_t *sih);
 
@@ -269,5 +272,6 @@ extern uint32 si_pciereg(si_t *sih, uint32 offset, uint32 mask, uint32 val, uint
 extern uint32 si_pcieserdesreg(si_t *sih, uint32 mdioslave, uint32 offset, uint32 mask, uint32 val);
 
 char *si_getnvramflvar(si_t *sih, const char *name);
+
 
 #endif	

@@ -1246,7 +1246,7 @@ static void s5k5cag_set_default(void)
 
 	s5k5cag_sensor.get_capability = s5k5cag_get_capability;
 
-	strcpy(s5k5cag_sensor.info.name,"s5k5cag");
+	strncpy(s5k5cag_sensor.info.name, "s5k5cag", sizeof(s5k5cag_sensor.info.name));
 	s5k5cag_sensor.interface_type = MIPI1;
 	s5k5cag_sensor.mipi_lane_count = CSI_LINES_1;//CSI_LINES_2;   zhangjun
 	s5k5cag_sensor.mipi_index = CSI_INDEX_0;

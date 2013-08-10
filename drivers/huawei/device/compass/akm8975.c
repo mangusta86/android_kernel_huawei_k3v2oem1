@@ -44,7 +44,7 @@ Problem NO.         Name        Time         Reason
 #include <asm/io.h>
 #include <linux/mux.h>
 
-#define MSENSOR_PIN "ac28"/*gpio_125*/
+#define MSENSOR_PIN "gpio_125"
 
 
 #define AKM8975_DEBUG		0
@@ -889,7 +889,12 @@ int akm8975_probe(struct i2c_client *client, const struct i2c_device_id *id)
 			dev_err(&client->dev, "failed to request gpio DRDY for irq\n");
 			goto exit3;
 		}
-		gpio_direction_input(irq_to_gpio(client->irq));
+
+		err = gpio_direction_input(irq_to_gpio(client->irq));
+		if (err) {
+			dev_err(&client->dev, "AKM8975 akm8975_probe: config gpio direction failed\n");
+			goto exit4;
+		}
 
 		err = request_irq(client->irq, akm8975_interrupt, IRQ_TYPE_EDGE_RISING,
 					  "akm8975_DRDY", akm);

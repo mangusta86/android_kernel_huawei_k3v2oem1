@@ -38,6 +38,10 @@ enum {
 	OVERLAY_PIPE_EDC0_CH2,
 	OVERLAY_PIPE_EDC1_CH1,
 	OVERLAY_PIPE_EDC1_CH2,
+#if defined(CONFIG_OVERLAY_COMPOSE)
+	OVERLAY_PIPE_EDC0_CURSOR, //happy
+#endif //CONFIG_OVERLAY_COMPOSE
+
 	OVERLAY_PIPE_MAX
 };
 
@@ -97,6 +101,16 @@ struct edc_overlay_pipe {
 	void (*set_EDC_CH_CSCP2)(u32 edc_base, u32 nVal);
 	void (*set_EDC_CH_CSCP3)(u32 edc_base, u32 nVal);
 	void (*set_EDC_CH_CSCP4)(u32 edc_base, u32 nVal);
+#if defined(CONFIG_OVERLAY_COMPOSE)
+	void (*set_OVC_CH_CSCIDC)(u32 edc_base, u32 cscidc_y, u32 cscidc_u, u32 cscidc_v);
+	void (*set_OVC_CH_CSCODC)(u32 edc_base, u32 cscodc_r, u32 cscodc_g, u32 cscodc_b);
+	void (*set_OVC_CH_CSCP0)(u32 edc_base, u32 csc_01p, u32 csc_00p);
+	void (*set_OVC_CH_CSCP1)(u32 edc_base, u32 csc_10p, u32 csc_02p);
+	void (*set_OVC_CH_CSCP2)(u32 edc_base, u32 csc_12p, u32 csc_11p);
+	void (*set_OVC_CH_CSCP3)(u32 edc_base, u32 csc_21p, u32 csc_20p);
+	void (*set_OVC_CH_CSCP4)(u32 edc_base, u32 csc_22p);
+#endif //CONFIG_OVERLAY_COMPOSE
+
 };
 
 struct edc_overlay_ctrl {
@@ -116,8 +130,30 @@ int edc_overlay_get(struct fb_info *info, struct overlay_info *req);
 int edc_overlay_set(struct fb_info *info, struct overlay_info *req);
 int edc_overlay_unset(struct fb_info *info, int ndx);
 int edc_overlay_play(struct fb_info *info, struct overlay_data *req);
-int smartbl_ctrl_resume(struct k3_fb_data_type *k3fd);
-int smartbl_ctrl_set(struct k3_fb_data_type *k3fd);
-int set_sbl_bkl(struct k3_fb_data_type *k3fd, u32 value);
+
+int sbl_ctrl_resume(struct k3_fb_data_type *k3fd);
+int sbl_ctrl_set(struct k3_fb_data_type *k3fd);
+int sbl_bkl_set(struct k3_fb_data_type *k3fd, u32 value);
+
+#if defined(CONFIG_OVERLAY_COMPOSE)
+volatile u32 edc_overlay_compose_get_cfg_ok(struct k3_fb_data_type *k3fd);
+volatile u32 edc_overlay_compose_reg_get_ch1_rotation(struct k3_fb_data_type *k3fd);
+volatile u32 edc_overlay_compose_get_ch1_state(struct k3_fb_data_type *k3fd);
+volatile u32 edc_overlay_compose_get_ch2_state(struct k3_fb_data_type *k3fd);
+volatile u32 edc_overlay_compose_get_ch2_fmt(struct k3_fb_data_type *k3fd);
+volatile u32 edc_overlay_compose_get_crs_state(struct k3_fb_data_type *k3fd);
+u32 edc_overlay_compose_get_state(struct fb_info *info, u32 pipe_id);
+u32 edc_overlay_compose_get_cfg_disable(struct fb_info *info, u32 pipe_id);
+u32 edc_overlay_compose_get_ch1_rotation(struct fb_info *info, u32 pipe_id);
+int edc_overlay_compose_pipe_unset_previous(struct fb_info *info, u32 previous_type, u32 previous_count);
+#if defined(EDC_CH_CHG_SUPPORT)
+void overlay_compose_edc1_power_off(void);
+int edc_overlay_compose_ch_chg_disable(struct k3_fb_data_type *k3fd, struct fb_info *info);
+#endif
+int edc_overlay_compose_play(struct fb_info *info, struct overlay_data *req);
+int edc_overlay_compose_pan_display(struct fb_var_screeninfo *var, struct fb_info *info, struct overlay_data *req);
+void edc_overlay_compose_pre_unset(struct fb_info *info, int ndx);
+
+#endif //CONFIG_OVERLAY_COMPOSE
 
 #endif  /* EDC_OVERLAY_H  */

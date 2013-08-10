@@ -150,6 +150,7 @@ typedef struct _hdcp_info {
     bool enable;
     bool bhdcpstart;
     bool wait_anth_stop;
+	bool is_checking_ksv;
     u32  auth_state;
     u8  an_tx[8];
     u32 jiffies_ori;

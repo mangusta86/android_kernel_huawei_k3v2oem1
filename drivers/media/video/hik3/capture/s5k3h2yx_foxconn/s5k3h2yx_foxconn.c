@@ -1261,7 +1261,7 @@ static void s5k3h2yx_foxconn_set_default(void)
 
 	s5k3h2yx_foxconn_sensor.get_capability = NULL;
 
-	strcpy(s5k3h2yx_foxconn_sensor.info.name,"s5k3h2yx_foxconn");
+	strncpy(s5k3h2yx_foxconn_sensor.info.name, "s5k3h2yx_foxconn", sizeof(s5k3h2yx_foxconn_sensor.info.name));
 	s5k3h2yx_foxconn_sensor.interface_type = MIPI1;
 	s5k3h2yx_foxconn_sensor.mipi_lane_count = CSI_LINES_2;
 	s5k3h2yx_foxconn_sensor.mipi_index = CSI_INDEX_0;
@@ -1290,6 +1290,7 @@ static void s5k3h2yx_foxconn_set_default(void)
 	s5k3h2yx_foxconn_sensor.agc_addr[0] = 0x0204;
 	s5k3h2yx_foxconn_sensor.agc_addr[1] = 0x0205;
 	s5k3h2yx_foxconn_sensor.sensor_type = SENSOR_SAMSUNG;
+	s5k3h2yx_foxconn_sensor.sensor_rgb_type = SENSOR_GRBG;/* changed by y00231328. add bayer order*/
 
 	s5k3h2yx_foxconn_sensor.set_gain = s5k3h2yx_foxconn_set_gain;
 	s5k3h2yx_foxconn_sensor.set_exposure = s5k3h2yx_foxconn_set_exposure;

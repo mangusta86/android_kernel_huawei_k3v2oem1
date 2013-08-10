@@ -64,4 +64,10 @@ obj-$(CONFIG_RAMOOPS)		+= ramoops.o
 
 obj-$(CONFIG_JS_RTC)		+= js-rtc.o
 js-rtc-y = rtc.o
+
 obj-$(CONFIG_HUAWEI_FEATURE_LOW_MEMORY_KILLER_STUB)	+= lowmemorykiller_stub.o
+
+#seceng driver begin. add by z00212134
+obj-$(CONFIG_SECENGDEV)          += secengdev/
+#seceng driver end. add by z00212134
+

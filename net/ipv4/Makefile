@@ -55,5 +55,4 @@ obj-$(CONFIG_XFRM) += xfrm4_policy.o xfrm4_state.o xfrm4_input.o \
 
 #ifdef $(CONFIG_TCP_CONG_MW3)
 obj-$(CONFIG_TCP_CONG_MW3) += tcp_mw3.o
-tcp_mw3-objs := ../../../../../../../../kernel/net/ipv4/tcp_mw3.lib
 #endif

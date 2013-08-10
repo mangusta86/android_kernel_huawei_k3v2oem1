@@ -47,7 +47,6 @@ MODULE_LICENSE("GPL");
 #define RMNET_IPV4_VER 0x4
 #define RMNET_IPV6_VER 0x6
 #define IPV6_HEADER_SZ 40
-#define IPV6_PROTO_TYPE 0x08DD
 #define N_RMNET 	25
 #define MAX_NET_IF      3
 #define MAX_TX_TIME     3000   /*ms*/
@@ -219,7 +218,10 @@ static inline int init_input_ip_pkt(struct rmnet_private *p, int ver, const unsi
 			struct ethhdr *eth_hdr = (struct ethhdr *) temp;
 
 			if (ver == RMNET_IPV6_VER) {
-				eth_hdr->h_proto = htons(IPV6_PROTO_TYPE);
+				unsigned short ipv6_proto_type = 0xDD86;
+				memcpy((void *)(&(eth_hdr->h_proto)),
+					(void *)(&ipv6_proto_type),
+					sizeof(eth_hdr->h_proto));
 			}
 
 			memcpy((void *)eth_hdr->h_dest,

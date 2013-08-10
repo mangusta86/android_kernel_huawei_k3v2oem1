@@ -47,6 +47,8 @@
 #include <mach/gpio.h>
 #include <mach/hisi_mem.h>
 #include <hsad/config_mgr.h>
+#include <mach/debugled.h>
+
 #ifdef CONFIG_THERMAL_FRAMEWORK
 #include <linux/temperature_sensor.h>
 #endif
@@ -108,6 +110,8 @@ static int __init early_k3v2_mem(char *p)
 
 		printk(KERN_INFO "early_k3v2_mem start 0x%x size 0x%lx\n", start, size);
 
+		if (ep == NULL)
+			break;
 		if (*ep == ',')
 			p = ep + 1;
 		else
@@ -429,16 +433,16 @@ static void k3v2_spidev3_cs_set(u32 control)
 
 #define PL022_CONFIG_CHIP(id)						\
 static struct pl022_config_chip spidev##id##_chip_info = {		\
-	.com_mode 		= DMA_TRANSFER,				\
-	.iface			= SSP_INTERFACE_MOTOROLA_SPI,         	\
+	.com_mode		= DMA_TRANSFER,				\
+	.iface			= SSP_INTERFACE_MOTOROLA_SPI,		\
 	.hierarchy		= SSP_MASTER,				\
 	.slave_tx_disable	= 0,					\
 	.rx_lev_trig		= SSP_RX_16_OR_MORE_ELEM,		\
 	.tx_lev_trig		= SSP_TX_16_OR_MORE_EMPTY_LOC,		\
 	.ctrl_len		= SSP_BITS_8,				\
 	.wait_state		= SSP_MWIRE_WAIT_ZERO,			\
-	.duplex 		= SSP_MICROWIRE_CHANNEL_FULL_DUPLEX,	\
-	.cs_control		= k3v2_spidev##id##_cs_set,         	\
+	.duplex			= SSP_MICROWIRE_CHANNEL_FULL_DUPLEX,	\
+	.cs_control		= k3v2_spidev##id##_cs_set,		\
 }
 
 PL022_CONFIG_CHIP(0);
@@ -447,7 +451,7 @@ PL022_CONFIG_CHIP(2);
 PL022_CONFIG_CHIP(3);
 
 #define K3_SPI_PLAT_DATA(dev_name, num_id, num_cs, en_dma)		\
-	{             							\
+	{								\
 		.bus_id = num_id,					\
 		.num_chipselect = num_cs,				\
 		.enable_dma = en_dma,					\
@@ -675,6 +679,25 @@ static struct platform_device hisik3_hdmi_device = {
     .resource = hisik3_hdmi_resources,
 };
 
+#ifdef CONFIG_SECENGDEV
+/*seceng driver begin. added by z00212134*/
+static struct resource  hisik3_seceng_resources[] = {
+	[0] = {
+		.start = REG_BASE_SECENG,
+		.end = REG_BASE_SECENG + REG_SECENG_IOSIZE - 1,
+		.flags = IORESOURCE_MEM,
+	},
+};
+
+static struct platform_device  hisik3_seceng_device = {
+	.name = "k3v2_seceng",
+	.id = -1,
+	.num_resources = ARRAY_SIZE(hisik3_seceng_resources),
+	.resource = hisik3_seceng_resources,
+};
+ /*seceng driver end. added by z00212134*/
+#endif
+
 static struct platform_device hisik3_fb_device = {
 	.name	= "k3_fb",
 	.id	= 0,
@@ -691,7 +714,7 @@ static struct resource hisik3_gpu_resources[] = {
 		.flags	= IORESOURCE_IRQ,
 	},
 	{
-		.name  	= "g2d_base",
+		.name	= "g2d_base",
 		.start	= REG_BASE_G2D,
 		.end	= REG_BASE_G2D + REG_G2D_IOSIZE - 1,
 		.flags	= IORESOURCE_MEM,
@@ -878,6 +901,28 @@ static struct platform_device ipps2_device = {
 	.resource = ipps2_resources,
 	.num_resources = ARRAY_SIZE(ipps2_resources),
 };
+
+#ifdef CONFIG_K3V2_WAKEUP_TIMER
+static struct resource k3v2_wakeup_timer_resources [] = {
+	[0] = {
+	       .start = REG_BASE_TIMER1,
+	       .end = REG_BASE_TIMER1 + REG_TIMER1_IOSIZE - 1,
+	       .flags = IORESOURCE_MEM,
+	       },
+
+	[1] = {
+	       .start = IRQ_TIMER2,
+	       .end = IRQ_TIMER2,
+	       .flags = IORESOURCE_IRQ,
+	       }
+};
+static struct platform_device k3v2_wakeup_timer_device = {
+	.name = "k3v2_wakeup_timer",
+	.id	= -1,
+	.num_resources	= ARRAY_SIZE(k3v2_wakeup_timer_resources),
+	.resource	= &k3v2_wakeup_timer_resources,
+};
+#endif
 
 #ifdef CONFIG_THERMAL_FRAMEWORK
 #ifdef CONFIG_K3V2_AP_SENSOR
@@ -1299,7 +1344,7 @@ static int mmc0_init_tuning_config[7][TUNING_INIT_CONFIG_NUM] = {
 		180000000, 6, 6, 13, 13, 25000000		/* init: 400k */
 	},
 	{
-		180000000, 6, 4, 13, 13, 25000000 		/* 0: SDR12 */
+		180000000, 6, 4, 13, 13, 25000000		/* 0: SDR12 */
 	},
 	{
 		360000000, 6, 4, 2, 0, 50000000		/* 1: */
@@ -1551,8 +1596,8 @@ static struct platform_device hisik3_sdio_device = {
 static struct xmm_power_plat_data  xmm_plat_data = {
 	.flashless = true,
 	.gpios = {
-		[XMM_RESET] 	   = {95, GPIOF_OUT_INIT_LOW,  "xmm_rst"},
-		[XMM_POWER_ON] 	   = {96, GPIOF_OUT_INIT_LOW, "xmm_pow"},
+		[XMM_RESET]	   = {95, GPIOF_OUT_INIT_LOW,  "xmm_rst"},
+		[XMM_POWER_ON]	   = {96, GPIOF_OUT_INIT_LOW, "xmm_pow"},
 		[XMM_PMU_RESET]    = {97, GPIOF_OUT_INIT_LOW, "xmm_pmu_rst"},
 		[XMM_HOST_ACTIVE]  = {115, GPIOF_OUT_INIT_LOW, "host_act"},
 		[XMM_HOST_WAKEUP]  = {113, GPIOF_IN, "host_wake"},
@@ -1595,6 +1640,10 @@ EXPORT_SYMBOL(hi_sdio_set_power);
 
 /* please add platform device in the struct.*/
 static struct platform_device *hisik3_public_dev[] __initdata = {
+#ifdef CONFIG_K3V2_WAKEUP_TIMER
+	&k3v2_wakeup_timer_device,
+#endif
+
 	&hi6421_regulator_device,
 	&vcc_regulator_device,
 #if defined(CONFIG_MMC_EMMC_DEVICE)
@@ -1628,6 +1677,11 @@ static struct platform_device *hisik3_public_dev[] __initdata = {
 	&hisik3_hi6421_device,
 	&hisik3_battery_device,
 	&hisik3_hdmi_device,
+#ifdef CONFIG_SECENGDEV
+/*seceng driver begin. added by z00212134*/
+	&hisik3_seceng_device,
+/*seceng driver end. added by z00212134*/
+#endif
 #ifdef CONFIG_THERMAL_FRAMEWORK
 #ifdef CONFIG_K3V2_AP_SENSOR
 	&ap_temp_device,
@@ -1717,6 +1771,7 @@ int get_str_len(char *str)
 
 	return count;
 }
+
 static int __init early_parse_hpm_cmdline(char *p)
 {
 	char tmpbuf[HEX_STRING_MAX + 1];
@@ -1769,32 +1824,34 @@ int get_cpu_max_freq()
 }
 EXPORT_SYMBOL(get_cpu_max_freq);
 
-int enter_recovery_flag;
+
+
+ int enter_recovery_flag;
 /**
- * parse boot_into_recovery cmdline which is passed from boot_recovery() of boot.c *
- * Format : boot_into_recovery_flag=0 or 1             *
- */
+* parse boot_into_recovery cmdline which is passed from boot_recovery() of boot.c *
+* Format : boot_into_recovery_flag=0 or 1             *
+*/
 static int __init early_parse_enterrecovery_cmdline(char * p)
 {
-	char enter_recovery[HEX_STRING_MAX + 1];
-	char *endptr = NULL;
+    char enter_recovery[HEX_STRING_MAX + 1];
+    char *endptr = NULL;
 
-	memset(enter_recovery, 0, HEX_STRING_MAX + 1);
+    memset(enter_recovery, 0, HEX_STRING_MAX + 1);
 
-	memcpy(enter_recovery, p, HEX_STRING_MAX);
-	enter_recovery[HEX_STRING_MAX] = '\0';
+    memcpy(enter_recovery, p, HEX_STRING_MAX);
+    enter_recovery[HEX_STRING_MAX] = '\0';
 
-	enter_recovery_flag = simple_strtoull(enter_recovery, &endptr, TRANSFER_BASE);
+    enter_recovery_flag = simple_strtoull(enter_recovery, &endptr, TRANSFER_BASE);
 
-	printk("enter recovery p:%s, enter_recovery_flag :%d\n", p, enter_recovery_flag);
+    printk("enter recovery p:%s, enter_recovery_flag :%d\n", p, enter_recovery_flag);
 
-	return 0;
+    return 0;
 }
 early_param("enter_recovery", early_parse_enterrecovery_cmdline);
 
 unsigned int get_boot_into_recovery_flag(void)
 {
-	return enter_recovery_flag;
+    return enter_recovery_flag;
 }
 EXPORT_SYMBOL(get_boot_into_recovery_flag);
 
@@ -1815,18 +1872,17 @@ static int __init early_parse_logctl_cmdline(char * p)
 	printk("logctl p:%s, logctl :%d\n", p, logctl_flag);
 
 	return 0;
-
 }
 
 early_param("setup_logctl", early_parse_logctl_cmdline);
 
 unsigned int get_logctl_value(void)
 {
-	return logctl_flag;
+    return logctl_flag;
 }
 
 EXPORT_SYMBOL(get_logctl_value);
-	
+
 static unsigned int runmode_factory = RUNMODE_FLAG_NORMAL;
 
 static int __init early_parse_runmode_cmdline(char * p)
@@ -1842,7 +1898,7 @@ static int __init early_parse_runmode_cmdline(char * p)
 }
 
 early_param("androidboot.swtype", early_parse_runmode_cmdline);
-	
+
 /* the function interface to check factory/normal mode in kernel */
 unsigned int runmode_is_factory(void)
 {
@@ -1878,15 +1934,15 @@ static int __init early_parse_boardid_cmdline(char *p)
 	p += strlen(chip)+1;
 	memcpy(pmu, p, HEX_STRING_MAX);
 	pmu[HEX_STRING_MAX] = '\0';
-	
+
 	boardid_source.pmu_id = simple_strtoull(pmu, &endptr, TRANSFER_BASE);
-	
+
 	p += strlen(pmu)+1;
 	memcpy(board, p, HEX_STRING_MAX);
 	board[HEX_STRING_MAX] = '\0';
 
 	boardid_source.board_id = simple_strtoull(board, &endptr, TRANSFER_BASE);
-	
+
 	printk(KERN_INFO "[bdid]boardid = 0x%x.\n", boardid_source.board_id);
 
 	/* create hw attribute config data base on boardid */
@@ -1959,6 +2015,8 @@ void __init k3v2_common_init(void)
 	//hisik3_init_cache();
 	hisik3_amba_init();
 	hisik3_platform_init();
+
+	DEBUG_LED_INIT();
 }
 
 static struct resource  A9_pmu_resource[] = {

@@ -20,6 +20,9 @@
 /*******************************************************************************
 ***** Private fuctions ********************************************************/
 
+#define _GetSlot(database, x) \
+    ((gcmPTR_TO_UINT64(x) >> 7) % gcmCOUNTOF(database->list))
+
 /*******************************************************************************
 **  gckKERNEL_NewDatabase
 **
@@ -344,6 +347,7 @@ static gceSTATUS
 gckKERNEL_NewRecord(
     IN gckKERNEL Kernel,
     IN gcsDATABASE_PTR Database,
+    IN gctUINT32 Slot,
     OUT gcsDATABASE_RECORD_PTR * Record
     )
 {
@@ -377,8 +381,8 @@ gckKERNEL_NewRecord(
     }
 
     /* Insert the record in the database. */
-    record->next   = Database->list;
-    Database->list = record;
+    record->next = Database->list[Slot];
+    Database->list[Slot] = record;
 
     /* Release the database mutex. */
     gcmkONERROR(gckOS_ReleaseMutex(Kernel->os, Kernel->db->dbMutex));
@@ -443,6 +447,7 @@ gckKERNEL_DeleteRecord(
     gceSTATUS status;
     gctBOOL acquired = gcvFALSE;
     gcsDATABASE_RECORD_PTR record, previous;
+    gctUINT32 slot = _GetSlot(Database, Data);
 
     gcmkHEADER_ARG("Kernel=0x%x Database=0x%x Type=%d Data=0x%x",
                    Kernel, Database, Type, Data);
@@ -452,8 +457,9 @@ gckKERNEL_DeleteRecord(
         gckOS_AcquireMutex(Kernel->os, Kernel->db->dbMutex, gcvINFINITE));
     acquired = gcvTRUE;
 
+
     /* Scan the database for this record. */
-    for (record = Database->list, previous = gcvNULL;
+    for (record = Database->list[slot], previous = gcvNULL;
          record != gcvNULL;
          record = record->next
     )
@@ -484,7 +490,7 @@ gckKERNEL_DeleteRecord(
     /* Remove record from database. */
     if (previous == gcvNULL)
     {
-        Database->list = record->next;
+        Database->list[slot] = record->next;
     }
     else
     {
@@ -551,6 +557,7 @@ gckKERNEL_FindRecord(
     gceSTATUS status;
     gctBOOL acquired = gcvFALSE;
     gcsDATABASE_RECORD_PTR record;
+    gctUINT32 slot = _GetSlot(Database, Data);
 
     gcmkHEADER_ARG("Kernel=0x%x Database=0x%x Type=%d Data=0x%x",
                    Kernel, Database, Type, Data);
@@ -561,7 +568,7 @@ gckKERNEL_FindRecord(
     acquired = gcvTRUE;
 
     /* Scan the database for this record. */
-    for (record = Database->list;
+    for (record = Database->list[slot];
          record != gcvNULL;
          record = record->next
     )
@@ -636,6 +643,7 @@ gckKERNEL_CreateProcessDB(
 {
     gceSTATUS status;
     gcsDATABASE_PTR database = gcvNULL;
+    gctUINT32 i;
 
     gcmkHEADER_ARG("Kernel=0x%x ProcessID=%d", Kernel, ProcessID);
 
@@ -662,7 +670,11 @@ gckKERNEL_CreateProcessDB(
     database->mapUserMemory.bytes      = 0;
     database->mapUserMemory.maxBytes   = 0;
     database->mapUserMemory.totalBytes = 0;
-    database->list                  = gcvNULL;
+
+    for (i = 0; i < gcmCOUNTOF(database->list); i++)
+    {
+        database->list[i] = gcvNULL;
+    }
 
 #if gcdSECURE_USER
     {
@@ -842,7 +854,7 @@ gckKERNEL_AddProcessDB(
     gcmkONERROR(gckKERNEL_FindDatabase(Kernel, ProcessID, gcvFALSE, &database));
 
     /* Create a new record in the database. */
-    gcmkONERROR(gckKERNEL_NewRecord(Kernel, database, &record));
+    gcmkONERROR(gckKERNEL_NewRecord(Kernel, database, _GetSlot(database, Pointer), &record));
 
     /* Initialize the record. */
     record->kernel   = Kernel;
@@ -1077,6 +1089,7 @@ gckKERNEL_DestroyProcessDB(
     gcsDATABASE_PTR database;
     gcsDATABASE_RECORD_PTR record, next;
     gctBOOL asynchronous = gcvFALSE;
+    gctUINT32 i;
 
     gcmkHEADER_ARG("Kernel=0x%x ProcessID=%d", Kernel, ProcessID);
 
@@ -1117,8 +1130,11 @@ gckKERNEL_DestroyProcessDB(
                        ProcessID);
     }
 
+    for(i = 0; i < gcmCOUNTOF(database->list); i++)
+    {
+
     /* Walk all records. */
-    for (record = database->list; record != gcvNULL; record = next)
+    for (record = database->list[i]; record != gcvNULL; record = next)
     {
         /* Next next record. */
         next = record->next;
@@ -1260,6 +1276,8 @@ gckKERNEL_DestroyProcessDB(
                                            record->type,
                                            record->data,
                                            gcvNULL));
+    }
+
     }
 
     /* Delete the database. */

@@ -11,7 +11,7 @@
 #define BOARD_ID_VACS_K3OEM   1
 #define BOARD_ID_CS_U9510   103
 #define BOARD_ID_CS_U9510_VC   87
-#define BOARD_ID_K3OEM   0
+#define BOARD_ID_APU1VE_K3OEM   18
 #define BOARD_ID_VCCS_K3OEM   16
 
 #endif

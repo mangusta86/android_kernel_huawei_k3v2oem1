@@ -1043,8 +1043,7 @@ static void compatible_input_report(struct input_dev *idev,
 	if (!press) {
 		input_mt_sync(idev);
 		/*input_report_key(idev, BTN_TOUCH, 0);*/
-                input_report_key(idev, BTN_TOUCH, 1);
-
+		input_report_key(idev, BTN_TOUCH, 1);
 
 
 	} else {
@@ -1054,6 +1053,7 @@ static void compatible_input_report(struct input_dev *idev,
 #if 0
 		if (fdata->z <= 100)
 			fdata->z = 100;
+
 		input_report_abs(idev, ABS_MT_TOUCH_MAJOR, fdata->z);
 		input_report_abs(idev, ABS_MT_PRESSURE, fdata->w);
 		input_report_abs(idev, ABS_MT_POSITION_X, fdata->x);
@@ -1067,6 +1067,7 @@ static void compatible_input_report(struct input_dev *idev,
 		input_report_abs(idev, ABS_MT_POSITION_Y, fdata->y);
 		input_mt_sync(idev);
 #endif
+
     }
 }
 
@@ -1560,8 +1561,7 @@ static int atmel_ts_probe(struct i2c_client *client,
 		/*ts->abs_area_max = pdata->abs_area_max;*/
 		ts->abs_width_min = pdata->abs_width_min;
 		ts->abs_width_max = pdata->abs_width_max;
-		ts->abs_area_min = pdata->abs_area_min;
-		ts->abs_area_max = pdata->abs_area_max;
+
 		ts->GCAF_level = pdata->GCAF_level;
 		if (ts->id->version >= 0x10) {
 			if(ts->id->family_id == 0x81 && ts->id->variant_id == 0x01)

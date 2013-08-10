@@ -188,7 +188,7 @@ static int __devexit k3v2_power_key_remove(struct platform_device *pdev)
 }
 
 #ifdef CONFIG_PM
-static int k3v2_power_key_suspend(struct platform_device *pdev)
+static int k3v2_power_key_suspend(struct platform_device *pdev, pm_message_t state)
 {	
 	pr_info("[%s]suspend successfully\n", __FUNCTION__);
 	return 0;

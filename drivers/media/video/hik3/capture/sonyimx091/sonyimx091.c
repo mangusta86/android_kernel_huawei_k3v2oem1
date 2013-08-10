@@ -1075,7 +1075,7 @@ static void sonyimx091_set_default(void)
 	sonyimx091_sensor.get_vflip = sonyimx091_get_vflip;
 	sonyimx091_sensor.update_flip = sonyimx091_update_flip;
 
-	strcpy(sonyimx091_sensor.info.name,"sonyimx091");
+	strncpy(sonyimx091_sensor.info.name, "sonyimx091", sizeof(sonyimx091_sensor.info.name));
 	sonyimx091_sensor.interface_type = MIPI1;
 	sonyimx091_sensor.mipi_lane_count = CSI_LINES_4;
 	sonyimx091_sensor.mipi_index = CSI_INDEX_0;
@@ -1104,6 +1104,7 @@ static void sonyimx091_set_default(void)
 	sonyimx091_sensor.agc_addr[0] = 0x0000;	/*0x0204 high byte not needed*/
 	sonyimx091_sensor.agc_addr[1] = 0x0205;
 	sonyimx091_sensor.sensor_type = SENSOR_SONY;
+	sonyimx091_sensor.sensor_rgb_type = SENSOR_RGGB;/* changed by y00231328. add bayer order*/
 	sonyimx091_sensor.set_gain = sonyimx091_set_gain;
 	sonyimx091_sensor.set_exposure = sonyimx091_set_exposure;
 
@@ -1150,6 +1151,7 @@ static void sonyimx091_set_default(void)
 			sonyimx091_framesizes[i].fps = sonyimx091_framesizes[i].fps_es;
 		}
 
+		/* full size, add by y36721 */
 		i = ARRAY_SIZE(sonyimx091_framesizes) - 1;
 		sonyimx091_framesizes[i].sensor_setting.setting = sonyimx091_framesize_full_es;
 		sonyimx091_framesizes[i].sensor_setting.seq_size = ARRAY_SIZE(sonyimx091_framesize_full_es);

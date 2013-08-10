@@ -174,7 +174,7 @@ typedef struct _gcsDATABASE
     gctUINT64                           idle;
 
     /* Pointer to database. */
-    gcsDATABASE_RECORD_PTR              list;
+    gcsDATABASE_RECORD_PTR              list[48];
 
 #if gcdSECURE_USER
     /* Secure cache. */
@@ -351,6 +351,7 @@ struct _gckKERNEL
 #if gcdENABLE_RECOVERY
     gctPOINTER                  resetFlagClearTimer;
     gctPOINTER                  resetAtom;
+    gctUINT64                   resetTimeStamp;
 #endif
 
     /* Pointer to gckEVENT object. */
@@ -786,8 +787,10 @@ gckKERNEL_GetGPUAddress(
     );
 
 gceSTATUS
-gckKERNEL_DumpCommandBuffer(
-    IN gckKERNEL Kernel
+gckKERNEL_QueryGPUAddress(
+    IN gckKERNEL Kernel,
+    IN gctUINT32 GpuAddress,
+    OUT gckVIRTUAL_COMMAND_BUFFER_PTR * Buffer
     );
 
 gceSTATUS
@@ -849,6 +852,22 @@ gckCONTEXT_Update(
     IN gctUINT32 ProcessID,
     IN gcsSTATE_DELTA_PTR StateDelta
     );
+
+#if gcdLINK_QUEUE_SIZE
+void
+gckLINKQUEUE_Enqueue(
+    IN gckLINKQUEUE LinkQueue,
+    IN gctUINT32 start,
+    IN gctUINT32 end
+    );
+
+void
+gckLINKQUEUE_GetData(
+    IN gckLINKQUEUE LinkQueue,
+    IN gctUINT32 Index,
+    OUT gckLINKDATA * Data
+    );
+#endif
 
 #ifdef __cplusplus
 }

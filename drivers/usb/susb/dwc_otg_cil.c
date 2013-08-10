@@ -1972,8 +1972,8 @@ void dwc_otg_core_dev_init(dwc_otg_core_if_t * core_if)
 	DWC_WRITE_REG32(&global_regs->gdfifocfg, gdfifocfg.d32);
 #endif
 
-
 	/* The fallowing setting override the above */
+
 	if (DI_CHIP_ID == chipid) {
 
 	/* For 2.93a version modify.we need a fixed fifo cfg. */

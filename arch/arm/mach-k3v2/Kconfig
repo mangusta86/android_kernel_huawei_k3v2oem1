@@ -47,12 +47,6 @@ config K3_EDB_LEVEL
 	  Set the debug level of Early-Debug, low level will cause more debug message
 # ADC driver
 
-config K3V2_DVFSEN
-	bool "K3V2 CPU DVFS EN support"
-	default n
-	help
-	  K3V2 cpu dvfs en control micro, on fpga platform we disable dvfs.
-
 config IPPS_SUPPORT
 	bool "IPPS driver support"
 	select ARCH_HAS_CPUFREQ
@@ -132,6 +126,19 @@ config LOWPM_DEBUG
 	depends on DEBUG_FS
 	help
 		set low power debug property
+
+config K3V2_WAKEUP_TIMER
+    tristate "k3v2 wakeup timer driver"
+        default y
+        help
+        Say Y to enable k3v2 wakeup timer driver Support
+
+
+config DEBUG_LED
+	bool "LED light for debug"
+	default n
+	help
+		set LED light for debug
 
 endif
 endmenu

@@ -342,6 +342,7 @@ static int mmc_sdio_init_card(struct mmc_host *host, u32 ocr,
 {
 	struct mmc_card *card;
 	int err;
+	int card_is_null = 0;
 
 	BUG_ON(!host);
 	WARN_ON(!host->claimed);
@@ -528,8 +529,10 @@ static int mmc_sdio_init_card(struct mmc_host *host, u32 ocr,
 	 */
 	mmc_set_clock(host, mmc_sdio_get_max_clock(card));
 
-	if (!oldcard)
+	if (!host->card) {
 		host->card = card;
+		card_is_null = 1;
+	}
 	if (card->host->ops->execute_tuning)
 		card->host->ops->execute_tuning(card->host);
 
@@ -540,13 +543,15 @@ static int mmc_sdio_init_card(struct mmc_host *host, u32 ocr,
 	if (err > 0)
 		mmc_set_bus_width(card->host, MMC_BUS_WIDTH_4);
 	else if (err) {
-		if (!oldcard)
+		if (card_is_null)
 			host->card = NULL;
 		goto remove;
 	}
 finish:
 	if (!oldcard)
 		host->card = card;
+	if (card->host->ops->execute_tuning)
+		card->host->ops->execute_tuning(card->host);
 	return 0;
 
 remove:

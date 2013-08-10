@@ -265,6 +265,8 @@ gckKERNEL_Construct(
                               (gctPOINTER)kernel,
                               &kernel->resetFlagClearTimer));
 #endif
+
+        kernel->resetTimeStamp = 0;
     }
 
 #if VIVANTE_PROFILER
@@ -563,14 +565,17 @@ _AllocateMemory(
 #if gcdSIZE_ALLOW_TO_CONTIGUOUS
             if (Bytes <= gcdSIZE_ALLOW_TO_CONTIGUOUS)
             {
+#if 0
+                status = gckVIDMEM_ConstructVirtual(Kernel, gcvTRUE, Bytes, &node);
+#else
                 tileStatusInVirtual =
                     gckHARDWARE_IsFeatureAvailable(Kernel->hardware,
                                                    gcvFEATURE_MC20);
-
                 if (Type == gcvSURF_TILE_STATUS && tileStatusInVirtual != gcvTRUE)
                 {
                     status = gckVIDMEM_ConstructVirtual(Kernel, gcvTRUE, Bytes, &node);
                 }
+#endif
             }
 #endif
 
@@ -618,7 +623,8 @@ _AllocateMemory(
         if (pool == gcvPOOL_LOCAL_INTERNAL)
         {
             /* Advance to external memory. */
-            pool = gcvPOOL_LOCAL_EXTERNAL;
+            //pool = gcvPOOL_LOCAL_EXTERNAL;
+            pool = gcvPOOL_SYSTEM;
         }
 
         else
@@ -1476,7 +1482,7 @@ gckKERNEL_Dispatch(
         gcmkVERIFY_OK(gckKERNEL_DumpProcessDB(Kernel));
 
         /* Dump Command Buffer. */
-        gcmkVERIFY_OK(gckKERNEL_DumpCommandBuffer(Kernel));
+        gcmkVERIFY_OK(gckCOMMAND_DumpExecutingBuffer(Kernel->command));
         break;
 
     case gcvHAL_CACHE:
@@ -1922,6 +1928,14 @@ gckKERNEL_Dispatch(
                 }
         }
 
+        break;
+
+    case gcvHAL_QUERY_RESET_TIME_STAMP:
+#if gcdENABLE_RECOVERY
+        Interface->u.QueryResetTimeStamp.timeStamp = Kernel->resetTimeStamp;
+#else
+        Interface->u.QueryResetTimeStamp.timeStamp = 0;
+#endif
         break;
 
     default:
@@ -2613,6 +2627,53 @@ gckKERNEL_FlushTranslationCache(
 }
 #endif
 
+#if gcdLINK_QUEUE_SIZE
+static void
+gckLINKQUEUE_Dequeue(
+    IN gckLINKQUEUE LinkQueue
+    )
+{
+    gcmASSERT(LinkQueue->count == gcdLINK_QUEUE_SIZE);
+    LinkQueue->count--;
+    LinkQueue->front = (LinkQueue->front + 1) % gcdLINK_QUEUE_SIZE;
+}
+
+void
+gckLINKQUEUE_Enqueue(
+    IN gckLINKQUEUE LinkQueue,
+    IN gctUINT32 start,
+    IN gctUINT32 end
+    )
+{
+    if (LinkQueue->count == gcdLINK_QUEUE_SIZE)
+    {
+        gckLINKQUEUE_Dequeue(LinkQueue);
+    }
+    gcmkASSERT(LinkQueue->count < gcdLINK_QUEUE_SIZE);
+
+    LinkQueue->count++;
+
+    LinkQueue->data[LinkQueue->rear].start = start;
+    LinkQueue->data[LinkQueue->rear].end = end;
+
+    gcmkVERIFY_OK(
+        gckOS_GetProcessID(&LinkQueue->data[LinkQueue->rear].pid));
+    LinkQueue->rear = (LinkQueue->rear + 1) % gcdLINK_QUEUE_SIZE;
+}
+
+void
+gckLINKQUEUE_GetData(
+    IN gckLINKQUEUE LinkQueue,
+    IN gctUINT32 Index,
+    OUT gckLINKDATA * Data
+    )
+{
+    gcmkASSERT(Index >= 0 && Index < gcdLINK_QUEUE_SIZE);
+
+    *Data = &LinkQueue->data[(Index + LinkQueue->front) % gcdLINK_QUEUE_SIZE];
+}
+#endif
+
 /*******************************************************************************
 **
 **  gckKERNEL_Recovery
@@ -2721,6 +2782,7 @@ gckKERNEL_Recovery(
 #endif
     gcmkONERROR(gckEVENT_Notify(eventObj, 2));
 
+    Kernel->resetTimeStamp++;
     /* Success. */
     gcmkFOOTER_NO();
     return gcvSTATUS_OK;
@@ -3165,120 +3227,35 @@ gckKERNEL_GetGPUAddress(
     return status;
 }
 
-static void
-_DumpBuffer(
-    IN gctPOINTER Buffer,
-    IN gctUINT32 GpuAddress,
-    IN gctSIZE_T Size
-    )
-{
-    gctINT i, line;
-    gctUINT32_PTR data = Buffer;
-
-    line = Size / 32;
-
-    for (i = 0; i < line; i++)
-    {
-        gcmkPRINT("%x : %08x %08x %08x %08x %08x %08x %08x %08x ",
-                GpuAddress, data[0], data[1],data[2], data[3], data[4], data[5], data[6], data[7]);
-        data += 8;
-        GpuAddress += 8 * 4;
-    }
-}
-
-static void
-_DumpKernelCommandBuffer(
-    IN gckKERNEL Kernel
-)
-{
-    gctINT i;
-    gctUINT32 physical;
-    gctPOINTER entry;
-
-    for (i = 0; i < gcdCOMMAND_QUEUES; i++)
-    {
-        entry = Kernel->command->queues[i].logical;
-
-        gckOS_GetPhysicalAddress(Kernel->os, entry, &physical);
-
-        gcmkPRINT("Kernel command buffer %d\n", i);
-
-        _DumpBuffer(entry, physical, Kernel->command->pageSize);
-    }
-}
-
 gceSTATUS
-gckKERNEL_DumpCommandBuffer(
-    IN gckKERNEL Kernel
+gckKERNEL_QueryGPUAddress(
+    IN gckKERNEL Kernel,
+    IN gctUINT32 GpuAddress,
+    OUT gckVIRTUAL_COMMAND_BUFFER_PTR * Buffer
     )
 {
     gckVIRTUAL_COMMAND_BUFFER_PTR buffer;
-    gctUINT32 start, gpuAddress;
-    gctSIZE_T pageCount;
-    gctPOINTER entry;
-
-    gcmkPRINT("**************************\n");
-    gcmkPRINT("**** COMMAND BUF DUMP ****\n");
-    gcmkPRINT("**************************\n");
-
-    gcmkVERIFY_OK(gckOS_ReadRegisterEx(Kernel->os, Kernel->core, 0x664, &gpuAddress));
+    gctUINT32 start;
+    gceSTATUS status = gcvSTATUS_NOT_SUPPORTED;
 
     gcmkVERIFY_OK(gckOS_AcquireMutex(Kernel->os, Kernel->virtualBufferLock, gcvINFINITE));
 
     /* Walk all command buffers. */
     for (buffer = Kernel->virtualBufferHead; buffer != gcvNULL; buffer = buffer->next)
     {
-        if (buffer->userLogical)
+        start = (gctUINT32)buffer->gpuAddress;
+        if (GpuAddress >= start && GpuAddress < (start + buffer->pageCount * 4096))
         {
-            start = (gctUINT32)buffer->gpuAddress;
-
-            if (gpuAddress >= start && gpuAddress < (start + buffer->pageCount * 4096))
-            {
-                /* It stalls in a user command buffer. */
-                break;
-            }
+            /* Find a range matched. */
+            *Buffer = buffer;
+            status = gcvSTATUS_OK;
+            break;
         }
-
-        /* TODO: Check context buffer (necessary?)*/
     }
 
     gcmkVERIFY_OK(gckOS_ReleaseMutex(Kernel->os, Kernel->virtualBufferLock));
 
-    if (buffer)
-    {
-        gcmkVERIFY_OK(
-            gckOS_CreateKernelVirtualMapping(buffer->physical, &pageCount, &entry));
-
-        if (entry)
-        {
-            gctUINT32 offset = gpuAddress - start;
-            gctPOINTER entryDump = entry;
-
-            /* Dump one pages. */
-            gctUINT32 bytes = 4096;
-
-            /* Align to page. */
-            offset &= 0xfffff000;
-
-            /* Kernel address of page where stall point stay. */
-            entryDump += offset;
-
-            /* Align to page. */
-            gpuAddress &= 0xfffff000;
-
-            gcmkPRINT("User Command Buffer\n");
-            _DumpBuffer(entryDump, gpuAddress, bytes);
-        }
-
-        gcmkVERIFY_OK(
-            gckOS_DestroyKernelVirtualMapping(entry));
-    }
-    else
-    {
-        _DumpKernelCommandBuffer(Kernel);
-    }
-
-    return gcvSTATUS_OK;
+    return status;
 }
 
 /*******************************************************************************

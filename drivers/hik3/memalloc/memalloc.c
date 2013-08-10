@@ -152,7 +152,7 @@ static long memalloc_ioctl(struct file *filp,
 			ba = memory_alloc(memparams.size);
 			if (!ba) {
 				/*spin_unlock(&mem_lock); */
-				up(&mem_sem);
+				/*up(&mem_sem);*/
 				memparams.busAddress = 0;
 
 				printk(KERN_ERR "out-of-memory\n");

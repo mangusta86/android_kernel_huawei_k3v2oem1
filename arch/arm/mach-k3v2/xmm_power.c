@@ -356,7 +356,7 @@ static void notify_usb_resume(void)
 	oldfs = get_fs();
 	set_fs(KERNEL_DS);
 
-	filp = filp_open("/dev/ttyACM3", O_RDWR, 0);
+	filp = filp_open("/dev/ttyACM0", O_RDWR, 0);
 
 	if (!filp || IS_ERR(filp)) {
 		pr_err("xmm_power: Can not open tty file. filp=%ld\n", PTR_ERR(filp));
@@ -588,10 +588,10 @@ static void xmm_power_l3_resume(struct work_struct *work)
 static void xmm_power_reset_work(struct work_struct *work)
 {
 	/* TODO: add pm func here */
-        if (cp_shutdown_get() == false){
-                notify_mdm_off_to_pm();
-                pr_info("notify modem hardware shutdown to PM");
-        }
+	if (cp_shutdown_get() == false){
+		notify_mdm_off_to_pm();
+		pr_info("notify modem hardware shutdown to PM");
+	}
 	int i = 0;
 	while(i++ < MAX_MODEM_RESET_CHECK_TIMES) {
 		msleep(10);

@@ -64,7 +64,7 @@
 #define MIPIDSI_PHY_STATUS_OFFSET	(MIPIDSI_OFFSET + 0x60)
 #define MIPIDSI_PHY_TST_CTRL0_OFFSET	(MIPIDSI_OFFSET + 0x64)
 #define MIPIDSI_PHY_TST_CTRL1_OFFSET	(MIPIDSI_OFFSET + 0x68)
-#define MIPIDSI_EDPI_CFG						(MIPIDSI_OFFSET + 0x6C)
+#define MIPIDSI_EDPI_CFG_OFFSET		(MIPIDSI_OFFSET + 0x6C)
 #define MIPIDSI_CMD_MOD_CTRL_OFFSET		(MIPIDSI_OFFSET_2 + 0x3C)
 #define MIPIDSI_TE_CTRL_OFFSET			(MIPIDSI_OFFSET_2 + 0x40)
 #define MIPIDSI_TE_HS_NUM_OFFSET		(MIPIDSI_OFFSET_2 + 0x44)
@@ -139,11 +139,8 @@ void set_MIPIDSI_VTIMING_CFG_vfp_lines(u32 edc_base, u32 nVal);
 void set_MIPIDSI_VTIMING_CFG_v_active_lines(u32 edc_base, u32 nVal);
 void set_MIPIDSI_PHY_TMR_CFG(u32 edc_base, u32 nVal);
 void set_MIPIDSI_PHY_TMR_CFG_bta_time(u32 edc_base, u32 nVal);
-void set_MIPIDSI_PHY_TMR_CFG_bta_time_CS(u32 edc_base, u32 nVal);
 void set_MIPIDSI_PHY_TMR_CFG_phy_lp2hs_time(u32 edc_base, u32 nVal);
-void set_MIPIDSI_PHY_TMR_CFG_phy_lp2hs_time_CS(u32 edc_base, u32 nVal);
 void set_MIPIDSI_PHY_TMR_CFG_phy_hs2lp_time(u32 edc_base, u32 nVal);
-void set_MIPIDSI_PHY_TMR_CFG_phy_hs2lp_time_CS(u32 edc_base, u32 nVal);
 void set_MIPIDSI_GEN_HDR(u32 edc_base, u32 nVal);
 void set_MIPIDSI_GEN_PLD_DATA(u32 edc_base, u32 nVal);
 void set_MIPIDSI_TO_CNT_CFG(u32 edc_base, u32 nVal);
@@ -167,5 +164,7 @@ void set_MIPIDSI_TE_CTRL(u32 edc_base, u32 nVal);
 void set_MIPIDSI_TE_CTRL_te_hard_en(u32 edc_base, u32 nVal);
 void set_MIPIDSI_TE_CTRL_te_mask_en(u32 edc_base, u32 nVal);
 void set_MIPIDSI_TE_CTRL_te_pin_en(u32 edc_base, u32 nVal);
+void set_MIPIDSI_EDPI_CFG_edpi_en(u32 edc_base, u32 nVal);
+void set_MIPIDSI_EDPI_CFG_edpi_allowed_cmd_size(u32 edc_base, u32 nVal);
 
 #endif  /* MIPI_REG_H */

@@ -237,6 +237,38 @@ static ssize_t version_show(struct device_driver *dev, char *buf)
 
 static DRIVER_ATTR(version, S_IRUGO, version_show, NULL);
 
+static ssize_t pctl17_show(struct device_driver *dev, char *buf)
+{
+	unsigned int pctl17_value = hiusb_read_phy_param();
+	printk("pctl17: 0x%x\n", pctl17_value);
+	return snprintf(buf, 12, "0x%08x\n", pctl17_value);
+}
+static ssize_t pctl17_store(struct device_driver *drv, const char *buf,
+		size_t count)
+{
+	unsigned int pctl17_value;
+	sscanf(buf, "%x", &pctl17_value);
+	printk("pctl17 will be 0x%x\n", pctl17_value);
+	hiusb_set_phy_param(pctl17_value);
+	return count;
+}
+static DRIVER_ATTR(pctl17, S_IRUGO | S_IWUSR, pctl17_show, pctl17_store);
+
+static ssize_t eyetest_store(struct device_driver *drv, const char *buf,
+		size_t count)
+{
+	if (0 == strncmp(buf, "host", 4)) {
+		printk("to test host eyediagram\n");
+		hiusb_switch_to_host_test_package();
+	} else {
+		printk("to test device eyediagram\n");
+		hiusb_switch_to_device_test_package();
+	}
+	return count;
+}
+static DRIVER_ATTR(eyetest, S_IWUSR, NULL, eyetest_store);
+
+
 /**
  * Global Debug Level Mask.
  */
@@ -1107,6 +1139,8 @@ static int __init dwc_otg_driver_init(void)
 #ifdef LM_INTERFACE
 	error = driver_create_file(&dwc_otg_driver.drv, &driver_attr_version);
 	error = driver_create_file(&dwc_otg_driver.drv, &driver_attr_debuglevel);
+	error = driver_create_file(&dwc_otg_driver.drv, &driver_attr_pctl17);
+	error = driver_create_file(&dwc_otg_driver.drv, &driver_attr_eyetest);
 #elif defined(PCI_INTERFACE)
 	error = driver_create_file(&dwc_otg_driver.driver, &driver_attr_version);
 	error = driver_create_file(&dwc_otg_driver.driver, &driver_attr_debuglevel);
@@ -1127,6 +1161,8 @@ static void __exit dwc_otg_driver_cleanup(void)
 #ifdef LM_INTERFACE
 	driver_remove_file(&dwc_otg_driver.drv, &driver_attr_debuglevel);
 	driver_remove_file(&dwc_otg_driver.drv, &driver_attr_version);
+	driver_remove_file(&dwc_otg_driver.drv, &driver_attr_pctl17);
+	driver_remove_file(&dwc_otg_driver.drv, &driver_attr_eyetest);
 	lm_driver_unregister(&dwc_otg_driver);
 #elif defined(PCI_INTERFACE)
 	driver_remove_file(&dwc_otg_driver.driver, &driver_attr_debuglevel);

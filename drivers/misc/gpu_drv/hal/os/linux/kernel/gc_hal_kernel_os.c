@@ -296,14 +296,25 @@ _DumpDebugRegisters(
 
     gcmkHEADER_ARG("Os=0x%X Descriptor=0x%X", Os, Descriptor);
 
-    gcmkPRINT_N(4, "  %s debug registers:\n", Descriptor->module);
+    gcmkPRINT_N(4, "    %s debug registers:\n", Descriptor->module);
+
+    for (i = 0; i < Descriptor->count; i += 1)
+    {
+        select = i << Descriptor->shift;
+        gcmkONERROR(gckOS_WriteRegisterEx(Os, Core, Descriptor->index, select));
+#if gcdFPGA_BUILD
+        gcmkONERROR(gckOS_Delay(Os, 1000));
+#endif
+        gcmkONERROR(gckOS_ReadRegisterEx(Os, Core, Descriptor->data, &data));
+        gcmkPRINT_N(12, "      [0x%02X] 0x%08X\n", i, data);
+    }
 
     select = 0xF << Descriptor->shift;
 
     for (i = 0; i < 500; i += 1)
     {
         gcmkONERROR(gckOS_WriteRegisterEx(Os, Core, Descriptor->index, select));
-#if !gcdENABLE_RECOVERY
+#if gcdFPGA_BUILD
         gcmkONERROR(gckOS_Delay(Os, 1000));
 #endif
         gcmkONERROR(gckOS_ReadRegisterEx(Os, Core, Descriptor->data, &data));
@@ -316,24 +327,11 @@ _DumpDebugRegisters(
 
     if (i == 500)
     {
-        gcmkPRINT_N(4, "    failed to obtain the signature (read 0x%08X).\n", data);
+        gcmkPRINT_N(4, "      failed to obtain the signature (read 0x%08X).\n", data);
     }
     else
     {
-        gcmkPRINT_N(8, "    signature = 0x%08X (%d read attempt(s))\n", data, i + 1);
-    }
-
-    for (i = 0; i < Descriptor->count; i += 1)
-    {
-        select = i << Descriptor->shift;
-
-        gcmkONERROR(gckOS_WriteRegisterEx(Os, Core, Descriptor->index, select));
-#if !gcdENABLE_RECOVERY
-        gcmkONERROR(gckOS_Delay(Os, 1000));
-#endif
-        gcmkONERROR(gckOS_ReadRegisterEx(Os, Core, Descriptor->data, &data));
-
-        gcmkPRINT_N(12, "    [0x%02X] 0x%08X\n", i, data);
+        gcmkPRINT_N(8, "      signature = 0x%08X (%d read attempt(s))\n", data, i + 1);
     }
 
 OnError:
@@ -414,6 +412,8 @@ _DumpGPUState(
     gctUINT32 cmdState, cmdDmaState, cmdFetState;
     gctUINT32 dmaReqState, calState, veReqState;
     gctUINT i;
+    gctUINT pipe;
+    gctUINT32 control, oldControl;
 
     gcmkHEADER_ARG("Os=0x%X, Core=%d", Os, Core);
 
@@ -516,10 +516,34 @@ _DumpGPUState(
     gcmkPRINT_N(8, "    cal state           = %d (%s)\n", calState,    _calState   [calState]);
     gcmkPRINT_N(8, "    VE request state    = %d (%s)\n", veReqState,  _veReqState [veReqState]);
 
-    for (i = 0; i < gcmCOUNTOF(_dbgRegs); i += 1)
+    /* Record control. */
+    gckOS_ReadRegisterEx(Os, Core, 0x0, &oldControl);
+    for (pipe = 0; pipe < 2; pipe++)
     {
-        gcmkONERROR(_DumpDebugRegisters(Os, Core, &_dbgRegs[i]));
+        gcmkPRINT_N(4, "  Debug registers of pipe[%d]:\n", pipe);
+
+        /* Switch pipe. */
+        gckOS_ReadRegisterEx(Os, Core, 0x0, &control);
+        control &= ~(0xF << 20);
+        control |= (pipe << 20);
+        gckOS_WriteRegisterEx(Os, Core, 0x0, control);
+
+
+        for (i = 0; i < gcmCOUNTOF(_dbgRegs); i += 1)
+        {
+            gcmkONERROR(_DumpDebugRegisters(Os, Core, &_dbgRegs[i]));
+        }
+        gcmkPRINT_N(0, "    Other Registers:\n");
+        for (i = 0; i < gcmCOUNTOF(_otherRegs); i += 1)
+        {
+            gctUINT32 read;
+            gcmkONERROR(gckOS_ReadRegisterEx(Os, kernel->core, _otherRegs[i], &read));
+            gcmkPRINT_N(12, "      [0x%04X] 0x%08X\n", _otherRegs[i], read);
+        }
     }
+
+    /* Restore control. */
+    gckOS_WriteRegisterEx(Os, Core, 0x0, oldControl);
 
     if (kernel->hardware->identity.chipFeatures & (1 << 4))
     {
@@ -534,14 +558,6 @@ _DumpGPUState(
         gcmkPRINT_N(4, "  read0    = 0x%08X\n", read0);
         gcmkPRINT_N(4, "  read1    = 0x%08X\n", read1);
         gcmkPRINT_N(4, "  write    = 0x%08X\n", write);
-    }
-
-    gcmkPRINT_N(0, "  Other Registers:\n");
-    for (i = 0; i < gcmCOUNTOF(_otherRegs); i += 1)
-    {
-        gctUINT32 read;
-        gcmkONERROR(gckOS_ReadRegisterEx(Os, kernel->core, _otherRegs[i], &read));
-        gcmkPRINT_N(12, "    [0x%04X] 0x%08X\n", _otherRegs[i], read);
     }
 
     dump_stack();
@@ -810,10 +826,18 @@ _NonContiguousAlloc(
         return gcvNULL;
     }
 
+#if 0
     size = NumPages * sizeof(struct page *);
+#else
+    size = 2 * NumPages * sizeof(struct page *);
+#endif
 
+#if 0
+    pages = kmalloc(size, GFP_KERNEL | __GFP_NOWARN);
+#else
     pages = 0;
     //pages = kmalloc(size, GFP_KERNEL | __GFP_NOWARN);
+#endif
 
     if (!pages)
     {
@@ -828,7 +852,9 @@ _NonContiguousAlloc(
 
     for (i = 0; i < NumPages; i++)
     {
-        p = alloc_page(GFP_KERNEL | __GFP_HIGHMEM | __GFP_NOWARN);
+        p = alloc_page(GFP_KERNEL | __GFP_NOWARN);
+        if (!p)
+            p = alloc_page(GFP_KERNEL | __GFP_HIGHMEM | __GFP_NOWARN);
 
         if (!p)
         {
@@ -837,7 +863,12 @@ _NonContiguousAlloc(
             return gcvNULL;
         }
 
+#if 0
         pages[i] = p;
+#else
+        pages[i] = p;
+        pages[i+NumPages] = p;
+#endif
     }
 
     gcmkFOOTER_ARG("pages=0x%X", pages);
@@ -2606,8 +2637,8 @@ gckOS_WriteRegisterEx(
 		 	Data = (Data & 0xfffffff0) | 6;    
 		 }    
 		 else if(Core == gcvCORE_MAJOR)    
-		 {    
-		 	Data = (Data & 0xfffffff0) | 6;    
+		 {
+			Data = (Data & 0xfffffff0) | 8;
 		 }
 	#else
 		if(Core == gcvCORE_2D)    
@@ -4291,7 +4322,16 @@ gckOS_FreePagedMemory(
         }
         else
         {
+#if 0
             ClearPageReserved(_NonContiguousToPage(mdl->u.nonContiguousPages, i));
+#else
+            if ((gctUINT)(mdl->u.nonContiguousPages[i]) < (gctUINT)0xC0000000)
+            {
+                printk("<hisi-graphic>pages[%d]:%p %p\n", i, mdl->u.nonContiguousPages[i], mdl->u.nonContiguousPages[i+mdl->numPages]);
+                mdl->u.nonContiguousPages[i] = mdl->u.nonContiguousPages[i+mdl->numPages];
+            }
+            ClearPageReserved(_NonContiguousToPage(mdl->u.nonContiguousPages, i));
+#endif
         }
     }
 

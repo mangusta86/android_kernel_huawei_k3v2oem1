@@ -51,7 +51,12 @@
 #include <linux/regulator/driver.h>
 #include <linux/regulator/machine.h>
 
+
 #include <hsad/config_interface.h>
+
+#include <linux/workqueue.h>
+#include <linux/semaphore.h>
+
 #include <mach/boardid.h>
 #include "cam_util.h"
 #include "cam_dbg.h"
@@ -74,6 +79,10 @@ bool fps_lock;
 static bool ispv1_change_frame_rate(
 	camera_frame_rate_state *state, camera_frame_rate_dir direction, camera_sensor *sensor);
 static int ispv1_set_frame_rate(camera_frame_rate_mode mode, camera_sensor *sensor);
+
+static void ispv1_uv_stat_work_func(struct work_struct *work);
+struct workqueue_struct *uv_stat_work_queue;
+struct work_struct uv_stat_work;
 
 /*
  * For anti-shaking, y36721 todo
@@ -173,12 +182,16 @@ int ispv1_set_iso(camera_iso iso)
 	/* ISO is to change sensor gain, but is not same */
 	switch (iso) {
 	case CAMERA_ISO_AUTO:
-		/*
-		 * max iso should be ISO1600
-		 * min iso should be ISO100
-		 */
-		max_iso = 1550;	/*max is 1550 for ov8830 */
-		min_iso = 100;
+		/* max and min iso should be overrided by sensor definitions */
+		if (sensor->get_override_param) {
+			/*iso limit is also sensor related, sensor itself should provide a method to define its iso limitation*/
+			max_iso = sensor->get_override_param(OVERRIDE_ISO_HIGH);
+			min_iso = sensor->get_override_param(OVERRIDE_ISO_LOW);
+		} else {
+			/*if sensor does not  provide this method,make sure that the default iso shuold be set here */
+			max_iso = CAMERA_MAX_ISO;
+			min_iso = CAMERA_MIN_ISO;
+		}
 		break;
 
 	case CAMERA_ISO_100:
@@ -210,28 +223,17 @@ int ispv1_set_iso(camera_iso iso)
 		break;
 	}
 
-	if (sensor->sensor_iso_to_gain) {
-		max_gain = sensor->sensor_iso_to_gain(max_iso);
-		min_gain = sensor->sensor_iso_to_gain(min_iso);
-	} else {
-		print_error("sensor_iso_to_gain not defined!");
-		retvalue = -1;
-		goto out;
-	}
+	max_gain = max_iso * 0x10 / 100;
+	min_gain = min_iso * 0x10 / 100;
 
-	if ((max_gain <= 0) || (min_gain <= 0)) {
-		retvalue = -1;
-		goto out;
-	} else {
-		/* set to ISP registers */
-		SETREG8(REG_ISP_MAX_GAIN, (max_gain & 0xff00) >> 8);
-		SETREG8(REG_ISP_MAX_GAIN + 1, max_gain & 0xff);
-		SETREG8(REG_ISP_MIN_GAIN, (min_gain & 0xff00) >> 8);
-		SETREG8(REG_ISP_MIN_GAIN + 1, min_gain & 0xff);
+	/* set to ISP registers */
+	SETREG8(REG_ISP_MAX_GAIN, (max_gain & 0xff00) >> 8);
+	SETREG8(REG_ISP_MAX_GAIN + 1, max_gain & 0xff);
+	SETREG8(REG_ISP_MIN_GAIN, (min_gain & 0xff00) >> 8);
+	SETREG8(REG_ISP_MIN_GAIN + 1, min_gain & 0xff);
 
-		sensor->min_gain = min_gain;
-		sensor->max_gain = max_gain;
-	}
+	sensor->min_gain = min_gain;
+	sensor->max_gain = max_gain;
 
 out:
 	return retvalue;
@@ -260,46 +262,81 @@ int inline ispv1_gain2iso(int gain, bool binning)
 	return iso;
 }
 
-/*
- * only useful for ISO auto mode
- */
+u32 get_writeback_cap_gain(void)
+{
+	u8 reg5 = GETREG8(COMMAND_REG5);
+	u32 gain = 0;
+
+	reg5 &= 0x3;
+	if (reg5 == 0 || reg5 == 2) {
+		GETREG16(ISP_FIRST_FRAME_GAIN, gain);
+	} else if (reg5 == 1) {
+		GETREG16(ISP_SECOND_FRAME_GAIN, gain);
+	} else if (reg5 == 3) {
+		GETREG16(ISP_THIRD_FRAME_GAIN, gain);
+	}
+
+	return gain;
+}
+
+u32 get_writeback_cap_expo(void)
+{
+	u8 reg5 = GETREG8(COMMAND_REG5);
+	u32 expo = 0;
+
+	reg5 &= 0x3;
+	if (reg5 == 0 || reg5 == 2) {
+		GETREG32(ISP_FIRST_FRAME_EXPOSURE, expo);
+	} else if (reg5 == 1) {
+		GETREG32(ISP_SECOND_FRAME_EXPOSURE, expo);
+	} else if (reg5 == 3) {
+		GETREG32(ISP_THIRD_FRAME_EXPOSURE, expo);
+	}
+
+	return expo;
+}
+
 int ispv1_get_actual_iso(void)
 {
 	camera_sensor *sensor = this_ispdata->sensor;
-	int gain = get_writeback_gain();
+	u16 gain;
 	int iso;
 	int index;
 	bool binning;
 
-	gain = get_writeback_gain();
-
-	if (isp_hw_data.cur_state == STATE_PREVIEW)
+	if (isp_hw_data.cur_state == STATE_PREVIEW) {
 		index = sensor->preview_frmsize_index;
-	else
+		gain = get_writeback_gain();
+	} else {
 		index = sensor->capture_frmsize_index;
+		gain = get_writeback_cap_gain();
+	}
 	binning = sensor->frmsize_list[index].binning;
 
 	iso = ispv1_gain2iso(gain, binning);
 	return iso;
 }
 
-/* real exposure time is pWriteBackExpo[0x1c79c-0x1c79f] */
 int ispv1_get_exposure_time(void)
 {
-	u32 expo_line, fps, vts, index;
+	u32 expo, fps, vts, index;
 	int denominator_expo_time;
 	camera_sensor *sensor = this_ispdata->sensor;
 
-	if (isp_hw_data.cur_state == STATE_PREVIEW)
+	if (isp_hw_data.cur_state == STATE_PREVIEW) {
 		index = sensor->preview_frmsize_index;
-	else
+		expo = get_writeback_expo();
+	} else {
 		index = sensor->capture_frmsize_index;
+		expo = get_writeback_cap_expo();
+	}
 
-	expo_line = get_writeback_expo() >> 4;
+	expo >>= 4;
+
 	fps = sensor->frmsize_list[index].fps;
 	vts = sensor->frmsize_list[index].vts;
 
-	denominator_expo_time = ispv1_expo_line2time(expo_line, fps, vts);
+	denominator_expo_time = ispv1_expo_line2time(expo, fps, vts);
 	return denominator_expo_time;
 }
 u32 ispv1_get_awb_gain(int withShift)
@@ -449,24 +486,16 @@ static void ispv1_init_sensor_config(camera_sensor *sensor)
 {
 	/* Enable AECAGC */
 	SETREG8(REG_ISP_AECAGC_MANUAL_ENABLE, AUTO_AECAGC);
-#if 1				/* new firmware support isp write all sensors's AEC/AGC registers. */
-	SETREG8(REG_ISP_AECAGC_WRITESENSOR_ENABLE, ISP_WRITESENSOR_ENABLE);
-#else
-	/* y36721 2012-03-28 added temporarily */
-	if (sensor->sensor_type == SENSOR_OV)
-		SETREG8(REG_ISP_AECAGC_WRITESENSOR_ENABLE, ISP_WRITESENSOR_ENABLE);
-	else
-		SETREG8(REG_ISP_AECAGC_WRITESENSOR_ENABLE, ISP_WRITESENSOR_DISABLE);
-#endif
 
-	if (sensor->sensor_type == SENSOR_OV)
-		SETREG8(REG_ISP_TOP6, SENSOR_BGGR);
-	else if (sensor->sensor_type == SENSOR_SONY)
-		SETREG8(REG_ISP_TOP6, SENSOR_RGGB);
-	else if (sensor->sensor_type == SENSOR_SAMSUNG)
-		SETREG8(REG_ISP_TOP6, SENSOR_GRBG);
-	else
-		SETREG8(REG_ISP_TOP6, SENSOR_BGGR);	/* default set same as OV */
+	/* new firmware support isp write all sensors's AEC/AGC registers. */
+	if ((0 == sensor->aec_addr[0] && 0 == sensor->aec_addr[1] && 0 == sensor->aec_addr[2]) ||
+		(0 == sensor->agc_addr[0] && 0 == sensor->agc_addr[1])) {
+		SETREG8(REG_ISP_AECAGC_WRITESENSOR_ENABLE, ISP_WRITESENSOR_DISABLE);
+	} else {
+		SETREG8(REG_ISP_AECAGC_WRITESENSOR_ENABLE, ISP_WRITESENSOR_ENABLE);
+	}
+	/* changed by y00231328. differ from sensor type and bayer order. */
+		SETREG8(REG_ISP_TOP6, sensor->sensor_rgb_type);
 
 	SETREG16(REG_ISP_AEC_ADDR0, sensor->aec_addr[0]);
 	SETREG16(REG_ISP_AEC_ADDR1, sensor->aec_addr[1]);
@@ -500,7 +529,13 @@ static void ispv1_init_sensor_config(camera_sensor *sensor)
 	else
 		SETREG8(REG_ISP_AGC_MASK_L, 0xff);
 
-	SETREG8(REG_ISP_AGC_SENSOR_TYPE, sensor->sensor_type);
+	/* changed by y00231328. some sensor such as S5K4E1, expo and gain active function is like sony type */
+	if (sensor->sensor_type == SENSOR_LIKE_OV)
+		SETREG8(REG_ISP_AGC_SENSOR_TYPE, SENSOR_OV);
+	else if (sensor->sensor_type == SENSOR_LIKE_SONY)
+		SETREG8(REG_ISP_AGC_SENSOR_TYPE, SENSOR_SONY);
+	else
+		SETREG8(REG_ISP_AGC_SENSOR_TYPE, sensor->sensor_type);
 }
 
 /* Added for anti_banding. y36721 todo */
@@ -1459,42 +1494,51 @@ int ispv1_init_RGBGamma(int flag)
 	return 0;
 }
 
+#define AP_WRITE_AE_TIME_PRINT
 /*
  * For not OVT sensors,  MCU won't write exposure and gain back to sensor directly.
  * In this case, exposure and gain need Host to handle.
  */
-void ispv1_cmd_id_do_ecgc(void)
+void ispv1_cmd_id_do_ecgc(camera_state state)
 {
-	u16 gain;
-	u32 exposure;
+	u32 expo, gain;
+	camera_sensor *sensor = this_ispdata->sensor;
+#ifdef AP_WRITE_AE_TIME_PRINT
+	struct timeval tv_start, tv_end;
+	do_gettimeofday(&tv_start);
+#endif
 
 	print_debug("enter %s, cmd id 0x%x", __func__, isp_hw_data.aec_cmd_id);
 
-	if (CMD_WRITEBACK_EXPO_GAIN == isp_hw_data.aec_cmd_id) {
-		exposure = get_writeback_expo();
-		if (this_ispdata->sensor->set_exposure)
-			this_ispdata->sensor->set_exposure(exposure);
+	if (ispv1_is_hdr_movie_mode() == true)
+		return;
 
-		gain = get_writeback_gain();
-		if (this_ispdata->sensor->set_gain)
-			this_ispdata->sensor->set_gain(gain);
+	expo = get_writeback_expo();
+	gain = get_writeback_gain();
 
-		print_info("expo 0x%x, gain 0x%x, currentY 0x%x", exposure, gain, get_current_y());
-	} else if (CMD_WRITEBACK_EXPO == isp_hw_data.aec_cmd_id) {
-		exposure = get_writeback_expo();
-		if (this_ispdata->sensor->set_exposure)
-			this_ispdata->sensor->set_exposure(exposure);
+	if (CMD_WRITEBACK_EXPO_GAIN == isp_hw_data.aec_cmd_id ||
+		CMD_WRITEBACK_EXPO == isp_hw_data.aec_cmd_id ||
+		CMD_WRITEBACK_GAIN == isp_hw_data.aec_cmd_id) {
+			/* changed by y00231328.some sensor such as S5K4E1, expo and gain should be set together in holdon mode */
+			if (sensor->set_exposure_gain) {
+				sensor->set_exposure_gain(expo, gain);
+			} else {
+				if (sensor->set_exposure)
+					sensor->set_exposure(expo);
+				if (sensor->set_gain)
+					sensor->set_gain(gain);
+			}
 
-		print_info("expo 0x%x, currentY 0x%x", exposure, get_current_y());
-	} else if (CMD_WRITEBACK_GAIN == isp_hw_data.aec_cmd_id) {
-		gain = get_writeback_gain();
-		if (this_ispdata->sensor->set_gain)
-			this_ispdata->sensor->set_gain(gain);
-
-		print_info("gain 0x%x, currentY 0x%x", gain, get_current_y());
 	} else {
 		print_error("%s:unknow cmd id", __func__);
 	}
+
+#ifdef AP_WRITE_AE_TIME_PRINT
+	do_gettimeofday(&tv_end);
+	print_info("expo 0x%x, gain 0x%x, aec_cmd_id 0x%x, used %dus",
+		expo, gain, isp_hw_data.aec_cmd_id,
+		(int)((tv_end.tv_sec - tv_start.tv_sec)*1000000 + (tv_end.tv_usec - tv_start.tv_usec)));
+#endif
 }
 
 static int frame_rate_level;
@@ -1740,6 +1784,14 @@ static bool ispv1_check_awb_match(awb_gain_t *flash_awb, awb_gain_t *led0, awb_g
 	return ret;
 }
 
+static bool ispv1_need_rcc(camera_sensor *sensor)
+{
+	bool ret = false;
+	if (sensor->isp_location == CAMERA_USE_K3ISP && sensor->rcc_enable == true)
+		ret = true;
+	return ret;
+}
+
 static void ispv1_cal_ratio_lum(
 	aec_data_t *preview_ae, aec_data_t *preflash_ae,
 	aec_data_t *capflash_ae, u32 *preview_ratio_lum, flash_weight_t *weight)
@@ -1857,9 +1909,12 @@ void ispv1_config_aecawb_step(bool flash_mode, aecawb_step_t *step)
 bool ae_is_need_flash(camera_sensor *sensor, aec_data_t *ae_data, u32 target_y_low)
 {
 	u32 frame_index = sensor->preview_frmsize_index;
-	u32 compare_gain = FLASH_TRIGGER_GAIN;
+	u32 compare_gain = CAMERA_FLASH_TRIGGER_GAIN;
 	bool binning;
 	bool ret;
+
+	if (sensor->get_override_param)
+		compare_gain = sensor->get_override_param(OVERRIDE_FLASH_TRIGGER_GAIN);
 
 	binning = sensor->frmsize_list[frame_index].binning;
 	if (binning == false)
@@ -1896,9 +1951,10 @@ void ispv1_check_flash_prepare(void)
 	awb_gain_t *led_awb1 = &(isp_hw_data.led_awb[1]);
 	FLASH_AWBTEST_POLICY action;
 
-	if (FOCUS_STATE_CAF_RUNNING == get_focus_state() ||
+	if ((afae_ctrl_is_null() == false) &&
+		(FOCUS_STATE_CAF_RUNNING == get_focus_state() ||
 		FOCUS_STATE_CAF_DETECTING == get_focus_state() ||
-		FOCUS_STATE_AF_RUNNING == get_focus_state()) {
+		FOCUS_STATE_AF_RUNNING == get_focus_state())) {
 		print_debug("enter %s, must stop focus, before turn on preflash. ", __func__);
 		ispv1_auto_focus(FOCUS_STOP);
 	}
@@ -1918,8 +1974,10 @@ void ispv1_check_flash_prepare(void)
 			type = FLASH_PLATFORM_9510E;
 		else if (boardid == BOARD_ID_CS_U9510)
 			type = FLASH_PLATFORM_U9510;
+
 		else if(product_type("U9508"))
 			type = FLASH_PLATFORM_U9508;
+
 		else
 			type = FLASH_PLATFORM_9510E;
 	#endif
@@ -1928,6 +1986,7 @@ void ispv1_check_flash_prepare(void)
 		sensor->get_flash_awb(type, preset_awb);
 	else
 		memcpy(preset_awb, &flash_platform_awb[type], sizeof(awb_gain_t));
+
 
 	if (isp_hw_data.flash_type == U9508_FLASH_TYPE_OSRAM) {
 		preset_awb->b_gain = preset_awb->gr_gain;
@@ -2224,14 +2283,19 @@ void ispv1_dynamic_framerate(camera_sensor *sensor, camera_iso iso)
 {
 	static u32 count;
 
-	u16 gain_th_high = AUTO_FRAME_RATE_MAX_GAIN;
-	u16 gain_th_low = AUTO_FRAME_RATE_MIN_GAIN;
+	u16 gain_th_high = CAMERA_AUTO_FPS_MAX_GAIN;
+	u16 gain_th_low = CAMERA_AUTO_FPS_MIN_GAIN;
 	u16 gain;
 	int ret;
 	int index;
 
 	camera_frame_rate_dir direction;
 	camera_frame_rate_state state = ispv1_get_frame_rate_state();
+
+	if (sensor->get_override_param) {
+		gain_th_high = sensor->get_override_param(OVERRIDE_AUTO_FPS_GAIN_HIGH);
+		gain_th_low = sensor->get_override_param(OVERRIDE_AUTO_FPS_GAIN_LOW);
+	}
 
 	if (CAMERA_ISO_AUTO != iso) {
 		if (state == CAMERA_EXPO_PRE_REDUCE || ispv1_get_frame_rate_level() != 0) {
@@ -2291,6 +2355,8 @@ void ispv1_preview_done_do_tune(void)
 		return;
 	}
 
+	sensor = ispdata->sensor;
+
 	print_debug("preview_done, gain 0x%x, expo 0x%x, current_y 0x%x, flash_on %d",
 		get_writeback_gain(), get_writeback_expo(), get_current_y(), this_ispdata->flash_on);
 
@@ -2302,14 +2368,14 @@ void ispv1_preview_done_do_tune(void)
 		isp_hw_data.preview_ae.lum_max = isp_hw_data.preview_ae.lum;
 		isp_hw_data.preview_ae.lum_sum = isp_hw_data.preview_ae.lum;
 
-		if (false == afae_ctrl_is_null() && isp_hw_data.preview_ae.lum < target_y_low) {
+		if ((CAMERA_USE_K3ISP == sensor->isp_location) &&
+			(isp_hw_data.preview_ae.lum < target_y_low)) {
 			unit_area = ispv1_get_stat_unit_area();
 			ispv1_get_raw_lum_info(&isp_hw_data.preview_ae, unit_area);
 		}
 		ispv1_get_wb_value(&isp_hw_data.preview_awb);
 	}
 
-	sensor = ispdata->sensor;
 	if (CAMERA_USE_SENSORISP == sensor->isp_location) {
 		print_debug("auto frame_rate only effect at k3 isp");
 		return;
@@ -2386,7 +2452,20 @@ void ispv1_preview_done_do_tune(void)
 	ispv1_dynamic_ydenoise(sensor, ispdata->flash_on);
 #endif
 
+	if (isp_hw_data.frame_count == 0)
+		return;
+
 	ispv1_wakeup_focus_schedule(false);
+
+	if ((ispv1_need_rcc(this_ispdata->sensor) == true)
+		&& (isp_hw_data.frame_count % RED_CLIP_FRAME_INTERVAL == 0)) {
+		if (afae_ctrl_is_null() == true) {
+			ispv1_uv_stat_excute();
+		} else if ((get_focus_state() != FOCUS_STATE_CAF_RUNNING) &&
+			(get_focus_state() != FOCUS_STATE_AF_RUNNING)) {
+			ispv1_uv_stat_excute();
+		}
+	}
 }
 
 /*
@@ -2399,9 +2478,13 @@ void ispv1_tune_ops_init(k3_isp_data *ispdata)
 	if (ispdata->sensor->isp_location != CAMERA_USE_K3ISP)
 		return;
 
+	sema_init(&(this_ispdata->frame_sem), 0);
+
 	/* maybe some fixed configurations, such as focus, ccm, lensc... */
 	if (ispdata->sensor->af_enable)
 		ispv1_focus_init();
+	if (ispv1_need_rcc(this_ispdata->sensor) == true)
+		ispv1_uv_stat_init();
 	ispv1_init_DPC(1, 1);
 
 	ispv1_init_rawDNS(1);
@@ -2431,15 +2514,18 @@ void ispv1_tune_ops_exit(void)
 {
 	if (this_ispdata->sensor->af_enable == 1)
 		ispv1_focus_exit();
+
+	if (ispv1_need_rcc(this_ispdata->sensor) == true)
+		ispv1_uv_stat_exit();
 }
 
-/*
- * something need to do before start_preview and start_capture
- */
+
 void ispv1_tune_ops_prepare(camera_state state)
 {
 	k3_isp_data *ispdata = this_ispdata;
 	camera_sensor *sensor = ispdata->sensor;
+	u32 unit_width = this_ispdata->pic_attr[STATE_PREVIEW].in_width / ISP_LUM_WIN_WIDTH_NUM;
+	u32 unit_height = this_ispdata->pic_attr[STATE_PREVIEW].in_height / ISP_LUM_WIN_HEIGHT_NUM;
 
 	if (STATE_PREVIEW == state) {
 
@@ -2447,9 +2533,10 @@ void ispv1_tune_ops_prepare(camera_state state)
 		if (sensor->af_enable)
 			ispv1_focus_prepare();
 
-		if ((CAMERA_USE_SENSORISP == sensor->isp_location) &&
-			(STATE_PREVIEW == state)) {
-			ispv1_set_ae_statwin(&ispdata->pic_attr[state]);
+		if (CAMERA_USE_K3ISP == sensor->isp_location) {
+			ispv1_set_ae_statwin(&ispdata->pic_attr[state], ISP_ZOOM_BASE_RATIO);
+			ispv1_set_stat_unit_area(unit_height * unit_width);
+			up(&(this_ispdata->frame_sem));
 		}
 
 		/* need to check whether there is binning or not */
@@ -2471,4 +2558,201 @@ void ispv1_tune_ops_withdraw(camera_state state)
 {
 	if (this_ispdata->sensor->af_enable)
 		ispv1_focus_withdraw();
+	if ((ispv1_need_rcc(this_ispdata->sensor) == true)
+		&& (down_trylock(&(this_ispdata->frame_sem)) != 0)) {
+			/*
+			  * when need to excute rcc function and
+			  * semaphore frame_sem has already been locked,
+			  * flush_workqueue should be called, then relock frame_sem again
+			  */
+			flush_workqueue(uv_stat_work_queue);
+			down(&(this_ispdata->frame_sem));
+	}
+}
+
+bool ispv1_is_hdr_movie_mode(void)
+{
+	u8 ae_ctrl_mode = GETREG8(ISP_AE_CTRL_MODE); /* 1 - AP's ae . 0 - ISP ae. */
+	u8 ae_write_mode = GETREG8(ISP_AE_WRITE_MODE); /* 1 - ISP write sensor shutter/gain; 0 - AP write shutter/gain. */
+
+	ae_ctrl_mode &= 0x1;
+	ae_write_mode &= 0x1;
+
+	/* AP's AE; AP write sensor shutter & gain.*/
+	if (ae_ctrl_mode == AE_CTRL_MODE_AP && ae_write_mode == AE_WRITE_MODE_AP)
+		return true;
+	else
+		return false;
+}
+
+/*
+ **************************************************************************
+ * FunctionName: deal_uv_data_from_preview;
+ * Description : To solve red color clip by adjust the value of Refbin register.
+ * Input       : NA;
+ * Output      : NA;
+ * ReturnValue : NA;
+ * Other       : NA;
+ **************************************************************************
+ */
+
+void deal_uv_data_from_preview(u8 *pdata, u32 preview_width, u32 preview_height)
+{
+	u32 uv_strt_addr, uv_pixel_addr;
+	u8 rect_idx, rect_idx_x, rect_idx_y;
+	u32 i, j;
+	u32 v_total, u_total;
+	u32 v_mean, u_mean;
+	u32 uv_count;
+	u8 current_refbin;
+	u32 first_rect_idx_row;
+	u32 first_rect_idx_col;
+	u32 rect_row_num;
+	u32 rect_col_num;
+	u8 uv_resample;
+	red_clip_status rect_clip = RED_CLIP_NONE;
+
+	if(preview_width <= PRIVIEW_WIDTH_LOW)
+		uv_resample = RED_CLIP_UV_RESAMPLE_LOW;
+	else if(preview_width >= PRIVIEW_WIDTH_HIGH)
+		uv_resample = RED_CLIP_UV_RESAMPLE_HIGH;
+	else
+		uv_resample = RED_CLIP_UV_RESAMPLE_MIDDLE;
+	rect_row_num = preview_height * RED_CLIP_DECTECT_RANGE / (200 * RED_CLIP_RECT_ROW_NUM);
+	rect_col_num = preview_width * RED_CLIP_DECTECT_RANGE / (100 * RED_CLIP_RECT_COL_NUM);
+	first_rect_idx_row = preview_height * (100 - RED_CLIP_DECTECT_RANGE) / 400;
+	first_rect_idx_col = preview_width  * (100 - RED_CLIP_DECTECT_RANGE) / 200;
+
+	for(rect_idx = 0; rect_idx < RED_CLIP_RECT_ROW_NUM * RED_CLIP_RECT_COL_NUM; rect_idx++){
+		rect_idx_x = rect_idx / RED_CLIP_RECT_COL_NUM;
+		rect_idx_y = rect_idx % RED_CLIP_RECT_COL_NUM;
+		uv_strt_addr = (first_rect_idx_row + rect_row_num * rect_idx_x) * preview_width
+						+ first_rect_idx_col+ rect_col_num * rect_idx_y;
+		v_total = 0;
+		u_total = 0;
+		uv_count = 0;
+
+		for (i = 0; i < rect_row_num; i = i + uv_resample) {
+			for (j = 0; j < rect_col_num; j = j + uv_resample * 2) {
+				uv_pixel_addr = uv_strt_addr + i * preview_width + j;
+				v_total += pdata[uv_pixel_addr / 2 * 2];
+				u_total += pdata[uv_pixel_addr / 2 * 2 + 1];
+				uv_count++;
+			}
+		}
+		v_mean = v_total / uv_count;
+		u_mean = u_total / uv_count;
+		current_refbin = GETREG8(REG_ISP_REF_BIN);
+		/*  ( (v - 128) > (u - 128) * 4  / 3 && (v - 128) > -(u - 128) * 4 / 3 && v > th_high) */
+		if ((v_mean >= RED_CLIP_V_THRESHOLD_HIGH) && (v_mean + 128 / 3 > u_mean * 4 / 3) && (v_mean + u_mean * 4 / 3 > 128 * 7 / 3)) {
+			rect_clip = RED_CLIP;
+			break;
+		}
+		/*  ( (v - 128) > (u - 128) && (v - 128) > -(u - 128) && v > th_low)   */
+		if((v_mean >= RED_CLIP_V_THRESHOLD_LOW) && (v_mean > u_mean )&& (u_mean + v_mean > 256)){
+			rect_clip = RED_CLIP_SHADE;
+		}
+	}
+
+	if (rect_clip == RED_CLIP) {
+		SETREG8(REG_ISP_REF_BIN, RED_CLIP_REFBIN_LOW);
+	} else if (rect_clip == RED_CLIP_SHADE) {
+		print_debug("Refbin register value do not change");
+	} else {
+		SETREG8(REG_ISP_REF_BIN, RED_CLIP_REFBIN_HIGH);
+	}
+
+}
+
+static void ispv1_uv_stat_work_func(struct work_struct *work)
+{
+	u32 preview_width = this_ispdata->pic_attr[STATE_PREVIEW].out_width;
+	u32 preview_height = this_ispdata->pic_attr[STATE_PREVIEW].out_height;
+	u32 preview_size = preview_width * preview_height;
+	camera_frame_buf *frame = this_ispdata->current_frame;
+
+	if (down_trylock(&(this_ispdata->frame_sem)) != 0) {
+		print_warn("enter %s, frame_sem already locked", __func__);
+		goto error_out2;
+	}
+
+	if (NULL == frame) {
+		print_error("params error, frame 0x%x", (unsigned int)frame);
+		goto error_out1;
+	}
+
+	if ((0 == frame->phyaddr) || (NULL != frame->viraddr)) {
+		print_error("params error, frame->phyaddr 0x%x, frame->viraddr:0x%x",
+			(unsigned int)frame->phyaddr, (unsigned int)frame->viraddr);
+		goto error_out1;
+	}
+
+	frame->viraddr = ioremap_nocache(frame->phyaddr + preview_size, preview_size / 2);
+	if (NULL == frame->viraddr) {
+		print_error("%s line %d error", __func__, __LINE__);
+		goto error_out1;
+	}
+	deal_uv_data_from_preview((u8 *)frame->viraddr, preview_width, preview_height);
+	iounmap(frame->viraddr);
+	frame->viraddr = NULL;
+
+error_out1:
+	up(&(this_ispdata->frame_sem));
+
+error_out2:
+	return;
+}
+
+/*
+ **************************************************************************
+ * FunctionName: ispv1_uv_stat_init;
+ * Description : NA
+ * Input       : NA;
+ * Output      : NA;
+ * ReturnValue : NA;
+ * Other       : NA;
+ **************************************************************************
+ */
+int ispv1_uv_stat_init(void)
+{
+	/* init uv stat work queue. */
+	uv_stat_work_queue = create_singlethread_workqueue("uv_stat_wq");
+	if (!uv_stat_work_queue) {
+		print_error("create workqueue is failed in %s function at line#%d\n", __func__, __LINE__);
+		return -1;
+	}
+	INIT_WORK(&uv_stat_work, ispv1_uv_stat_work_func);
+	return 0;
+}
+
+/*
+ **************************************************************************
+ * FunctionName: ispv1_uv_stat_excute;
+ * Description : NA;
+ * Input       : NA;
+ * Output      : NA;
+ * ReturnValue : NA;
+ * Other       : NA;
+ **************************************************************************
+ */
+ void ispv1_uv_stat_excute(void)
+{
+	print_debug("enter %s", __func__);
+	queue_work(uv_stat_work_queue, &uv_stat_work);
+}
+
+/*
+ **************************************************************************
+ * FunctionName: ispv1_uv_stat_exit;
+ * Description : NA;
+ * Input       : NA;
+ * Output      : NA;
+ * ReturnValue : NA;
+ * Other       : NA;
+ **************************************************************************
+ */
+void ispv1_uv_stat_exit(void)
+{
+	print_debug("enter %s", __func__);
+	destroy_workqueue(uv_stat_work_queue);
 }

@@ -36,7 +36,7 @@
 #include <linux/mux.h>
 #include <linux/wakelock.h>
 #define DEBUG 1
-#define CLOSESENSOR_PIN "aa28"/*gpio_126*/
+#define CLOSESENSOR_PIN "gpio_126"
 static struct wake_lock wlock;
 
 /* Change History
@@ -1087,18 +1087,23 @@ static int __devinit apds990x_probe(struct i2c_client *client,
 			goto exit_kfree;
 		}
 
-		gpio_direction_input(irq_to_gpio(client->irq));
+		err = gpio_direction_input(irq_to_gpio(client->irq));
+		if (err) {
+			dev_err(&client->dev, "%s: failed to config gpio direction\n",
+				__func__);
+			goto exit_gpio_request;
+		}
 
-	/* Initialize wakelock*/
-	wake_lock_init(&wlock, WAKE_LOCK_SUSPEND, "adps990x");
+		/* Initialize wakelock*/
+		wake_lock_init(&wlock, WAKE_LOCK_SUSPEND, "adps990x");
 
-	err = request_irq(client->irq, apds990x_interrupt,
-			IRQF_DISABLED | IRQ_TYPE_LEVEL_LOW | IRQF_NO_SUSPEND,
+		err = request_irq(client->irq, apds990x_interrupt,
+				IRQF_DISABLED | IRQ_TYPE_LEVEL_LOW | IRQF_NO_SUSPEND,
 						APDS990x_DRV_NAME, (void *)client);
 		if (err) {
 			dev_err(&client->dev, "%s  allocate APDS990x_IRQ failed.\n",
 				__func__);
-			goto exit_gpio_request;
+			goto exit_wake_lock_init;
 		}
 	}
 
@@ -1197,8 +1202,9 @@ exit_free_dev_als:
 exit_free_irq:
 	if (client->irq >= 0)
 	free_irq(client->irq, client);
-exit_gpio_request:
+exit_wake_lock_init:
 	wake_lock_destroy(&wlock);
+exit_gpio_request:
 	if (client->irq >= 0)
 	gpio_free(irq_to_gpio(client->irq));
 exit_kfree:

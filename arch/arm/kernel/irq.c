@@ -42,6 +42,8 @@
 #include <asm/mach/irq.h>
 #include <asm/mach/time.h>
 
+#include <mach/debugled.h>
+
 /*
  * No architecture-specific irq_finish function defined in arm/arch/irqs.h.
  */
@@ -78,6 +80,7 @@ asm_do_IRQ(unsigned int irq, struct pt_regs *regs)
 
 	irq_enter();
 
+	DEBUG_LED_IRQ_ENTER(smp_processor_id(), irq);
 	/*
 	 * Some hardware gives randomly wrong interrupts.  Rather
 	 * than crashing, do something sensible.
@@ -89,6 +92,7 @@ asm_do_IRQ(unsigned int irq, struct pt_regs *regs)
 	} else {
 		generic_handle_irq(irq);
 	}
+	DEBUG_LED_IRQ_EXIT(smp_processor_id(), irq);
 
 	/* AT91 specific workaround */
 	irq_finish(irq);

@@ -32,6 +32,8 @@
 #include "k3_hdcp.h"
 #include "k3_hdmi_log.h"
 
+#include "k3_cec.h"
+
 hdmi_device hdmi = {0};
 static u8 edid[HDMI_EDID_MAX_LENGTH] = {0};
 
@@ -90,7 +92,7 @@ static int enable_hpd(bool enable)
 
     } else {
         logi("set video power off.\n");
-        
+
         hdmi.custom_set = false;
 
         ret = hdmi_pw_set_video_power(HDMI_POWER_OFF);
@@ -276,7 +278,9 @@ static int set_custom_timing_code(int code, int mode)
     /* index shall be valided */
     index = get_timings_index();
     hdmi.timings = edid_get_timings_byindex(index);
-    hdmi.reset_needed = true;
+    if (hdmi.state == HDMI_DISPLAY_ACTIVE) {
+        hdmi.reset_needed = true;
+    }
     
     return ret;
 }
@@ -445,9 +449,11 @@ static int reset(hdmi_reset_phase phase)
 
     IN_FUNCTION;
 
+#if !HDCP_FOR_CERTIFICATION
     if (hdmi.state == HDMI_DISPLAY_ACTIVE) {
         hw_core_blank_video(true);
     }
+#endif
 
     if (phase & HDMI_RESET_OFF) {
         mutex_lock(&hdmi.lock);
@@ -480,9 +486,11 @@ static int reset(hdmi_reset_phase phase)
         
     }
     
+#if !HDCP_FOR_CERTIFICATION
     if (hdmi.state == HDMI_DISPLAY_ACTIVE) {
         hw_core_blank_video(false);
     }
+#endif
 
     OUT_FUNCTION;
 
@@ -607,6 +615,46 @@ void hdmi_hdcp_notify(char *result)
     kobject_uevent_env(&hdmi.pdev->dev.kobj, KOBJ_CHANGE, envp);
 }
 
+bool hdmi_is_connect(void)
+{
+    u32 hpd_state = 0;
+    if(hdmi.state != HDMI_DISPLAY_ACTIVE) {
+        return false;
+    }
+    hpd_state = read_reg(HDMI_CORE_SYS, HDMI_CORE_SYS_SYS_STAT);
+    if (hpd_state & (BIT_RSEN | BIT_HPD_PIN)) {
+        return true;
+    }
+    return false;
+}
+
+int hdmi_read_edid(void)
+{
+#define HDMI_READ_EDID_COUNT 6
+    int i = 0;
+    int ret = 0;
+    if (!hdmi.edid_set) {
+        memset(&edid, 0, sizeof(edid));
+        for (i = 0; i < HDMI_READ_EDID_COUNT && hdmi_is_connect(); i++) {
+            ret = edid_read(edid);
+            if (!ret) {
+                hdmi.edid_set = true;
+                logi("read edid success.\n");
+                break;
+            }
+            loge("read edid fail, and retry.\n");
+            msleep(100);
+        }
+        if (ret) {
+            loge("read edid fail.\n");
+            memset(&edid, 0, sizeof(edid));
+            hdmi.edid_set = false;
+            ret = -EIO;
+        }
+    }
+    return ret;
+}
+
 /******************************************************************************
 * Function:       hdmi_pw_power_on_full
 * Description:    turn on hdmi device and config hdmi device by edid
@@ -621,7 +669,6 @@ static int hdmi_pw_power_on_full(void)
 {
     int ret       = 0;
     int index     = INVALID_VALUE;
-    int i = 0;
 
     deep_color vsdb_format = {0};
     hdmi_cm cm = {INVALID_VALUE};
@@ -639,24 +686,17 @@ static int hdmi_pw_power_on_full(void)
         logd("No edid set thus will be calling edid_read\n");
 
         if (!hdmi.edid_set) {
-            memset(&edid, 0, sizeof(edid));
-            for (i = 0; i < 6 && hdmi.connected; i++) {
-                ret = edid_read(edid);
-                if (!ret) {
-                    logi("read edid success.\n");
-                    break;
-                }
-                loge("read edid fail, and retry.\n");
-                msleep(100);
-            }
-            if (ret) {
-                loge("read edid fail.\n");
-                memset(&edid, 0, sizeof(edid));
-                hdmi.edid_set = false;
-                ret = -EIO;
+#if USE_HDCP
+#if HDCP_FOR_CERTIFICATION
+            logi("disable hdcp befor read edid.\n");
+            hdcp_wait_anth_stop();
+#endif 
+#endif
+            ret = hdmi_read_edid();
+            if (ret) {                
 #if !ENABLE_EDID_FAULT_TOLERANCE                
                 goto err;
-#endif                
+#endif
             }
         }
 
@@ -677,7 +717,7 @@ static int hdmi_pw_power_on_full(void)
                     hdmi.code = cm.code;
                 }
             }
-            hdmi.edid_set = true;
+            /*z00222844 20120817 should not set edid_set here because ENABLE_EDID_FAULT_TOLERANCE*/
         }
 
         if (hdmi.s3d_enabled
@@ -724,7 +764,9 @@ static int hdmi_pw_power_on_full(void)
     }
     
     hdmi.cfg.vsi_enabled = hdmi.s3d_enabled;
-    hdmi.cfg.hdmi_dvi = edid_has_ieee_id((u8 *)edid) && hdmi.mode;
+
+    hdmi.cfg.hdmi_dvi = edid_has_ieee_id(edid);
+
 #if ENABLE_EDID_FAULT_TOLERANCE
     if (false == edid_is_valid_edid((u8*)edid)) {
         loge("edid isn't readed, and set to support audio.\n");
@@ -784,9 +826,27 @@ err:
 static void hdmi_pw_power_on_min(void)
 {
     IN_FUNCTION;
+#if USE_HDCP
+#if HDCP_FOR_CERTIFICATION
+    logi("disable hdcp when power min.\n");
+    hdcp_wait_anth_stop();
+#endif
+#endif
+
+#ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
+    if (hdmi.has_request_ddr) {
+        hdmi.has_request_ddr = false;
+        pm_qos_remove_request(&hdmi.qos_request);
+        logi("remove qos request\n");
+    }
+#endif
 
     hdmi.power_state = HDMI_POWER_MIN;
-    
+    hdmi.custom_set = false;
+    if (!hdmi.in_reset) {
+        hdmi.edid_set = false;
+        hdmi.connected = false;        
+    }
     /*check if connected.*/
     hw_core_swreset_assert();
     hw_core_swreset_release();
@@ -815,7 +875,9 @@ static void hdmi_pw_power_off(void)
 #if USE_HDCP
     hdcp_wait_anth_stop();
 #endif
+#if !ENABLE_MOCK_HDMI_TO_MHL
     hdmi.state = HDMI_DISPLAY_DISABLED;
+#endif
     //for real suspend/resume, should read edid. z36904
     if (!hdmi.in_reset) {
         hdmi.edid_set = false;
@@ -914,17 +976,22 @@ static int hdmi_pw_set_power(hdmi_power_state v_power, bool suspend, bool audio_
             ret = hdmi_pw_power_on_full();
 #if USE_HDCP    
             hdcp_set_start(true);
-
-            if (hdcp_get_enable()) {
-                hdcp_handle_work(0,0);
-            }
-#endif            
+#endif
+#if defined(CONFIG_HDMI_CEC_ENABLE)
+            hdmi_cec_start_use_thread();
+#endif
         } else if (HDMI_POWER_MIN == power_need) {
             logd("power min.\n");
             hdmi_pw_power_on_min();
+#if defined(CONFIG_HDMI_CEC_ENABLE)
+            hdmi_cec_start_use_thread(); // for tv sleep
+#endif
         } else {
             logd("power off.\n");
             if(HDMI_DISPLAY_ACTIVE == hdmi.state){
+#if defined(CONFIG_HDMI_CEC_ENABLE)
+                hdmi_cec_stop();
+#endif
                 hdmi_pw_power_off();
             }
         }
@@ -1080,7 +1147,7 @@ static void hdmi_irq_work_queue(struct work_struct *ws)
             mutex_unlock(&hdmi.lock);
             enable_hpd(false);
             mutex_lock(&hdmi.lock);
-        } else {     
+        } else {
             ret = hdmi_pw_set_video_power(HDMI_POWER_MIN);
             if (ret) {
                 loge("set video power to power min fail: %d.\n", ret);
@@ -1111,7 +1178,10 @@ static void hdmi_irq_work_queue(struct work_struct *ws)
     *process the soft reset and notity the deamon to change the param
     */
     if ((state & HDMI_FIRST_HPD)) {
-        logd("Enabling display - HDMI_FIRST_HPD\n");
+        logi("Enabling display - HDMI_FIRST_HPD\n");
+        hdmi.custom_set = false;
+        hdmi.edid_set = false;
+        hdmi.manual_set = false;
 
         ret = reconfig();
         if (ret) {
@@ -1156,6 +1226,7 @@ done:
 
 #if USE_HDCP
     if (hdmi.state == HDMI_DISPLAY_ACTIVE) {
+        logi("hdmi irq hdcp process begin\n");
         hdcp_handle_work(state, 0);
     }
 #endif
@@ -1288,6 +1359,19 @@ static int hdmi_control_notify_hpd_status(bool onoff)
     return 0;
 }
 
+int hdmi_control_notify_cec_cmd(char *cec_str)
+{
+    char *envp[2] = {cec_str, NULL};
+
+    IN_FUNCTION;
+
+    kobject_uevent_env(&hdmi.pdev->dev.kobj, KOBJ_CHANGE, envp);
+
+    OUT_FUNCTION;
+    return 0;
+}
+
+
 /******************************************************************************
 * Function:       hdmi_get_timing_list
 * Description:    get timing codes and store to buf
@@ -1329,9 +1413,6 @@ static ssize_t hdmi_get_timing_list(char *buf, bool mhl_check)
 
     /*get all support timing code*/
     has_image_format = edid_get_image_format(edid, img_format);
-    if (!has_image_format) {
-        logw("there isn't video image format in edid.\n");
-    }
 
     logd(" video format number: %d.\n", img_format->number);
 
@@ -1386,15 +1467,19 @@ static ssize_t hdmi_get_timing_list(char *buf, bool mhl_check)
     }
     
     kfree(img_format);
-    
+
+#if HDCP_FOR_CERTIFICATION
+    if (1) {
+#else
     if ((!has_image_format) || (size == 0) || (hdmi.manual_set && mhl_check)) {
+#endif        
         if (0 == hdmi.mode) {
             size = snprintf(buf, PAGE_SIZE, "%d\n",hdmi.code+100);
         } else {
             size = snprintf(buf, PAGE_SIZE, "%d\n",hdmi.code);
         }
     }
-    
+
     logi("edid: %s \n",buf);
 
     OUT_FUNCTION;
@@ -1536,6 +1621,11 @@ static ssize_t hdmi_control_timing_store(struct device *dev,
         return -EINVAL;
     }
 
+#if HDCP_FOR_CERTIFICATION
+    logi("for hdcp test, not set timing\n");
+    return size;
+#endif
+
     pstrchr = strchr(buf, '#');
     if (pstrchr) {
         hdmi.manual_set = true;
@@ -1571,7 +1661,7 @@ static ssize_t hdmi_control_timing_store(struct device *dev,
         mode = HDMI_CODE_TYPE_CEA;
     }
     /* if the current code is same to the set code, so don't process */
-    logi("set timing mode:%d code:%d\n", mode, (int)code);
+    logi("set timing mode:%d code:%d manual:%d\n", mode, (int)code, hdmi.manual_set);
     if ((code != hdmi.code) || (mode != hdmi.mode)) {
         ret = set_custom_timing_code(code, mode);
         if (ret) {
@@ -1638,6 +1728,7 @@ static ssize_t hdmi_control_hdcp_store(struct device *dev,
     hdcp_set_enable(enable);
 
     logd("enable = %d, buf = %s",enable,  buf);
+#if !HDCP_FOR_CERTIFICATION
     if (HDMI_POWER_OFF != hdmi.power_state) {
         ret = reset(HDMI_RESET_BOTH);
         if (ret) {
@@ -1645,6 +1736,7 @@ static ssize_t hdmi_control_hdcp_store(struct device *dev,
             return -EINVAL;
         }
     }
+#endif
     OUT_FUNCTION;
 
     return size;
@@ -2089,11 +2181,13 @@ static ssize_t hdmi_control_s3dsupport_show(struct device *dev,
 static ssize_t hdmi_control_audiosupport_show(struct device *dev,
                                      struct device_attribute *attr, char *buf)
 {
+
     int has_video_format = 0;
     int oneNum = 0;
     image_format img_format = {0};
     int i = 0;
-    int temp_hdmi_dvi = hdmi.cfg.hdmi_dvi;
+    int audio_support = hdmi.cfg.hdmi_dvi;
+    audio_format aud_format = {0};
 #if ENABLE_EDID_FAULT_TOLERANCE
     if (false == edid_is_valid_edid((u8*)edid)) {
         loge("edid isn't readed, and set to support audio.\n");
@@ -2109,11 +2203,16 @@ static ssize_t hdmi_control_audiosupport_show(struct device *dev,
             }
         }
         if(oneNum == img_format.number){
-            temp_hdmi_dvi = HDMI_DVI;
+            audio_support = HDMI_DVI;
         }
     }
 
-    return snprintf(buf, PAGE_SIZE, "%d\n", temp_hdmi_dvi);
+    //for Amplifier+monitor, is dvi device but support audio.
+    if (audio_support == HDMI_DVI) {
+        audio_support = edid_get_audio_format(edid, &aud_format);;
+    }
+
+    return snprintf(buf, PAGE_SIZE, "%d\n", audio_support);
 }
 
 /******************************************************************************
@@ -2137,6 +2236,70 @@ static ssize_t hdmi_control_bufisfree_store(struct device *dev,
     return  k3fb_buf_isfree(addr);
 }
 
+#if defined(CONFIG_HDMI_CEC_ENABLE)
+/*
+printf("cec_setcm 0  0x36 0          //<Standy> standy :ok\n");
+printf("cec_setcm 0  0X04 0          //<Image View On> invoke TV out of standy :ok\n");
+printf("cec_setcm 0  0X0d 0          //<Text View On> invoke TV out of standy :ok\n");
+
+*/
+static ssize_t hdmi_control_cec_store(struct device *dev,
+                                                       struct device_attribute *attr,
+                                                       const char *buf, size_t size)
+{
+    hdmi_cec_param cec_param;
+
+    if (strstr(buf, "enable")) {
+        hdmi_cec_enable();
+        goto done;
+    }
+    if (strstr(buf, "disable")) {
+        hdmi_cec_disable();
+        goto done;
+    }
+
+    memset(&cec_param, 0, sizeof(cec_param));
+    cec_param.en_dst_addr = 0;
+
+    if (strstr(buf, "standby")) {
+        cec_param.opcode = CEC_OPCODE_STANDBY;
+    } else if (strstr(buf, "imageon")) {
+        cec_param.opcode = CEC_OPCODE_IMAGE_VIEW_ON;
+    } else if (strstr(buf, "texton")) {
+        cec_param.opcode = CEC_OPCODE_TEXT_VIEW_ON;
+    } else if (size == sizeof(hdmi_cec_param)) {
+        memcpy(&cec_param, buf, size);
+    } else {
+        cec_str_tocmd(buf, &cec_param);
+    }
+
+    if (hdmi.state != HDMI_DISPLAY_ACTIVE) {
+        loge("Hdmi is not power on, can not do cmd:%s !\n", buf);
+        goto done;
+    }
+    hdmi_sys_lock();
+    hdmi_cec_send_command(&cec_param);
+    hdmi_sys_unlock();
+
+done:
+    return size;
+}
+#endif
+
+static ssize_t hdmi_control_name_show(struct device *dev,
+                                      struct device_attribute *attr, char *buf)
+{
+    #define MONITOR_NAME_LEN 13
+    int i = 0;
+    for (i = 0; i < EDID_SIZE_BLOCK0_TIMING_DESCRIPTOR; i++) {
+        if (HDMI_EDID_DTD_TAG_MONITOR_NAME == ((hdmi_edid*)edid)->dtd[i].monitor_name.block_type){
+            logi("get name:%s\n",((hdmi_edid*)edid)->dtd[i].monitor_name.text);
+            snprintf(buf, MONITOR_NAME_LEN, "%s", ((hdmi_edid*)edid)->dtd[i].monitor_name.text);
+            return strlen(buf);
+        }
+    }
+    return 0;
+}
 
 #define S_SYSFS_W (S_IWUSR|S_IWGRP)
 /* sysfs attribute */
@@ -2160,6 +2323,10 @@ static DEVICE_ATTR(edidbin, S_IRUGO, hdmi_control_edidbin_show, NULL);
 static DEVICE_ATTR(defaultcode, S_IRUGO, hdmi_control_defaultcode_show, NULL);
 #if ENABLE_REG_DUMP
 static DEVICE_ATTR(regbin, S_IRUGO, hdmi_control_regbin_show, NULL);
+#endif
+static DEVICE_ATTR(name, S_IRUGO, hdmi_control_name_show, NULL);
+#if defined(CONFIG_HDMI_CEC_ENABLE)
+static DEVICE_ATTR(cec, S_IRUGO | S_SYSFS_W, NULL, hdmi_control_cec_store);
 #endif
 
 /******************************************************************************
@@ -2283,10 +2450,19 @@ static void hdmi_control_create_sysfs(struct platform_device *dev)
 
 #if ENABLE_REG_DUMP
     if (hdmi_control_create_device_file(&dev->dev, &dev_attr_regbin)) {
-        loge("failed to create regbin file --reset \n");
+        loge("failed to create regbin file --regbin \n");
     }
 #endif
 
+    if (hdmi_control_create_device_file(&dev->dev, &dev_attr_name)) {
+        loge("failed to create name file --name \n");
+    }
+
+#if defined(CONFIG_HDMI_CEC_ENABLE)
+    if (hdmi_control_create_device_file(&dev->dev, &dev_attr_cec)) {
+        loge("failed to create cec file --cec \n");
+    }
+#endif
     OUT_FUNCTION;
 
     return;
@@ -2328,6 +2504,10 @@ static void hdmi_control_remove_sysfs(struct platform_device *dev)
     hdmi_control_remove_device_file(&dev->dev, &dev_attr_defaultcode);
 #if ENABLE_REG_DUMP
     hdmi_control_remove_device_file(&dev->dev, &dev_attr_regbin);
+#endif
+    hdmi_control_remove_device_file(&dev->dev, &dev_attr_name);
+#if defined(CONFIG_HDMI_CEC_ENABLE)
+    hdmi_control_remove_device_file(&dev->dev, &dev_attr_cec);
 #endif
     OUT_FUNCTION;
 
@@ -2454,6 +2634,10 @@ int hdmi_get_vsync_bycode(int code)
     return 0;
 }
 
+bool hdmi_get_cec_addr(u8* physical_addr){
+    return edid_cec_getphyaddr(edid, physical_addr);
+}
+
 /******************************************************************************
 * Function:       k3_hdmi_enable_hpd
 * Description:    enable hpd api for mhl driver
@@ -2486,6 +2670,15 @@ int hdmi_get_hsync_bycode(int code)
 EXPORT_SYMBOL(hdmi_get_vsync_bycode);
 EXPORT_SYMBOL(hdmi_get_hsync_bycode);
 
+void hdmi_sys_lock()
+{
+    mutex_lock(&hdmi.lock);
+}
+void hdmi_sys_unlock()
+{
+    mutex_unlock(&hdmi.lock);
+}
+
 static struct k3_panel_info hdmi_panel_info = {0};
 static struct k3_fb_panel_data hdmi_panel_data = {
     .panel_info = &hdmi_panel_info,
@@ -2515,7 +2708,7 @@ int hdmi_regist_fb(struct platform_device *pdev)
     pinfo = hdmi_panel_data.panel_info;
     pinfo->xres = ptimings->x_res;
     pinfo->yres = ptimings->y_res;
-    pinfo->type = HDMI_PANEL;
+    pinfo->type = PANEL_HDMI;
     pinfo->orientation = LCD_LANDSCAPE;
     pinfo->bpp = EDC_OUT_RGB_888;
     pinfo->s3d_frm = EDC_FRM_FMT_2D;
@@ -2626,6 +2819,7 @@ int k3_hdmi_probe(struct platform_device *pdev)
     hdmi.bsio = false;
     hdmi.layout = LAYOUT_2CH;
     hdmi.audiotype = 0;
+    hdmi.has_request_ddr = false;
     
     mutex_init(&hdmi.lock);
     mutex_init(&hdmi.lock_aux);
@@ -2642,7 +2836,13 @@ int k3_hdmi_probe(struct platform_device *pdev)
 #if ENABLE_AUTO_ROTATE_LANDSCAPE
     /* register hdmi switch*/
     hdmi.hpd_switch.name = "hdmi";
-    switch_dev_register(&hdmi.hpd_switch);
+
+    ret = switch_dev_register(&hdmi.hpd_switch);
+    if(ret < 0)
+    {
+        loge("switch device register error %d\n",ret);
+        goto err;
+    }
 #endif
 
     /* regist hdmi to fb driver */
@@ -2663,6 +2863,9 @@ int k3_hdmi_probe(struct platform_device *pdev)
     hdcp_init(&hdmi_hdcp_notify, &hdmi.lock);
 #endif
 
+#if defined(CONFIG_HDMI_CEC_ENABLE)
+    hdmi_cec_init();
+#endif
     //enable_hpd(true);
 
     OUT_FUNCTION;

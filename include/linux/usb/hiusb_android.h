@@ -89,6 +89,12 @@ int hiusb_pullup(struct usb_gadget *gadget, int is_on);
 int hiusb_suspend(struct lm_device *_dev);
 int hiusb_resume(struct lm_device *_dev);
 
+unsigned int hiusb_read_phy_param(void);
+unsigned int hiusb_get_phy_param(void);
+unsigned int hiusb_set_phy_param(unsigned int value);
+void hiusb_switch_to_host_test_package(void);
+void hiusb_switch_to_device_test_package(void);
+
 enum {
 	ID_RISE = 0,
 	ID_FALL

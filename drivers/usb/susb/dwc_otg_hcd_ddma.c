@@ -84,6 +84,7 @@ static int desc_list_alloc(dwc_otg_qh_t * qh)
 	if (!qh->desc_list) {
 		retval = -DWC_E_NO_MEMORY;
 		DWC_ERROR("%s: DMA descriptor list allocation failed\n", __func__);
+		return retval;
 		
 	}
 
@@ -129,6 +130,7 @@ static int frame_list_alloc(dwc_otg_hcd_t * hcd)
 	if (!hcd->frame_list) {
 		retval = -DWC_E_NO_MEMORY;
 		DWC_ERROR("%s: Frame List allocation failed\n", __func__);
+		return retval;
 	}
 
 	dwc_memset(hcd->frame_list, 0x00, 4 * MAX_FRLIST_EN_NUM);
@@ -977,6 +979,7 @@ static void complete_non_isoc_xfer_ddma(dwc_otg_hcd_t * hcd,
 				hcd->fops->complete(hcd, urb->priv, urb,
 						    urb->status);
 				dwc_otg_hcd_qtd_remove_and_free(hcd, qtd, qh);
+				qtd = NULL;
 
 				if (failed)
 					goto stop_scan;
@@ -1016,7 +1019,7 @@ stop_scan:
 		 */
 		if (halt_status == DWC_OTG_HC_XFER_STALL)
 			qh->data_toggle = DWC_OTG_HC_PID_DATA0;
-		else
+		else if (qtd)
 			dwc_otg_hcd_save_data_toggle(hc, hc_regs, qtd);
 	}
 

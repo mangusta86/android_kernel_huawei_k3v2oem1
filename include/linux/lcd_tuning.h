@@ -1,4 +1,7 @@
-
+/*
+ * LCD Tuning Lowlevel Control Abstraction
+ *
+ */
 
 #ifndef _LINUX_LCD_TUNING_H
 #define _LINUX_LCD_TUNING_H
@@ -27,7 +30,7 @@ enum tft_cabc
 	CABC_VID,
 	CABC_OFF
 };
-
+/* END:   Added by huohua, 2012/02/14 */
 
 struct lcd_properities {
 	enum lcd_type type;
@@ -37,9 +40,10 @@ struct lcd_properities {
 struct lcd_tuning_ops {
 	int (*set_gamma)(struct lcd_tuning_dev *ltd, enum lcd_gamma gamma);
 	int (*set_cabc)(struct lcd_tuning_dev *ltc, enum tft_cabc cabc);
-
-    int (*set_color_temperature)(struct lcd_tuning_dev *ltc, unsigned int ctValue[]);
-
+	/* END:   Added by huohua, 2012/02/14 */
+        /* BEGIN: Added by wugao 00190753*/
+	int (*set_color_temperature)(struct lcd_tuning_dev *ltc, unsigned int ctValue[]);
+	/* END:   Added by wugao 00190753 */
 };
 
 struct lcd_tuning_dev {

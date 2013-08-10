@@ -616,6 +616,10 @@ static int urb_enqueue(struct usb_hcd *hcd, struct urb *urb, gfp_t mem_flags)
 	dwc_otg_urb = dwc_otg_hcd_urb_alloc(dwc_otg_hcd,
 					    urb->number_of_packets,
 					    mem_flags == GFP_ATOMIC ? 1 : 0);
+	if (!dwc_otg_urb) {
+		printk("%s - urb alloc failed\n", __func__);
+		return -DWC_E_NO_MEMORY;
+	}
 
 	dwc_otg_hcd_urb_set_pipeinfo(dwc_otg_urb, usb_pipedevice(urb->pipe),
 				     usb_pipeendpoint(urb->pipe), ep_type,

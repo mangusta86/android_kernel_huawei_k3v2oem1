@@ -39,59 +39,94 @@
 #include <linux/earlysuspend.h>
 #endif
 #include <mach/hisi_mem.h>
+
 #include "k3_fb_def.h"
 #include "k3_fb_panel.h"
 #include "edc_overlay.h"
+#if defined(CONFIG_OVERLAY_COMPOSE) && defined(CONFIG_CPU_FREQ_GOV_K3HOTPLUG)
+#include <linux/pm_qos_params.h>
+#endif
+
+
+#define K3_FB_OVERLAY_USE_BUF 1
 
 /*G2D clk rate*/
-#define G2D_NORMAL_FREQ	(480000000)
-#define G2D_SLOW_FREQ	(60000000)
 #define G2D_CLK_60MHz	(60 * 1000 * 1000)
 #define G2D_CLK_120MHz	(120 * 1000 * 1000)
 #define G2D_CLK_240MHz	(240 * 1000 * 1000)
 #define G2D_CLK_360MHz	(360 * 1000 * 1000)
 #define G2D_CLK_480MHz	(480 * 1000 * 1000)
 
-#define K3_FB_OVERLAY_USE_BUF 1
-/*FRC Frame definition*/
-#define K3_FB_FRC_BENCHMARK_FPS	67
+/* temprature for FRC */
+#define EVT_TEM_LEVEL_MAX	4
+
+#define EVT_TEM_NORM		40
+#define EVT_TEM_ABOVE_NORM	45
+#define EVT_TEM_HIGH		50
+#define EVT_TEM_THRD		57
+
+#define FAKE_FPS_TEM_NORM_FPS		60
+#define FAKE_FPS_TEM_ABOVE_NORM_FPS	45
+#define FAKE_FPS_TEM_HIGH			36
+#define FAKE_FPS_TEM_THRD			30
+
+#define FAKE_FPS_SPECIAL_GAME		45
+
+/* FRC */
 #define K3_FB_FRC_NORMAL_FPS	60
+#define K3_FB_FRC_IDLE_FPS	30
 #define K3_FB_FRC_VIDEO_FPS	60
 #define K3_FB_FRC_WEBKIT_FPS	30
+#define K3_FB_FRC_BENCHMARK_FPS	67
 #define K3_FB_FRC_GAME_FPS	30
-#define K3_FB_FRC_IDLE_FPS	30
-#define K3_FB_FRC_SPECIAL_GAME_FPS    60
+#define K3_FB_FRC_SPECIAL_GAME_FPS  60
+
+/* FRC for Command Panel */
+#define K3_FB_FRC_GAME_FPS_CMD	40
+
+/* FRC for Command Panel */
+#define K3_FB_FRC_GAME_FPS_CMD	40
+
 #define K3_FB_FRC_THRESHOLD	6
 
-/*ESD definition*/
-#define K3_FB_ESD_THRESHOLD	45/*90*/
+/* ESD */
+#define K3_FB_ESD_THRESHOLD	45
+
+/* SBL */
+#define SBL_BKL_STEP	5
+#define SBL_REDUCE_VALUE(x)	((x) * 70 / 100)
 
 /* display resolution limited */
-#define K3_FB_MIN_WIDTH		32
+#define K3_FB_MIN_WIDTH	32
 #define K3_FB_MIN_HEIGHT	32
-#define K3_FB_MAX_WIDTH		1200
+#define K3_FB_MAX_WIDTH	1200
 #define K3_FB_MAX_HEIGHT	1920
 
-/* EDC buffer width and height Align limited */
-#define EDC_BUF_WIDTH_ALIGN		8
-#define EDC_BUF_HEIGHT_ALIGN	2
-
-#define EDC_CH_SECU_LINE	11
-
 /* frame buffer physical addr */
-#define K3_FB_PA			HISI_FRAME_BUFFER_BASE
+#define K3_FB_PA	HISI_FRAME_BUFFER_BASE
 #define K3_NUM_FRAMEBUFFERS	4
 extern u32 k3fd_reg_base_edc0;
 extern u32 k3fd_reg_base_edc1;
 
-#define SBL_BKL_STEP 5
-#define SBL_REDUCE_VALUE(x)  ((x) * 70/100)
+/* EDC */
+#define EDC_CH_SECU_LINE	11
+#define EDC_CLK_RATE_GET(x)	((x) * 12 / 10)
 
-#ifdef CONFIG_LCD_TOSHIBA_MDW70
-#define CLK_SWITCH	0
-#elif defined(CONFIG_LCD_CMI_OTM1280A)
-#define CLK_SWITCH	1
-#endif
+#define K3FB_DEFAULT_BGR_FORMAT	EDC_RGB
+
+/* for MIPI Command LCD */
+//#define CLK_SWITCH	1
+
+/* for Vsync*/
+#define VSYNC_TIMEOUT_MSEC 50
+
+/* FB width must be 16 pixels aligned in Vivante GPU */
+#define USE_VIVANTE_GPU	1
+
+#if defined(CONFIG_OVERLAY_COMPOSE)
+//channel change flow
+//#define EDC_CH_CHG_SUPPORT
+#endif //CONFIG_OVERLAY_COMPOSE
 
 enum {
 	LCD_LANDSCAPE = 0,
@@ -103,7 +138,6 @@ enum {
 	BL_SET_BY_NONE = 0,
 	BL_SET_BY_PWM = 0x1,
 	BL_SET_BY_MIPI = 0x2,
-	BL_SET_BY_MIPI_ECO = 0x4,
 };
 
 enum {
@@ -120,7 +154,13 @@ enum {
 	FB_64BYTES_ODD_ALIGN_VIDEO,
 };
 
-/*FRC State definition*/
+enum {
+	FB_LDI_INT_TYPE_NONE = 0x0,
+	FB_LDI_INT_TYPE_FRC = 0x1,
+	FB_LDI_INT_TYPE_ESD = 0x2,
+};
+
+/* frc state definition */
 enum {
 	K3_FB_FRC_NONE_PLAYING = 0x0,
 	K3_FB_FRC_VIDEO_PLAYING = 0x2,
@@ -129,37 +169,47 @@ enum {
 	K3_FB_FRC_BENCHMARK_PLAYING = 0x8,
 	K3_FB_FRC_WEBKIT_PLAYING =0x10,
 	K3_FB_FRC_SPECIAL_GAME_PLAYING = 0x20,
+	K3_FB_FRC_IDLE_PLAYING = 0x40,
 };
+
+
+/**
+ * struct k3fb_vsync - vsync information+
+ * @wait:              a queue for processes waiting for vsync
+ * @timestamp:         the time of the last vsync interrupt
+ * @active:            whether userspace is requesting vsync uevents
+ * @thread:            uevent-generating thread
+ */
+struct k3fb_vsync {
+	wait_queue_head_t       wait;
+	ktime_t                 timestamp;
+	bool                    active;
+	struct task_struct      *thread;
+};
+
+
+#if defined(CONFIG_OVERLAY_COMPOSE)
+#define MAX_EDC_CHANNEL (3)
 
 enum {
-	FB_FRC_FLAG_IDLE = 0,
-	FB_FRC_FLAG_BUSY,
-	FB_FRC_FLAG_DECREASE,
-	FB_FRC_FLAG_INCREASE,
+    OVC_NONE,
+    OVC_PARTIAL,
+    OVC_FULL,
 };
-
-enum {
-	FB_LDI_INT_TYPE_NONE = 0,
-	FB_LDI_INT_TYPE_FRC = 1,
-	FB_LDI_INT_TYPE_ESD = 2,
-};
-
-#define K3FB_DEFAULT_BGR_FORMAT	EDC_RGB
-#define CONFIG_FASTBOOT_ENABLE	1
-
+#endif /* CONFIG_OVERLAY_COMPOSE */
 
 struct k3_fb_data_type {
 	u32 index;
 	u32 ref_cnt;
 	u32 bl_level;
 	u32 bl_level_sbl;
-	u32 bl_level_old;
+	u32 bl_level_cmd;
 	u32 fb_imgType;
 	u32 fb_bgrFmt;
 	u32 edc_base;
 	u32 edc_irq;
 	u32 ldi_irq;
-	u32 bl_enable_mipi_eco;
+	s32 ldi_int_type;
 
 	char edc_irq_name[64];
 	char ldi_irq_name[64];
@@ -170,13 +220,14 @@ struct k3_fb_data_type {
 
 	struct fb_info *fbi;
 	u32 graphic_ch;
-	wait_queue_head_t edc_wait_queque;
-	s32 edc_wait_flash;
+
+	wait_queue_head_t frame_wq;
+	s32 update_frame;
 	struct work_struct frame_end_work;
 	struct workqueue_struct *frame_end_wq;
 
-	bool cmd_mode_refresh;
 	u32 frame_count;
+	bool cmd_mode_refresh;
 	bool is_first_frame_end;
 
 	struct edc_overlay_ctrl ctrl;
@@ -189,7 +240,10 @@ struct k3_fb_data_type {
 	struct clk *g2d_clk;
 	struct regulator *edc_vcc;
 
-	/* for vsync event */
+	struct k3fb_vsync vsync_info;
+	struct hrtimer fake_vsync_hrtimer;
+
+	int ambient_temperature;
 
 	/* for sbl */
 	u32 sbl_enable;
@@ -198,21 +252,52 @@ struct k3_fb_data_type {
 	struct workqueue_struct *sbl_wq;
 
 	/* for frc */
-	int frc_flag;
-	int frc_frame_count;
+	s32 frc_state;
+	s32 frc_threshold_count;
 	unsigned long frc_timestamp;
 
 	/* for esd */
 	unsigned long esd_timestamp;
-	int esd_frame_count;
-    struct hrtimer esd_hrtimer;
-    bool esd_hrtimer_enable;
+	s32 esd_frame_count;
 
-	int ldi_int_type;
+	struct hrtimer esd_hrtimer;
+	bool esd_hrtimer_enable;
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
 	struct early_suspend early_suspend;
 #endif
+
+#if defined(CONFIG_OVERLAY_COMPOSE)
+	/* type: full/partial/none */
+	u32 ovc_type;
+	u32 ovc_ch_count;
+	//ch chg state
+#if defined(EDC_CH_CHG_SUPPORT)
+	bool ch_chg_flag;
+	bool ch_chg_power_off;
+#endif //EDC_CH_CHG_SUPPORT
+	//idle switch to g2d
+	bool ovc_idle_flag;
+	//ovc buffer sync: ch1,ch2,crs
+	bool ovc_wait_state[MAX_EDC_CHANNEL];
+	bool ovc_wait_flag[MAX_EDC_CHANNEL];
+	u32 ovc_lock_addr[MAX_EDC_CHANNEL];
+	u32 ovc_lock_size[MAX_EDC_CHANNEL];
+	u32 ovc_ch_gonna_display_addr[MAX_EDC_CHANNEL];
+	u32 ovc_ch_display_addr[MAX_EDC_CHANNEL];
+	//overlay play cfg_ok once
+	struct overlay_data ovc_req[MAX_EDC_CHANNEL];
+#if defined(CONFIG_CPU_FREQ_GOV_K3HOTPLUG)
+	u32 ddr_min_freq;
+	u32 ddr_min_freq_saved;
+	u32 ddr_curr_freq;
+	u32 ovc_ddr_failed;
+	struct pm_qos_request_list ovc_ddrminprofile;
+	struct work_struct ovc_ddr_work;
+	struct workqueue_struct *ovc_ddr_wq;
+#endif
+#endif /* CONFIG_OVERLAY_COMPOSE */
+
 };
 
 
@@ -220,14 +305,25 @@ struct k3_fb_data_type {
 ** FUNCTIONS PROTOTYPES
 */
 
-void set_reg(u32 addr, u32 val, u8 bw, u8 bs);
-u32 k3_fb_line_length(u32 fb_index, u32 xres, int bpp);
+void k3_fb_clk_enable_cmd_mode(struct k3_fb_data_type *k3fd);
+void k3_fb_clk_disable_cmd_mode(struct k3_fb_data_type *k3fd);
 
 void k3_fb_set_backlight(struct k3_fb_data_type *k3fd, u32 bkl_lvl);
 struct platform_device *k3_fb_add_device(struct platform_device *pdev);
+
 int k3_fb1_blank(int blank_mode);
 int k3fb_buf_isfree(int phys);
 void k3fb_set_hdmi_state(bool is_connected);
 struct fb_var_screeninfo * k3fb_get_fb_var(int index);
+
+#if defined(CONFIG_OVERLAY_COMPOSE)
+void k3_fb_gralloc_overlay_save_display_addr(struct k3_fb_data_type *k3fd, int ch, u32 addr);
+void k3_fb_gralloc_overlay_restore_display_addr(struct k3_fb_data_type *k3fd);
+#if defined(EDC_CH_CHG_SUPPORT)
+struct fb_info* k3_fb1_get_info(void);
+#endif //EDC_CH_CHG_SUPPORT
+void k3_fb_overlay_compose_data_clear(struct k3_fb_data_type *k3fd);
+
+#endif //CONFIG_OVERLAY_COMPOSE
 
 #endif /* K3_FB_H */

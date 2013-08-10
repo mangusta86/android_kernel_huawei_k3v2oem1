@@ -633,9 +633,12 @@ config MSM_SMD_PKT
 	  Enables userspace clients to read and write to some packet SMD
 	  ports via device interface for MSM chipset.
 
+
 config HUAWEI_FEATURE_LOW_MEMORY_KILLER_STUB
         bool "Systemstattool Low Memory Killer Stub"
         default N
         depends on ANDROID_LOW_MEMORY_KILLER
+
+source "drivers/char/secengdev/Kconfig"
 endmenu
 

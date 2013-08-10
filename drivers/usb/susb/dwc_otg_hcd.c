@@ -201,7 +201,8 @@ static void del_xfer_timers(dwc_otg_hcd_t * hcd)
 static void del_timers(dwc_otg_hcd_t * hcd)
 {
 	del_xfer_timers(hcd);
-	DWC_TIMER_CANCEL(hcd->conn_timer);
+	if (hcd->conn_timer)
+		DWC_TIMER_CANCEL(hcd->conn_timer);
 }
 
 /**
@@ -253,7 +254,8 @@ static void kill_all_urbs(dwc_otg_hcd_t * hcd)
  */
 static void dwc_otg_hcd_start_connect_timer(dwc_otg_hcd_t * hcd)
 {
-	DWC_TIMER_SCHEDULE(hcd->conn_timer, 10000 /* 10 secs */ );
+	if (hcd->conn_timer)
+		DWC_TIMER_SCHEDULE(hcd->conn_timer, 10000 /* 10 secs */ );
 }
 
 /**
@@ -823,7 +825,8 @@ static void dwc_otg_hcd_free(dwc_otg_hcd_t * dwc_otg_hcd)
 	/* Set core_if's lock pointer to NULL */
 	dwc_otg_hcd->core_if->lock = NULL;
 
-	DWC_TIMER_FREE(dwc_otg_hcd->conn_timer);
+	if (dwc_otg_hcd->conn_timer)
+		DWC_TIMER_FREE(dwc_otg_hcd->conn_timer);
 	DWC_TASK_FREE(dwc_otg_hcd->reset_tasklet);
 
 #ifdef DWC_DEV_SRPCAP
@@ -951,7 +954,7 @@ void dwc_otg_hcd_remove(dwc_otg_hcd_t * hcd)
 {
 	/* Turn off all host-specific interrupts. */
 	dwc_otg_disable_host_interrupts(hcd->core_if);
-
+	wake_lock_destroy(&hcd->dwc_otg_hcd_wake_lock);
 	dwc_otg_hcd_free(hcd);
 }
 
@@ -3062,7 +3065,8 @@ dwc_otg_hcd_urb_t *dwc_otg_hcd_urb_alloc(dwc_otg_hcd_t * hcd,
 	else
 		dwc_otg_urb = DWC_ALLOC(size);
 
-	dwc_otg_urb->packet_count = iso_desc_count;
+	if (dwc_otg_urb)
+		dwc_otg_urb->packet_count = iso_desc_count;
 
 	return dwc_otg_urb;
 }

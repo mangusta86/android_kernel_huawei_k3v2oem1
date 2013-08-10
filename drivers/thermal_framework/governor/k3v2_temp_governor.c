@@ -202,6 +202,7 @@ static int k3v2_benchmark_thermal_manager(int temp)
 		pm_qos_update_request(&g_cpumaxlimits, PM_QOS_CPU_MAXPROFILE_VALUE);
 		pm_qos_update_request(&g_gpumaxlimits, PM_QOS_GPU_MAXPROFILE_VALUE);
 	}
+	return 0;
 }
 #endif
 
@@ -243,14 +244,16 @@ static void average_cpu_sensor_delayed_work_fn(struct work_struct *work)
 				container_of(work, struct k3v2_die_governor,
 						average_cpu_sensor_work.work);
 	unsigned int upolicy = 0;
+#ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
 	ipps_get_current_policy(&ipps_client, IPPS_OBJ_CPU, &upolicy);
-
+#endif
 	if (0 == g_temp_bypass) {
 		k3v2_gov->governor_current_temp = average_on_die_temperature();
 	} else {
 		k3v2_gov->governor_current_temp = ROOM_TEMPERATURE;
 	}
 
+#ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
 	if (k3v2_gov->governor_current_temp > 0) {
 		if (PM_QOS_IPPS_POLICY_SPECIAL0B == ((upolicy >> 4) & 0x0F)) {
 			k3v2_benchmark_thermal_manager(k3v2_gov->governor_current_temp);
@@ -258,6 +261,7 @@ static void average_cpu_sensor_delayed_work_fn(struct work_struct *work)
 			k3v2_cpu_thermal_manager(k3v2_gov->governor_current_temp);
 		}
 	}
+#endif
 
 	schedule_delayed_work(&k3v2_gov->average_cpu_sensor_work,
 				msecs_to_jiffies(k3v2_gov->average_period));

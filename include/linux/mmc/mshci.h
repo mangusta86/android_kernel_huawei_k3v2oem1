@@ -229,6 +229,8 @@ struct mshci_host {
 #define MSHCI_CMD_SEND_INIT	(1 << 9)	/* the next command should send initialization */
 	unsigned int		tuning_rca;	/* card rca for tuning */
 
+	int					tuning_move_start;	/* tuning move start flag */
+
 	unsigned int		version;	/* SDHCI spec. version */
 
 	struct clk              *pclk;          /*s00212129 emmc bus clock*/

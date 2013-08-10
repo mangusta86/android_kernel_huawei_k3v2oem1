@@ -80,10 +80,10 @@
 	}
 #endif
 #define assert(x)							\
-	do {									\
+	/*do {									\
 		if (!(x))							\
 			printk("!!!!!ASSERT ERROR!!!!");	\
-	} while (0)
+	} while (0)*/
 
 #define print_ddr() { \
 	u32 addr = IO_ADDRESS(0xfd005000); \

@@ -41,7 +41,7 @@ typedef bool bool_tt;
 #define BIT7                   (0x80)
 
 /*gpio_80 INT*/
-#define MHL_PIN "t28"
+#define MHL_PIN "gpio_080"
 
 /* This is the time in milliseconds we poll what we poll.*/
 #define MONITORING_PERIOD	(50)

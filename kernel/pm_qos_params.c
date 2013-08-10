@@ -436,9 +436,9 @@ void pm_qos_verify_request(int pm_qos_class, s32 *value)
 		tmpv = pm_qos_request(PM_QOS_CPU_MIN_PROFILE);
 
 		if (*value < tmpv) {
-			pr_err("***[%s] CPU_MAX can not be smaller than CPU_MIN.\n",
+			pr_warn("***[%s] CPU_MAX can not be smaller than CPU_MIN.\n",
 				__func__);
-			pr_err("***[%s] CPU_MAX REQ=%d CPU_MIN=%d.\n", __func__,
+			pr_warn("***[%s] CPU_MAX REQ=%d CPU_MIN=%d.\n", __func__,
 				*value, tmpv);
 
 			*value = tmpv;
@@ -450,9 +450,9 @@ void pm_qos_verify_request(int pm_qos_class, s32 *value)
 		tmpv = pm_qos_request(PM_QOS_CPU_MAX_PROFILE);
 
 		if (*value > tmpv) {
-			pr_err("***[%s] CPU_MIN can not be larger than CPU_MAX.\n",
+			pr_warn("***[%s] CPU_MIN can not be larger than CPU_MAX.\n",
 				__func__);
-			pr_err("***[%s] CPU_MIN REQ=%d CPU_MAX=%d.\n", __func__,
+			pr_warn("***[%s] CPU_MIN REQ=%d CPU_MAX=%d.\n", __func__,
 				*value, tmpv);
 
 			*value = tmpv;
@@ -464,9 +464,9 @@ void pm_qos_verify_request(int pm_qos_class, s32 *value)
 		tmpv = pm_qos_request(PM_QOS_GPU_MIN_PROFILE);
 
 		if (*value < tmpv) {
-			pr_err("***[%s] GPU_MAX can not be smaller than GPU_MIN.\n",
+			pr_warn("***[%s] GPU_MAX can not be smaller than GPU_MIN.\n",
 				__func__);
-			pr_err("***[%s] GPU_MAX REQ=%d GPU_MIN=%d.\n", __func__,
+			pr_warn("***[%s] GPU_MAX REQ=%d GPU_MIN=%d.\n", __func__,
 				*value, tmpv);
 
 			*value = tmpv;
@@ -478,9 +478,9 @@ void pm_qos_verify_request(int pm_qos_class, s32 *value)
 		tmpv = pm_qos_request(PM_QOS_GPU_MAX_PROFILE);
 
 		if (*value > tmpv) {
-			pr_err("***[%s] GPU_MIN can not be larger than GPU_MAX.\n",
+			pr_warn("***[%s] GPU_MIN can not be larger than GPU_MAX.\n",
 				__func__);
-			pr_err("***[%s] GPU_MIN REQ=%d GPU_MAX=%d.\n", __func__,
+			pr_warn("***[%s] GPU_MIN REQ=%d GPU_MAX=%d.\n", __func__,
 				*value, tmpv);
 
 			*value = tmpv;
@@ -492,9 +492,9 @@ void pm_qos_verify_request(int pm_qos_class, s32 *value)
 		tmpv = pm_qos_request(PM_QOS_DDR_MIN_PROFILE);
 
 		if (*value < tmpv) {
-			pr_err("***[%s] DDR_MAX can not be smaller than DDR_MIN.\n",
+			pr_warn("***[%s] DDR_MAX can not be smaller than DDR_MIN.\n",
 				__func__);
-			pr_err("***[%s] DDR_MAX REQ=%d DDR_MIN=%d.\n", __func__,
+			pr_warn("***[%s] DDR_MAX REQ=%d DDR_MIN=%d.\n", __func__,
 				*value, tmpv);
 
 			*value = tmpv;
@@ -506,9 +506,9 @@ void pm_qos_verify_request(int pm_qos_class, s32 *value)
 		tmpv = pm_qos_request(PM_QOS_DDR_MAX_PROFILE);
 
 		if (*value > tmpv) {
-			pr_err("***[%s] DDR_MIN can not be larger than DDR_MAX.\n",
+			pr_warn("***[%s] DDR_MIN can not be larger than DDR_MAX.\n",
 				__func__);
-			pr_err("***[%s] DDR_MIN REQ=%d DDR_MAX=%d.\n", __func__,
+			pr_warn("***[%s] DDR_MIN REQ=%d DDR_MAX=%d.\n", __func__,
 				*value, tmpv);
 
 			*value = tmpv;
@@ -519,9 +519,9 @@ void pm_qos_verify_request(int pm_qos_class, s32 *value)
 		tmpv = pm_qos_request(PM_QOS_CPU_NUMBER_MIN);
 
 		if (*value < tmpv) {
-			pr_err("***[%s] CPUNUMBER_MAX can not be smaller than CPUNUMBER_MIN.\n",
+			pr_warn("***[%s] CPUNUMBER_MAX can not be smaller than CPUNUMBER_MIN.\n",
 				__func__);
-			pr_err("***[%s] CPUNUMBER_MAX REQ=%d CPUNUMBER_MIN=%d.\n",
+			pr_warn("***[%s] CPUNUMBER_MAX REQ=%d CPUNUMBER_MIN=%d.\n",
 				__func__, *value, tmpv);
 
 			*value = tmpv;
@@ -531,9 +531,9 @@ void pm_qos_verify_request(int pm_qos_class, s32 *value)
 		tmpv = pm_qos_request(PM_QOS_CPU_NUMBER_MAX);
 
 		if (*value > tmpv) {
-			pr_err("***[%s] CPUNUMBER_MIN can not be larger than CPUNUMBER_MAX.\n",
+			pr_warn("***[%s] CPUNUMBER_MIN can not be larger than CPUNUMBER_MAX.\n",
 				__func__);
-			pr_err("***[%s] CPUNUMBER_MIN REQ=%d CPUNUMBER_MAX=%d.\n", __func__,
+			pr_warn("***[%s] CPUNUMBER_MIN REQ=%d CPUNUMBER_MAX=%d.\n", __func__,
 				*value, tmpv);
 
 			*value = tmpv;

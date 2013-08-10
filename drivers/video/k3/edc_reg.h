@@ -279,5 +279,24 @@ void set_EDC_CH1_SCL_VPC(u32 edc_base, u32 i, u32 j, u32 nVal);
 
 void dump_EDC_Reg(u32 edc_base, u32 size);
 
+#if defined(CONFIG_OVERLAY_COMPOSE)
+void set_OVC_CH1_CSCIDC_csc_en(u32 edc_base, u32 nVal);
+void set_OVC_CH1_CSCIDC(u32 edc_base, u32 cscidc_y, u32 cscidc_u, u32 cscidc_v);
+void set_OVC_CH1_CSCODC(u32 edc_base, u32 cscodc_r, u32 cscodc_g, u32 cscodc_b);
+void set_OVC_CH1_CSCP0(u32 edc_base, u32 csc_01p, u32 csc_00p);
+void set_OVC_CH1_CSCP1(u32 edc_base, u32 csc_10p, u32 csc_02p);
+void set_OVC_CH1_CSCP2(u32 edc_base, u32 csc_12p, u32 csc_11p);
+void set_OVC_CH1_CSCP3(u32 edc_base, u32 csc_21p, u32 csc_20p);
+void set_OVC_CH1_CSCP4(u32 edc_base, u32 csc_22p);
+
+void set_OVC_CH2_CSCIDC_csc_en(u32 edc_base, u32 nVal);
+void set_OVC_CH2_CSCIDC(u32 edc_base, u32 cscidc_y, u32 cscidc_u, u32 cscidc_v);
+void set_OVC_CH2_CSCODC(u32 edc_base, u32 cscodc_r, u32 cscodc_g, u32 cscodc_b);
+void set_OVC_CH2_CSCP0(u32 edc_base, u32 csc_01p, u32 csc_00p);
+void set_OVC_CH2_CSCP1(u32 edc_base, u32 csc_10p, u32 csc_02p);
+void set_OVC_CH2_CSCP2(u32 edc_base, u32 csc_12p, u32 csc_11p);
+void set_OVC_CH2_CSCP3(u32 edc_base, u32 csc_21p, u32 csc_20p);
+void set_OVC_CH2_CSCP4(u32 edc_base, u32 csc_22p);
+#endif //CONFIG_OVERLAY_COMPOSE
 
 #endif  /* EDC_REG_H */

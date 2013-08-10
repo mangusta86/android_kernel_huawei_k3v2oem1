@@ -714,67 +714,67 @@ do_alignment_t32_to_handler(unsigned long *pinstr, struct pt_regs *regs,
 	return NULL;
 }
 
-#define vmov_single(reg, val) \ 
- __asm__( \ 
- " .fpu vfp\n" \ 
- " vmov s"#reg", %0\n" \ 
- : : "r" (val)) 
- 
-#define case_reg(reg, val) \ 
- case ((reg)): \ 
- vmov_single(reg, (val)); \ 
- break 
- 
-static int 
-do_alignment_thumb_vldr(unsigned long addr, unsigned long instr, struct pt_regs *regs) 
-{ 
-	unsigned int double_op = (instr >> 8) & 1; 
-	unsigned int vd = (instr >> 12) & 15; 
-	unsigned int d = (instr >> 22) & 1; 
+#define vmov_single(reg, val) \
+ __asm__( \
+ " .fpu vfp\n" \
+ " vmov s"#reg", %0\n" \
+ : : "r" (val))
+
+#define case_reg(reg, val) \
+ case ((reg)): \
+ vmov_single(reg, (val)); \
+ break
+
+static int
+do_alignment_thumb_vldr(unsigned long addr, unsigned long instr, struct pt_regs *regs)
+{
+	unsigned int double_op = (instr >> 8) & 1;
+	unsigned int vd = (instr >> 12) & 15;
+	unsigned int d = (instr >> 22) & 1;
 	unsigned int reg;
 	unsigned int val;
-	unsigned int fault; 
-	int i; 
+	unsigned int fault;
+	int i;
 	unsigned long instrptr;
 	mm_segment_t fs;
 	u16 tinstr = 0;
 
-	/* 4 bytes alignment */ 
-	addr &= ~3; 
+	/* 4 bytes alignment */
+	addr &= ~3;
 
-	if (double_op) { 
-		reg = (d << 4) | vd; 
-		reg = reg << 1; 
-	} else 
-		reg = (vd << 1) | d; 
+	if (double_op) {
+		reg = (d << 4) | vd;
+		reg = reg << 1;
+	} else
+		reg = (vd << 1) | d;
 
 	for (i = 0; i <= double_op; i++) {
-		fault = __get_user(val, (u32 *)addr); 
+		fault = __get_user(val, (u32 *)addr);
 
-		if (fault) 
-		goto fault; 
+		if (fault)
+		goto fault;
 
-		switch (reg) { 
-		case_reg(0, val); case_reg(1, val); case_reg(2, val); case_reg(3, val); 
-		case_reg(4, val); case_reg(5, val); case_reg(6, val); case_reg(7, val); 
-		case_reg(8, val); case_reg(9, val); case_reg(10, val); case_reg(11, val); 
-		case_reg(12, val); case_reg(13, val); case_reg(14, val); case_reg(15, val); 
-		case_reg(16, val); case_reg(17, val); case_reg(18, val); case_reg(19, val); 
-		case_reg(20, val); case_reg(21, val); case_reg(22, val); case_reg(23, val); 
-		case_reg(24, val); case_reg(25, val); case_reg(26, val); case_reg(27, val); 
-		case_reg(28, val); case_reg(29, val); case_reg(30, val); case_reg(31, val); 
-		} 
+		switch (reg) {
+		case_reg(0, val); case_reg(1, val); case_reg(2, val); case_reg(3, val);
+		case_reg(4, val); case_reg(5, val); case_reg(6, val); case_reg(7, val);
+		case_reg(8, val); case_reg(9, val); case_reg(10, val); case_reg(11, val);
+		case_reg(12, val); case_reg(13, val); case_reg(14, val); case_reg(15, val);
+		case_reg(16, val); case_reg(17, val); case_reg(18, val); case_reg(19, val);
+		case_reg(20, val); case_reg(21, val); case_reg(22, val); case_reg(23, val);
+		case_reg(24, val); case_reg(25, val); case_reg(26, val); case_reg(27, val);
+		case_reg(28, val); case_reg(29, val); case_reg(30, val); case_reg(31, val);
+		}
 
 
-		addr += 4; 
-		reg += 1; 
-	} 
+		addr += 4;
+		reg += 1;
+	}
 
-	return TYPE_DONE; 
+	return TYPE_DONE;
 
-	fault: 
-	return TYPE_FAULT; 
-} 
+	fault:
+	return TYPE_FAULT;
+}
 #undef vmov_single
 #undef case_reg
 
@@ -895,12 +895,12 @@ do_alignment(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 	case 0x0c000000:	/* vldr/flds */
 		if ((instr & 0xff300e00) == 0xed100a00) /*just deal with vldr/flds*/
 		{
-			handler = do_alignment_thumb_vldr; 
+			handler = do_alignment_thumb_vldr;
 		}
 		else
 			goto bad;
 		break;
-  
+
 	default:
 		goto bad;
 	}

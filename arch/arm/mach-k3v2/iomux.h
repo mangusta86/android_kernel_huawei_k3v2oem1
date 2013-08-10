@@ -75,7 +75,7 @@ struct block_config {
 struct block_table {
 	char *name;
 	struct iomux_block *block;
-	/*the pointer of config array,this array contains normal config,gpio config,lowpower config*/
+	/*the pointer of config array,this array contains normal config, lowpower config*/
 	struct block_config *config_array;
 };
 
@@ -96,8 +96,33 @@ struct iomux_pin_table {
 	struct  iomux_pin *iomux_pin;
 	struct list_head	node;
 };
+
+ /*TODO:every config of blocks*/
+ #define BLOCK_CONFIG(_name, _block, _configarray) \
+ {\
+         .name = _name,\
+         .block = _block,\
+         .config_array = _configarray,\
+ },
 void iomux_init_blocks(void);
 extern struct block_table *block_config_tables[];
 extern struct iomux_pin_table pins_table[];
 extern struct iomux_pin_table pins_table_cs[];
+
+#ifdef	CONFIG_LOWPM_DEBUG
+#include <linux/console.h>
+struct iocfg_lp {
+	unsigned int uiomg_off;
+	int iomg_val;
+	unsigned int uiocg_off;
+	int iocg_val;
+	unsigned int ugpiog;
+	unsigned int ugpio_bit;
+	int gpio_dir;
+	int gpio_val;
+};
+extern void iomux_debug_set(void);
+extern void iomux_debug_show(int check);
+#endif
+
 #endif

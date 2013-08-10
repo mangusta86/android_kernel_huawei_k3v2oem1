@@ -168,9 +168,14 @@ static int suspend_enter(suspend_state_t state)
 
 	error = syscore_suspend();
 	if (!error) {
+		int count = preempt_count();
 		if (!(suspend_test(TEST_CORE) || pm_wakeup_pending())) {
 			error = suspend_ops->enter(state);
 			events_check_enabled = false;
+		}
+		if (unlikely(preempt_count() != count)) {
+			pr_warn("PM: Preemption imbalance after suspending\n");
+			preempt_count() = count;
 		}
 		syscore_resume();
 	}

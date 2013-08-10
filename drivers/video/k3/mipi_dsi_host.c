@@ -43,7 +43,7 @@ int mipi_dsi_swrite(struct dsi_cmd_desc *cm, u32 edc_base)
 	int len = 0;
 
 	if (cm->dlen && cm->payload == 0) {
-		pr_err("k3fb, %s: NO payload error\n", __func__);
+		k3fb_loge("NO payload error!\n");
 		return 0;
 	}
 
@@ -82,7 +82,7 @@ int mipi_dsi_lwrite(struct dsi_cmd_desc *cm, u32 edc_base)
 	int i = 0;
 
 	if (cm->dlen && cm->payload == 0) {
-		pr_err("k3fb, %s: NO payload error\n", __func__);
+		k3fb_loge("NO payload error!\n");
 		return 0;
 	}
 
@@ -161,7 +161,7 @@ int mipi_dsi_cmd_add(struct dsi_cmd_desc *cm, u32 edc_base)
 		len = mipi_dsi_lwrite(cm, edc_base);
 		break;
 	default:
-		pr_err("k3fb, %s: dtype=%x NOT supported\n", __func__, cm->dtype);
+		k3fb_loge("dtype=%x NOT supported!\n", cm->dtype);
 		break;
 	}
 

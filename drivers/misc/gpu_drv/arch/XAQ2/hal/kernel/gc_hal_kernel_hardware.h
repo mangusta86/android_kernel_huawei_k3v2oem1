@@ -76,6 +76,10 @@ struct _gckHARDWARE
 #endif
 
     gctPOINTER                  pageTableDirty;
+
+#if gcdLINK_QUEUE_SIZE
+    struct _gckLINKQUEUE        linkQueue;
+#endif
 };
 
 gceSTATUS

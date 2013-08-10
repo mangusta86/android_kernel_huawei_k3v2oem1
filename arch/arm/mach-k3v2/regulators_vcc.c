@@ -212,7 +212,7 @@ static void disable_iso(void __iomem *base_addr, int regulator_id)
 static void set_wfi(void __iomem *base_addr, int regulator_id)
 {
 	int val = 0;
-	int bit_mask;
+	int bit_mask = 0;
 
 	if (regulator_id == VCC_CPU2)
 		bit_mask = 0x01 << 30;
@@ -228,7 +228,7 @@ static void set_wfi(void __iomem *base_addr, int regulator_id)
 static void clear_wfi(void __iomem *base_addr, int regulator_id)
 {
 	int val = 0;
-	int bit_mask;
+	int bit_mask = 0;
 
 	if (regulator_id == VCC_CPU2)
 		bit_mask = 0x01 << 30;
@@ -243,7 +243,7 @@ static void clear_wfi(void __iomem *base_addr, int regulator_id)
 /*enable cpu core*/
 static void enable_cpu23_core(void __iomem *base_addr, int regulator_id)
 {
-	int bit_mask;
+	int bit_mask = 0;
 
 	if (regulator_id == VCC_CPU2)
 		bit_mask = 0x01 << 2;
@@ -256,7 +256,7 @@ static void enable_cpu23_core(void __iomem *base_addr, int regulator_id)
 /*disable cpu core*/
 static void disable_cpu23_core(void __iomem *base_addr, int regulator_id)
 {
-	int bit_mask;
+	int bit_mask = 0;
 
 	if (regulator_id == VCC_CPU2)
 		bit_mask = 0x01 << 2;
@@ -270,11 +270,11 @@ static void disable_cpu23_core(void __iomem *base_addr, int regulator_id)
 static int vcc_cpu23_is_enabled(struct regulator_dev *dev)
 {
 	u32 val = 0;
-	u32 bit_mask;
+	u32 bit_mask = 0;
 	int chip_id = 0;
 	int  regulator_id;
 	void __iomem *base_addr = NULL;
-	struct vcc_resource *vcc_resource_data;
+	struct vcc_resource *vcc_resource_data = NULL;
 
 	regulator_id =  rdev_get_id(dev);
 	vcc_resource_data = rdev_get_drvdata(dev);

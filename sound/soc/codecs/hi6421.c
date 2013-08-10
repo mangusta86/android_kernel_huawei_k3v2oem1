@@ -3207,6 +3207,11 @@ static void init_reg_value(struct snd_soc_codec *codec)
 static int hi6421_startup(struct snd_pcm_substream *substream,
                           struct snd_soc_dai *dai)
 {
+    struct hi6421_data *priv = snd_soc_codec_get_drvdata(g_codec);
+    if(!priv) {
+        pr_err("%s(%u): priv is null !\n", __FUNCTION__, __LINE__);
+        return -ENOMEM;
+    }
 
     mutex_lock(&hi6421_power_lock);
     if (0 == hi6421_active_pcm)
@@ -3219,7 +3224,6 @@ static int hi6421_startup(struct snd_pcm_substream *substream,
         mutex_lock(&hi6421_power_lock);
         if (0 == hi6421_active_pll_chk)
         {
-            struct hi6421_data *priv = snd_soc_codec_get_drvdata(g_codec);
             pr_info( "hi6421_startup start: %d\n", substream->pcm->device);
             wake_lock(&priv->pll_wake_lock);
             queue_delayed_work(priv->pll_delay_wq,

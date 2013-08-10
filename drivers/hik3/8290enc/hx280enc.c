@@ -502,6 +502,8 @@ static int hx280enc_dev_probe(struct platform_device *pdev)
 
 	if (IS_ERR(hx280enc_data.clock)) {
 		printk(KERN_ERR "hx280enc: hx280enc_dev_probe get enc clock failed\n");
+		ret = PTR_ERR( hx280enc_data.clock );
+		return ret;
 	}
 
 	hx280enc_data.reg = NULL;
@@ -509,6 +511,8 @@ static int hx280enc_dev_probe(struct platform_device *pdev)
 
 	if (IS_ERR(hx280enc_data.reg)) {
 		printk(KERN_ERR "hx280enc: hx280enc_dev_probe get enc regulator failed\n");
+		ret = PTR_ERR( hx280enc_data.reg );
+		return ret;
 	}
 
 	/*clock on*/

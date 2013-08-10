@@ -3,7 +3,7 @@
 #include <linux/gpio.h>
 #include "hsad/config_mgr.h"
 #include <hsad/config_general_struct.h>
-#include "config_total_product.c"
+#include "auto-generate/config_total_product.c"
 #include "mach/boardid.h"
 #include <hsad/config_debugfs.h>
 

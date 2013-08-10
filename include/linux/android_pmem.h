@@ -35,6 +35,10 @@
 #define PMEM_GET_TOTAL_SIZE	_IOW(PMEM_IOCTL_MAGIC, 7, unsigned int)
 #define PMEM_CACHE_FLUSH	_IOW(PMEM_IOCTL_MAGIC, 8, unsigned int)
 
+/*OverlayCompose: set pmem cache*/
+#define PMEM_CACHE_SET	_IOW(PMEM_IOCTL_MAGIC, 9, unsigned int)
+
+
 enum pmem_type {
 	PMEM_TYPE_BUDDY = 0,
 	PMEM_TYPE_K3,

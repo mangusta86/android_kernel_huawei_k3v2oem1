@@ -1,5 +1,5 @@
 obj-$(CONFIG_K3_HDMI_SII9134):= k3hdmi.o
-k3hdmi-objs :=  k3_hdmi_hw.o k3_edid.o k3_hdcp.o k3_hdmi.o k3_hdmi_hw_dump.o
+k3hdmi-objs :=  k3_hdmi_hw.o k3_edid.o k3_hdcp.o k3_hdmi.o k3_hdmi_hw_dump.o k3_cec.o
 
 EXTRA_CFLAGS += -Idrivers/video/k3 -Idrivers/input/touchscreen/k3_ts_cts
 EXTRA_CFLAGS += -Iarch/arm/mach-k3v2

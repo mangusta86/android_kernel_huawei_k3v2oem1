@@ -197,10 +197,9 @@ static ssize_t logger_read(struct file *file, char __user *buf,
 
 start:
 	while (1) {
-		mutex_lock(&log->mutex);
-
 		prepare_to_wait(&log->wq, &wait, TASK_INTERRUPTIBLE);
 
+		mutex_lock(&log->mutex);
 		ret = (log->w_off == reader->r_off);
 		mutex_unlock(&log->mutex);
 		if (!ret)
@@ -722,17 +721,23 @@ static int add_prefix_to_rbuf(struct logger_log *log, struct iovec **iov,
 	size_t len;
 	size_t ret_len = 0;
 	struct rtc_time cur_tm;
+	int proc = 0;
 
 	if (log == &log_events) {
 		return ret_len;
 	} else {
-		if (((*(unsigned char *)(*iov)->iov_base < ANDROID_LOG_LEVEL) && log != &log_radio)
-			|| (*(unsigned char *)(*iov)->iov_base == ANDROID_LOG_SILENT)
-			|| ((*(unsigned char *)(*iov)->iov_base < ANDROID_LOG_DEBUG) && log == &log_radio))
+		len = min_t(size_t, (*iov)->iov_len, sizeof(int));
+		if(len && copy_from_user((void *)&proc, (void *)(*iov)->iov_base, len)){
 			return -EFAULT;
+		}else {
+			if (((proc < ANDROID_LOG_LEVEL) && (log != &log_radio))
+				|| (proc == ANDROID_LOG_SILENT)
+				|| ((proc < ANDROID_LOG_DEBUG) && (log == &log_radio)))
+				return -EFAULT;
+		}
 
 		/* figure out how much of this vector we can keep */
-		prichar = filterPriToChar(*(unsigned char *)(*iov)->iov_base);
+		prichar = filterPriToChar(proc);
 
 		rtc_time_to_tm(head.sec + 3600*8, &cur_tm);
 
@@ -741,19 +746,28 @@ static int add_prefix_to_rbuf(struct logger_log *log, struct iovec **iov,
 						cur_tm.tm_year+1900, cur_tm.tm_mon+1, cur_tm.tm_mday,
 						cur_tm.tm_hour, cur_tm.tm_min, cur_tm.tm_sec,
 						head.nsec/1000000, prichar);
+
 		(*iov)++;
 
-		ret_len = min_t(size_t, (*iov)->iov_len-1, head.len-1);
+		if(nr_segs > 2){
+			//ret_len = min_t(size_t, (*iov)->iov_len-1, head.len-1);
+			ret_len = min_t(size_t, (*iov)->iov_len, head.len);
 
-		len = (unsigned int)snprintf(prefix_buf + prefix_len, sizeof(prefix_buf),
-								"%-6s (%5d): ",
-								(unsigned char *)(*iov)->iov_base, head.pid);
+			len = min_t(size_t, (*iov)->iov_len-1, sizeof(prefix_buf) - prefix_len);
+			if(len && copy_from_user((void *)(prefix_buf + prefix_len), (void *)(*iov)->iov_base, len)){
+				return -EFAULT;
+			}
+
+			prefix_len += len;
+			(*iov)++;
+		}
+
+		len = (unsigned int)snprintf(prefix_buf + prefix_len, sizeof(prefix_buf)-prefix_len,
+									"(%5d): ", head.pid);
 
 		prefix_len += len;
 
-		(*iov)++;
-
-		ret_len += 1;
+		//ret_len += 1;
 	}
 
 	len = min(prefix_len, log->size - log->log_buf_info->waddr);
@@ -827,13 +841,15 @@ static ssize_t do_write_rbuf(struct logger_log *log, const struct iovec *iov,
 		return -EFAULT;
 	}
 
-	len = min_t(size_t, tmp_iov->iov_len-1, head.len-prefix_len);
+	if(nr_segs > 1){
+		len = min_t(size_t, tmp_iov->iov_len-1, head.len-prefix_len);
 
-	nr = do_write_rbuf_from_user(log, tmp_iov->iov_base, len, nr_segs);
+		nr = do_write_rbuf_from_user(log, tmp_iov->iov_base, len, nr_segs);
 
-	if (unlikely(nr < 0)) {
-		log->log_buf_info->waddr = orig_rbuf;
-		return nr;
+		if (unlikely(nr < 0)) {
+			log->log_buf_info->waddr = orig_rbuf;
+			return nr;
+		}
 	}
 
 	add_suffix_to_rbuf(log);

@@ -37,13 +37,22 @@
 #include "k3_fb_def.h"
 
 /* panel type list */
-#define NO_PANEL                       0xffff  /* No Panel */
-#define LDI_PANEL                      1       /* internal LCDC type */
-#define HDMI_PANEL                     2       /* HDMI TV */
+#define PANEL_NO			0xffff	/* No Panel */
+#define PANEL_LDI			1	/* internal LCDC type */
+#define PANEL_HDMI		2	/* HDMI TV */
 #define PANEL_MIPI_VIDEO	3	/* MIPI */
 #define PANEL_MIPI_CMD	4	/* MIPI */
-#define DP_PANEL                       5       /* Display Port */
+#define PANEL_DP			5	/* Display Port */
+#define PANEL_MIPI2RGB	6	/* MIPI to RGB */
 
+/* device name */
+#define DEV_NAME_LDI				"ldi"
+#define DEV_NAME_HDMI			"hdmi"
+#define DEV_NAME_DP				"displayport"
+#define DEV_NAME_MIPI2RGB		"mipi2rgb"
+#define DEV_NAME_MIPIDSI			"mipi_dsi"
+#define DEV_NAME_FB				"k3_fb"
+#define DEV_NAME_LCD_BKL		"lcd_backlight0"
 
 /* LCD init step */
 enum {
@@ -79,6 +88,7 @@ struct mipi_dsi_phy_ctrl {
 	u32 lp2hs_time;
 	u32 hs2lp_time;
 	u32 hsfreqrange;
+	u32 pll_unlocking_filter;
 	u32 cp_current;
 	u32 lpf_ctrl;
 	u32 n_pll;
@@ -91,13 +101,14 @@ struct mipi_panel_info {
 	u8 vc;
 	u8 lane_nums;
 	u8 color_mode;
-	u32 dsi_bit_clk;
+	u32 dsi_bit_clk; /* clock lane(p/n) */
 	/*u32 dsi_pclk_rate;*/
 };
 
 struct sbl_panel_info{
 	u32 bl_max;
 	u32 cal_a;
+	u32 cal_b;
 	u32 str_limit;
 };
 
@@ -105,6 +116,8 @@ struct k3_panel_info {
 	u32 type;
 	u32 xres;
 	u32 yres;
+	u32 width;
+	u32 height;
 	u8 bpp;
 	u8 orientation;
 	u8 s3d_frm;
@@ -112,6 +125,7 @@ struct k3_panel_info {
 	u8 frame_rate;
 	u8 bl_set_type;
 	u32 clk_rate;
+
 	volatile bool display_on;
 	u8 lcd_init_step;
 
@@ -127,7 +141,6 @@ struct k3_panel_info {
 	u32 gpio_power;
 	u32 gpio_lcd_id0;
 	u32 gpio_lcd_id1;
-	u32 gpio_lcd_te;
 	struct regulator *lcdio_vcc;
 	struct regulator *lcdanalog_vcc;
 	struct iomux_block *lcd_block;
@@ -154,10 +167,9 @@ struct k3_fb_panel_data {
 	int (*remove) (struct platform_device *pdev);
 	int (*set_backlight) (struct platform_device *pdev);
 	int (*set_timing) (struct platform_device *pdev);
-	int (*set_playvideo) (struct platform_device *pdev, int gamma);
 	int (*set_fastboot) (struct platform_device *pdev);
-	int (*set_frc) (struct platform_device *pdev, int target_fps);
-	int (*set_cabc) (struct platform_device *pdev, int value);
+	int (*set_frc)(struct platform_device *pdev, int target_fps);
+	int (*set_cabc)(struct platform_device *pdev, int value);
 	int (*check_esd) (struct platform_device *pdev);
 	struct platform_device *next;
 };
@@ -167,8 +179,10 @@ struct k3_fb_panel_data {
 ** FUNCTIONS PROTOTYPES
 */
 
+void set_reg(u32 addr, u32 val, u8 bw, u8 bs);
+
 struct platform_device *k3_fb_device_alloc(struct k3_fb_panel_data *pdata,
-	u32 type, u32 id, u32 *graphic_ch);
+	u32 type, u32 index, u32 *graphic_ch);
 void k3_fb_device_free(struct platform_device *pdev);
 
 int panel_next_on(struct platform_device *pdev);
@@ -176,11 +190,11 @@ int panel_next_off(struct platform_device *pdev);
 int panel_next_remove(struct platform_device *pdev);
 int panel_next_set_backlight(struct platform_device *pdev);
 int panel_next_set_timing(struct platform_device *pdev);
-int panel_next_set_playvideo(struct platform_device *pdev, int gamma);
 int panel_next_set_frc(struct platform_device *pdev, int target_fps);
 int panel_next_check_esd(struct platform_device *pdev);
 int pwm_set_backlight(int bl_lvl, struct k3_panel_info *pinfo);
 u32 square_point_six(u32);
+
 
 /******************************************************************************/
 
@@ -213,7 +227,6 @@ u32 square_point_six(u32);
 #define GPIO_LCD_PWM1_NAME	"gpio_pwm1"
 #define GPIO_LCD_ID0_NAME	"gpio_lcd_id0"
 #define GPIO_LCD_ID1_NAME	"gpio_lcd_id1"
-#define GPIO_LCD_TE_NAME	"gpio_lcd_te"
 
 #define IOMUX_LCD_NAME	"block_lcd"
 #define IOMUX_PWM_NAME	"block_pwm"
@@ -221,220 +234,34 @@ u32 square_point_six(u32);
 #define DEFAULT_PWM_CLK_RATE	(13 * 1000000)
 
 
-#define LCD_VCC_GET(pdev, pinfo) \
-	(pinfo)->lcdio_vcc = regulator_get(&(pdev)->dev, VCC_LCDIO_NAME); \
-	if (IS_ERR((pinfo)->lcdio_vcc)) { \
-		pr_err("k3fb, %s: failed to get lcdio-vcc regulator\n", __func__); \
-		return PTR_ERR((pinfo)->lcdio_vcc); \
-	} \
-	(pinfo)->lcdanalog_vcc = regulator_get(&(pdev)->dev, VCC_LCDANALOG_NAME); \
-	if (IS_ERR((pinfo)->lcdanalog_vcc)) { \
-		pr_err("k3fb, %s: failed to get lcdanalog-vcc regulator\n", __func__); \
-		return PTR_ERR((pinfo)->lcdanalog_vcc); \
-	}
+int LCD_VCC_GET(struct platform_device *pdev, struct k3_panel_info *pinfo);
+void LCDIO_SET_VOLTAGE(struct k3_panel_info *pinfo, u32 min_uV, u32 max_uV);
+void LCD_VCC_PUT(struct k3_panel_info *pinfo);
+void LCD_VCC_ENABLE(struct k3_panel_info *pinfo);
+void LCD_VCC_DISABLE(struct k3_panel_info *pinfo);
 
-#define LCDIO_SET_VOLTAGE(pinfo, min_uV, max_uV) \
-	if (regulator_set_voltage((pinfo)->lcdio_vcc, (min_uV), (max_uV)) != 0) { \
-		pr_err("k3fb, %s: failed to set lcdio vcc.\n", __func__); \
-	} \
+int LCD_IOMUX_GET(struct k3_panel_info *pinfo);
+void LCD_IOMUX_SET(struct k3_panel_info *pinfo, int mode);
 
-#define LCD_VCC_PUT(pinfo) \
-	if (!IS_ERR((pinfo)->lcdio_vcc)) { \
-		regulator_put((pinfo)->lcdio_vcc); \
-	} \
-	if (!IS_ERR((pinfo)->lcdanalog_vcc)) { \
-		regulator_put((pinfo)->lcdanalog_vcc); \
-	}
+int LCD_RESOURCE(struct platform_device *pdev, struct k3_panel_info *pinfo, 
+	struct resource *res);
 
-#define LCD_VCC_ENABLE(pinfo)   \
-	if (!IS_ERR((pinfo)->lcdio_vcc)) { \
-		if (regulator_enable((pinfo)->lcdio_vcc) != 0) { \
-			pr_err("k3fb, %s: failed to enable lcdio-vcc regulator.\n", __func__); \
-		} \
-	} \
-	if (!IS_ERR((pinfo)->lcdanalog_vcc)) { \
-		if (regulator_enable((pinfo)->lcdanalog_vcc) != 0) { \
-			pr_err("k3fb, %s: failed to enable lcdanalog-vcc regulator.\n", __func__); \
-		} \
-	}
+void LCD_GPIO_REQUEST(struct k3_panel_info *pinfo);
+void 	LCD_GPIO_FREE(struct k3_panel_info *pinfo);
 
-#define LCD_VCC_DISABLE(pinfo)  \
-	if (!IS_ERR((pinfo)->lcdanalog_vcc)) { \
-			if (regulator_disable((pinfo)->lcdanalog_vcc) != 0) { \
-				pr_err("k3fb, %s: failed to disable lcdanalog-vcc regulator.\n", __func__); \
-			} \
-	} \
-	if (!IS_ERR((pinfo)->lcdio_vcc)) { \
-		if (regulator_disable((pinfo)->lcdio_vcc) != 0) { \
-			pr_err("k3fb, %s: failed to disable lcdio-vcc regulator.\n", __func__); \
-		} \
-	}
+int LCD_GET_CLK_RATE(struct k3_panel_info *pinfo);
 
-#define LCD_IOMUX_GET(pinfo) \
-	(pinfo)->lcd_block = iomux_get_block(IOMUX_LCD_NAME); \
-	if (!(pinfo)->lcd_block) { \
-		pr_err("k3fb, %s: failed to get iomux_lcd\n", __func__); \
-		return PTR_ERR((pinfo)->lcd_block); \
-	} \
-	(pinfo)->lcd_block_config = iomux_get_blockconfig(IOMUX_LCD_NAME); \
-	if (!(pinfo)->lcd_block_config) { \
-		pr_err("k3fb, %s: failed to get iomux_lcd config\n", __func__); \
-		return PTR_ERR((pinfo)->lcd_block_config); \
-	}
+int PWM_CLK_GET(struct k3_panel_info *pinfo);
+void PWM_CLK_PUT(struct k3_panel_info *pinfo);
 
-#define LCD_IOMUX_SET(pinfo, mode) \
-	if (blockmux_set((pinfo)->lcd_block, (pinfo)->lcd_block_config, (mode)) != 0) { \
-		pr_err("k3fb, %s: failed to set iomux_lcd normal mode.\n", __func__); \
-	}
+int PWM_IOMUX_GET(struct k3_panel_info *pinfo);
+void PWM_IOMUX_SET(struct k3_panel_info *pinfo, int mode);
 
-#define LCD_RESOURCE(pdev, pinfo, res) \
-	(res) = platform_get_resource_byname((pdev), IORESOURCE_IO, GPIO_LCD_RESET_NAME); \
-	if (!(res)) { \
-		pr_err("k3fb, %s: failed to get gpio reset resource.\n", __func__); \
-		return -ENXIO; \
-	} \
-	(pinfo)->gpio_reset = (res)->start; \
-	if (!gpio_is_valid((pinfo)->gpio_reset)) { \
-		pr_err("k3fb, %s: failed to get gpio reset resource.\n", __func__); \
-		return -ENXIO; \
-	} \
-	(res) = platform_get_resource_byname((pdev), IORESOURCE_IO, GPIO_LCD_POWER_NAME); \
-	if (!(res)) { \
-		pr_err("k3fb, %s: failed to get gpio power resource.\n", __func__); \
-		return -ENXIO;\
-	} \
-	(pinfo)->gpio_power = (res)->start; \
-	if (!gpio_is_valid((pinfo)->gpio_power)) { \
-		pr_err("k3fb, %s: failed to get gpio power resource.\n", __func__); \
-		return -ENXIO; \
-	} \
-	\
-	(res) = platform_get_resource_byname((pdev), IORESOURCE_IO, GPIO_LCD_ID0_NAME); \
-	if (!(res)) { \
-		pr_err("k3fb, %s: failed to get gpio_lcd_id0 resource.\n", __func__); \
-		return -ENXIO; \
-	} \
-	(pinfo)->gpio_lcd_id0 = (res)->start; \
-	if (!(gpio_is_valid((pinfo)->gpio_lcd_id0))) { \
-		pr_err("k3fb, %s: gpio_lcd_id0 is invalid.\n", __func__); \
-		return -ENXIO;\
-	} \
-	(res) = platform_get_resource_byname((pdev), IORESOURCE_IO, GPIO_LCD_ID1_NAME); \
-	if (!(res)) { \
-		pr_err("k3fb, %s: failed to get gpio_lcd_id1 resource.\n", __func__); \
-		return -ENXIO; \
-	} \
-	(pinfo)->gpio_lcd_id1 = (res)->start;\
-	if (!(gpio_is_valid((pinfo)->gpio_lcd_id1))) { \
-		pr_err("k3fb, %s: gpio_lcd_id1 is invalid.\n", __func__); \
-		return -ENXIO; \
-	}
-#define LCD_GPIO_REQUEST(pinfo) \
-	if (gpio_request((pinfo)->gpio_power, GPIO_LCD_POWER_NAME) != 0) { \
-		pr_err("k3fb, %s: failed to request gpio power.\n", __func__); \
-	} \
-	if (gpio_request((pinfo)->gpio_reset, GPIO_LCD_RESET_NAME) != 0) { \
-		pr_err("k3fb, %s:  failed to request gpio reset.\n", __func__); \
-	} \
-	if (gpio_request((pinfo)->gpio_lcd_id0, GPIO_LCD_ID0_NAME) != 0) { \
-		pr_err("k3fb, %s: failed to request gpio_lcd_id0.\n", __func__); \
-	} \
-	if (gpio_request((pinfo)->gpio_lcd_id1, GPIO_LCD_ID1_NAME) != 0) { \
-		pr_err("k3fb, %s: failed to request gpio_lcd_id1.\n", __func__); \
-	}
+int PWM_RESOUTCE(struct platform_device *pdev, struct k3_panel_info *pinfo, 
+	struct resource *res);
 
-#define LCD_GPIO_FREE(pinfo) \
-	if (gpio_is_valid((pinfo)->gpio_reset)) { \
-		gpio_free((pinfo)->gpio_reset); \
-	} \
-	if (gpio_is_valid((pinfo)->gpio_power)) { \
-		gpio_free((pinfo)->gpio_power); \
-	} \
-	if (gpio_is_valid((pinfo)->gpio_lcd_id0)) { \
-		gpio_free((pinfo)->gpio_lcd_id0); \
-	} \
-	if (gpio_is_valid((pinfo)->gpio_lcd_id1)) { \
-		gpio_free((pinfo)->gpio_lcd_id1); \
-	}
-
-#define PWM_CLK_GET(pinfo) \
-	(pinfo)->pwm_clk = clk_get(NULL, CLK_PWM0_NAME); \
-	if (IS_ERR((pinfo)->pwm_clk)) { \
-		pr_err("k3fb, %s: failed to get pwm0 clk.\n", __func__); \
-		return PTR_ERR((pinfo)->pwm_clk); \
-	} \
-	if (clk_set_rate((pinfo)->pwm_clk, DEFAULT_PWM_CLK_RATE) != 0) { \
-		pr_err("k3fb, %s: failed to set pwm clk rate.\n", __func__); \
-	}
-
-
-#define PWM_CLK_PUT(pinfo) \
-	if (!IS_ERR((pinfo)->pwm_clk)) { \
-		clk_put((pinfo)->pwm_clk); \
-	}
-
-#define PWM_IOMUX_GET(pinfo) \
-	(pinfo)->pwm_block = iomux_get_block(IOMUX_PWM_NAME); \
-	if (!(pinfo)->pwm_block) { \
-		pr_err("k3fb, %s: failed to get iomux_pwm\n", __func__); \
-		return PTR_ERR((pinfo)->pwm_block); \
-	} \
-	(pinfo)->pwm_block_config = iomux_get_blockconfig(IOMUX_PWM_NAME); \
-	if (!(pinfo)->pwm_block_config) { \
-		pr_err("k3fb, %s: failed to get iomux_pwm config\n", __func__); \
-		return PTR_ERR((pinfo)->pwm_block_config); \
-	}
-
-#define PWM_IOMUX_SET(pinfo, mode) \
-	if (blockmux_set((pinfo)->pwm_block, (pinfo)->pwm_block_config, (mode)) != 0) { \
-		pr_err("k3fb, %s: failed to set iomux pwm normal mode.\n", __func__); \
-	}
-
-#define PWM_RESOUTCE(pdev, pinfo, res) \
-	(res) = platform_get_resource_byname((pdev), IORESOURCE_MEM,  REG_BASE_PWM0_NAME); \
-	if (!(res)) { \
-		pr_err("k3fb, %s: failed to get pwm0 resource.\n", __func__); \
-		return -ENXIO; \
-	} \
-	(pinfo)->pwm_base = (res)->start; \
-	(res) = platform_get_resource_byname((pdev), IORESOURCE_IO, GPIO_LCD_PWM0_NAME); \
-	if (!(res)) { \
-	   pr_err("k3fb, %s: failed to get gpio pwm0 resource.\n", __func__); \
-	   return -ENXIO; \
-	} \
-	(pinfo)->gpio_pwm0 = (res)->start; \
-	if (!(gpio_is_valid((pinfo)->gpio_pwm0))) { \
-	   pr_err("k3fb, %s: gpio pwm0 is invalid.\n", __func__); \
-	   return -ENXIO; \
-	} \
-	(res) = platform_get_resource_byname((pdev), IORESOURCE_IO, GPIO_LCD_PWM1_NAME); \
-	if (!(res)) { \
-	   pr_err("k3fb, %s: failed to get gpio pwm1 resource.\n", __func__); \
-	   return -ENXIO; \
-	} \
-	(pinfo)->gpio_pwm1 = (res)->start; \
-	if (!(gpio_is_valid((pinfo)->gpio_pwm1))) { \
-	   pr_err("k3fb, %s: gpio pwm1 is invalid.\n", __func__); \
-	   return -ENXIO; \
-	}
-
-#define PWM_GPIO_REQUEST(pinfo) \
-	if (gpio_request((pinfo)->gpio_pwm0, GPIO_LCD_PWM0_NAME) != 0) { \
-		pr_err("k3fb, %s: failed to request gpio pwm0.\n", __func__); \
-	} \
-	if (gpio_request((pinfo)->gpio_pwm1, GPIO_LCD_PWM1_NAME) != 0) { \
-		pr_err("k3fb, %s: failed to request gpio pwm1.\n", __func__); \
-	}
-
-#define PWM_GPIO_FREE(pinfo) \
-	if (gpio_is_valid((pinfo)->gpio_pwm0)) { \
-		gpio_free((pinfo)->gpio_pwm0); \
-	} \
-	if (gpio_is_valid((pinfo)->gpio_pwm1)) { \
-		gpio_free((pinfo)->gpio_pwm1); \
-	}
-
-#define LCD_GET_CLK_RATE(pinfo)  0
+void PWM_GPIO_REQUEST(struct k3_panel_info *pinfo);
+void PWM_GPIO_FREE(struct k3_panel_info *pinfo);
 
 
 #endif /* K3_FB_PANEL_H */

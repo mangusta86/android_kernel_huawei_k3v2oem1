@@ -55,7 +55,7 @@
 /* parameters */
 int trace_level = HIMCI_TRACE_LEVEL; /* 5 - the highest trace level */
 
-#define SD_CLK_PIN "ag2"
+#define SD_CLK_PIN "gpio_088"
 
 #ifdef SD_FPGA_GPIO
 #define GPIO_CD_DATA(__X__)	(*((unsigned volatile*)(__X__ + 0x3FC)))
@@ -329,28 +329,25 @@ void mshci_hi_set_ios(struct mshci_host *ms_host, struct mmc_ios *ios)
 	if (hi_host->old_power_mode != ios->power_mode) {
 		switch (ios->power_mode) {
 		case MMC_POWER_OFF:
+
 		    hi_host_trace(HIMCI_TRACE_SIGNIFICANT, "set io to lowpower");
-		    if (hi_host->vcc) {
-				regulator_disable(hi_host->vcc);
-		    }
-			if (hi_host->signal_vcc) {
-				regulator_disable(hi_host->signal_vcc);
-				regulator_set_mode(hi_host->signal_vcc, REGULATOR_MODE_IDLE);
-		    }
 
 		    ret = blockmux_set(hi_host->piomux_block, hi_host->pblock_config, LOWPOWER);
 		    if (ret) {
 				himci_error("failed to blockmux_set");
 		    }
 
+			if (hi_host->signal_vcc) {
+				regulator_set_mode(hi_host->signal_vcc, REGULATOR_MODE_IDLE);
+		    }
+
+		    if (hi_host->vcc) {
+				regulator_disable(hi_host->vcc);
+		    }
+
 			break;
 		case MMC_POWER_UP:
 		    hi_host_trace(HIMCI_TRACE_SIGNIFICANT, "set io to normal");
-
-		    ret = blockmux_set(hi_host->piomux_block, hi_host->pblock_config, NORMAL);
-		    if (ret) {
-				himci_error("failed to blockmux_set");
-		    }
 
 		    if (hi_host->vcc) {
 				ret = regulator_set_voltage(hi_host->vcc, 2850000, 2850000);
@@ -363,18 +360,20 @@ void mshci_hi_set_ios(struct mshci_host *ms_host, struct mmc_ios *ios)
 					himci_error("failed to regulator_enable");
 				}
 		    }
+
 			if (hi_host->signal_vcc) {
 				ret = regulator_set_voltage(hi_host->signal_vcc, 2600000, 2600000);
 				if (ret != 0) {
 					himci_error("failed to regulator_set_voltage");
 				}
 				regulator_set_mode(hi_host->signal_vcc, REGULATOR_MODE_NORMAL);
-				ret = regulator_enable(hi_host->signal_vcc);
-				if (ret) {
-					himci_error("failed to regulator_enable");
-				}
-
 		    }
+
+		    ret = blockmux_set(hi_host->piomux_block, hi_host->pblock_config, NORMAL);
+		    if (ret) {
+				himci_error("failed to blockmux_set");
+		    }
+
 			break;
 		case MMC_POWER_ON:
 			break;
@@ -514,10 +513,6 @@ static int mshci_hi_start_signal_voltage_switch(struct mshci_host *ms_host,
 				if (ret != 0) {
 					himci_error("failed to regulator_set_voltage");
 				}
-				ret = regulator_enable(hi_host->signal_vcc);
-				if (ret) {
-					himci_error("failed to regulator_enable");
-				}
 		    }
 
 			/* update time config*/
@@ -541,10 +536,6 @@ static int mshci_hi_start_signal_voltage_switch(struct mshci_host *ms_host,
 				ret = regulator_set_voltage(hi_host->signal_vcc, 1800000, 1800000);
 				if (ret != 0) {
 					himci_error("failed to regulator_set_voltage");
-				}
-				ret = regulator_enable(hi_host->signal_vcc);
-				if (ret) {
-					himci_error("failed to regulator_enable");
 				}
 		    }
 			/* update time config*/
@@ -596,9 +587,10 @@ static int mshci_hi_tuning_find_condition(struct mshci_host *ms_host)
 {
 	struct himci_host *hi_host;
 	int sample_min, sample_max;
-	int begin, end;
-	int i;
-	int ret;
+	/*int begin, end;*/
+	int i, j;
+	int ret = 0;
+	int mask,mask_lenth;
 
 	hi_host = mshci_priv(ms_host);
 
@@ -636,6 +628,7 @@ static int mshci_hi_tuning_find_condition(struct mshci_host *ms_host)
 		sample_max =
 			hi_host->init_tuning_config[3 + (ms_host->mmc->ios.timing + 1) * TUNING_INIT_CONFIG_NUM];
 
+#if 0
 		begin = -1;
 		end = -1;
 		for (i = sample_min; i <= sample_max; i++) {
@@ -682,6 +675,40 @@ static int mshci_hi_tuning_find_condition(struct mshci_host *ms_host)
 				ms_host->mmc->ios.timing, hi_host->tuning_init_sample, hi_host->tuning_sample_flag);
 			ret = 0;
 		}
+#else
+		hi_host->tuning_init_sample = -1;
+		for (mask_lenth = (((sample_max - sample_min) >> 1) << 1) + 1;
+			mask_lenth >= 1; mask_lenth -= 2) {
+
+				mask = (1 << mask_lenth) - 1;
+				for (i = (sample_min + sample_max - mask_lenth + 1) / 2, j = 1;
+					(i <= sample_max - mask_lenth + 1) && (i >= sample_min);
+					i = ((sample_min + sample_max - mask_lenth + 1) / 2) + ((j % 2) ? -1 : 1) * (j / 2)) {
+					if ((hi_host->tuning_sample_flag & (mask << i)) == (mask << i)) {
+						hi_host->tuning_init_sample = i + mask_lenth / 2 ;
+						break;
+					}
+
+					j++;
+				}
+
+				if (hi_host->tuning_init_sample != -1) {
+					hi_host_trace(HIMCI_TRACE_SIGNIFICANT,
+						"tuning OK: timing is %d, tuning sample = %d, tuning_flag = 0x%x",
+						ms_host->mmc->ios.timing, hi_host->tuning_init_sample, hi_host->tuning_sample_flag);
+					ret = 0;
+					break;
+				}
+		}
+
+		if (-1 == hi_host->tuning_init_sample) {
+			hi_host->tuning_init_sample = (sample_min + sample_max) / 2;
+			hi_host_trace(HIMCI_TRACE_SIGNIFICANT,
+				"tuning err: no good sam_del, timing is %d, tuning_flag = 0x%x",
+				ms_host->mmc->ios.timing, hi_host->tuning_sample_flag);
+			ret = -1;
+		}
+#endif
 
 		mshci_hi_set_timing(hi_host, hi_host->tuning_init_sample, -1, -1);
 		return ret;
@@ -708,20 +735,18 @@ static int mshci_hi_tuning_move(struct mshci_host *ms_host, int start)
 	int sample_min, sample_max;
 	int loop;
 
-	static int i;
-
 	sample_min = hi_host->init_tuning_config[4 + (ms_host->mmc->ios.timing + 1) * TUNING_INIT_CONFIG_NUM];
 	sample_max = hi_host->init_tuning_config[3 + (ms_host->mmc->ios.timing + 1) * TUNING_INIT_CONFIG_NUM];
 
 	if (start) {
-		i = 0;
+		hi_host->tuning_move_count = 0;
 	}
 
 	for (loop = 0; loop < 2; loop++) {
-		i++;
+		hi_host->tuning_move_count++;
 		hi_host->tuning_move_sample =
 			hi_host->tuning_init_sample +
-			((i % 2) ? 1 : -1) * (i / 2);
+			((hi_host->tuning_move_count % 2) ? 1 : -1) * (hi_host->tuning_move_count / 2);
 
 		if ((hi_host->tuning_move_sample > sample_max) ||
 			(hi_host->tuning_move_sample < sample_min)) {
@@ -734,12 +759,12 @@ static int mshci_hi_tuning_move(struct mshci_host *ms_host, int start)
 	if ((hi_host->tuning_move_sample > sample_max) ||
 		(hi_host->tuning_move_sample < sample_min)) {
 		mshci_hi_set_timing(hi_host, hi_host->tuning_init_sample, -1, -1);
-		printk(KERN_ERR "g00175134: id = %d, tuning move to init del_sel %d\n",
+		printk(KERN_ERR "id = %d, tuning move to init del_sel %d\n",
 			hi_host->pdev->id, hi_host->tuning_init_sample);
 		return 0;
 	} else {
 		mshci_hi_set_timing(hi_host, hi_host->tuning_move_sample, -1, -1);
-		printk(KERN_ERR "g00175134: id = %d, tuning move to current del_sel %d\n",
+		printk(KERN_ERR "id = %d, tuning move to current del_sel %d\n",
 			hi_host->pdev->id, hi_host->tuning_move_sample);
 		return 1;
 	}
@@ -852,7 +877,7 @@ static int __devinit hi_mci_probe(struct platform_device *pdev)
 {
 	struct mshci_host *ms_host = NULL;
 	struct himci_host *hi_host = NULL;
-	struct hisik3_mmc_platform_data *plat = pdev->dev.platform_data;
+	struct hisik3_mmc_platform_data *plat = NULL;
 	struct resource *memres = NULL;
 	int ret = 0, irq;
 	int err;
@@ -861,6 +886,8 @@ static int __devinit hi_mci_probe(struct platform_device *pdev)
 	himci_trace(HIMCI_TRACE_GEN_API, "++");
 
 	himci_assert(pdev);
+
+	plat = pdev->dev.platform_data;
 
 	himci_trace(HIMCI_TRACE_SIGNIFICANT, "id:%d", pdev->id);
 
@@ -983,6 +1010,10 @@ static int __devinit hi_mci_probe(struct platform_device *pdev)
 		ms_host->mmc->caps |= plat->caps;
 		ms_host->clock_gate = 0;
 	}
+
+	/* sandisk card need clock longer than spec ask */
+	if (ms_host->hw_mmc_id == 0)
+		ms_host->clock_gate = 0;
 
 	if (plat->ocr_mask)
 		ms_host->mmc->ocr_avail |= plat->ocr_mask;
@@ -1145,6 +1176,10 @@ static int __devexit hi_mci_remove(struct platform_device *pdev)
 		regulator_put(hi_host->vcc);
 	}
 
+	if (hi_host->signal_vcc) {
+		regulator_put(hi_host->signal_vcc);
+	}
+
 	mshci_free_host(ms_host);
 	platform_set_drvdata(pdev, NULL);
 
@@ -1217,18 +1252,6 @@ static int hi_mci_resume(struct platform_device *dev)
 			himci_error("failed to clk_set_rate");
 		}
 	}
-
-	spin_lock_irqsave(&ms_host->lock, flags);
-	if(ms_host->clk_ref_counter == CLK_DISABLED){
-		ret = clk_enable(hi_host->pclk);
-		ms_host->clk_ref_counter = CLK_ENABLED;
-
-		if (ret) {
-                        himci_error("clk_enable failed");
-                        ret = -ENOENT;
-                }
-        }
-        spin_unlock_irqrestore(&ms_host->lock, flags);
 
 	mshci_resume_host(ms_host);
 

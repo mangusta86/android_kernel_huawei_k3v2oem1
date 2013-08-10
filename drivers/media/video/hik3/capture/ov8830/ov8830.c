@@ -83,12 +83,30 @@
 #define OV8830_VTS_REG_L		0x380f
 
 #define OV8830_APERTURE_FACTOR		240 // F2.4
-#define OV8830_EQUIVALENT_FOCUS		35  // 35mm
+#define OV8830_EQUIVALENT_FOCUS		35 // 35mm
+
+//#define OV8830_AP_WRITEAE_MODE
 
 static camera_capability ov8830_cap[] = {
 	{V4L2_CID_FLASH_MODE, THIS_FLASH},
 	{V4L2_CID_FOCUS_MODE, THIS_FOCUS_MODE},
 };
+
+/* camera sensor override parameters, define in binning preview mode */
+#define OV8830_MAX_ISO			1600
+#define OV8830_MIN_ISO			100
+
+#define OV8830_AUTO_FPS_MAX_GAIN	0x60
+#define OV8830_AUTO_FPS_MIN_GAIN	0x28
+
+#define OV8830_MAX_FRAMERATE		30
+#define OV8830_MIN_FRAMERATE		15
+#define OV8830_MIN_CAP_FRAMERATE	8
+
+#define OV8830_FLASH_TRIGGER_GAIN	0x80
+
+#define OV8830_SHARPNESS_PREVIEW	0x30 /* phone: 0x30, pad: 0x20 */
+#define OV8830_SHARPNESS_CAPTURE	0x0A
 
 const struct isp_reg_t isp_init_regs_ov8830_foxconn[] = {
 
@@ -215,7 +233,7 @@ const struct isp_reg_t isp_init_regs_ov8830_foxconn[] = {
 	{0x65608, 0x06},
 	{0x65609, 0x20},
 	{0x6560c, 0x00},//high gain sharpness
-	{0x6560d, 0x30},//low gain sharpness, 20120814 0x20->0x30
+	{0x6560d, OV8830_SHARPNESS_PREVIEW},//low gain sharpness
 	{0x6560e, 0x10},//MinSharpenTp
 	{0x6560f, 0x60},//MaxSharpenTp
 	{0x65610, 0x10},//MinSharpenTm
@@ -494,8 +512,8 @@ const struct isp_reg_t isp_init_regs_ov8830_foxconn[] = {
 	{0x1c5d3, 0x00},
 	{0x1c5d4, 0x40},//
 	{0x1c5d5, 0xa0},//
-	{0x1c5d6, 0xac},
-	{0x1c5d7, 0xe4},
+	{0x1c5d6, 0xac},//0xb0->0xac change for red skin in outdoor d light
+	{0x1c5d7, 0xe4},//0xe8->0xe4 change for red skin in outdoor d light
 	{0x1c5d8, 0x40},//
 	{0x1c1c2, 0x00},
 	{0x1c1c3, 0x20},
@@ -834,7 +852,7 @@ const struct isp_reg_t isp_init_regs_ov8830_samsung[] = {
 	{0x65608, 0x06},
 	{0x65609, 0x20},
 	{0x6560c, 0x00},//high gain sharpness
-	{0x6560d, 0x30},//low gain sharpness, 20120814 0x20->0x30
+	{0x6560d, OV8830_SHARPNESS_PREVIEW},//low gain sharpness
 	{0x6560e, 0x10},//MinSharpenTp
 	{0x6560f, 0x60},//MaxSharpenTp
 	{0x65610, 0x10},//MinSharpenTm
@@ -1319,7 +1337,7 @@ const struct isp_reg_t isp_init_regs_ov8830_samsung[] = {
 	{0x1d949, 0x11}, //super highlight cwf thres //66206
 	{0x1d94a, 0x11}, //super highlight A thres //66207
 	{0x1d94b, 0x13}, //super highlight D thres //66208
-	{0x1d94c, 0x5c}, //super highlight D limit //6620d
+	{0x1d94c, 0x56}, //super highlight D limit //6620d 0x5c->0x56 need change for blue shadow
 	{0x1d94d, 0x44}, //super highlight A limit //6620e
 	{0x1d94e, 0x70}, //super highlight D split //6620f
 	{0x1d94f, 0x56}, //super highlight A split //66210
@@ -1327,7 +1345,7 @@ const struct isp_reg_t isp_init_regs_ov8830_samsung[] = {
 	{0x1d925, 0x11}, //highlight cwf thres //66206
 	{0x1d928, 0x11}, //highlight A thres //66207
 	{0x1d92b, 0x18}, //highlight D thres //66208
-	{0x1d92e, 0x56}, //highlight D limit //6620d
+	{0x1d92e, 0x50}, //highlight D limit //6620d 0x56->0x50 need change for blue shadow
 	{0x1d931, 0x40}, //highlight A limit //6620e
 	{0x1d934, 0x70}, //highlight D split //6620f
 	{0x1d937, 0x56}, //highlight A split //66210
@@ -1894,11 +1912,6 @@ static int ov8830_stream_on(camera_state state)
 	return ov8830_framesize_switch(state);
 }
 
-static u16 ov8830_i2c_addr[] = {
-	OV8830_SLAVE_ADDRESS_20,
-	OV8830_SLAVE_ADDRESS_6C,
-};
-
 
 static awb_gain_t ov8830_flash_awb[FLASH_PLATFORM_MAX][OV8830_MODULE_MAX] = {
 	/* u9510 */
@@ -2233,6 +2246,58 @@ u32 ov8830_get_gain(void)
 	ov8830_read_reg(OV8830_GAIN_REG_L, &gain_l);
 	gain = (gain_h << 8) | gain_l;
 	return gain;
+}
+
+static u32 ov8830_get_override_param(camera_override_type_t type)
+{
+	u32 ret_val = sensor_override_params[type];
+
+	switch (type) {
+	case OVERRIDE_ISO_HIGH:
+		ret_val = OV8830_MAX_ISO;
+		break;
+
+	case OVERRIDE_ISO_LOW:
+		ret_val = OV8830_MIN_ISO;
+		break;
+
+	case OVERRIDE_AUTO_FPS_GAIN_HIGH:
+		ret_val = OV8830_AUTO_FPS_MAX_GAIN;
+		break;
+
+	case OVERRIDE_AUTO_FPS_GAIN_LOW:
+		ret_val = OV8830_AUTO_FPS_MIN_GAIN;
+		break;
+
+	case OVERRIDE_FPS_MAX:
+		ret_val = OV8830_MAX_FRAMERATE;
+		break;
+
+	case OVERRIDE_FPS_MIN:
+		ret_val = OV8830_MIN_FRAMERATE;
+		break;
+
+	case OVERRIDE_CAP_FPS_MIN:
+		ret_val = OV8830_MIN_CAP_FRAMERATE;
+		break;
+
+	case OVERRIDE_FLASH_TRIGGER_GAIN:
+		ret_val = OV8830_FLASH_TRIGGER_GAIN;
+		break;
+
+	case OVERRIDE_SHARPNESS_PREVIEW:
+		ret_val = OV8830_SHARPNESS_PREVIEW;
+		break;
+
+	case OVERRIDE_SHARPNESS_CAPTURE:
+		ret_val = OV8830_SHARPNESS_CAPTURE;
+		break;
+
+	default:
+		print_error("%s:not override or invalid type %d, use default",__func__, type);
+	}
+
+	return ret_val;
 }
 
 u32 ov8830_get_vts_reg_addr(void)
@@ -3079,7 +3144,7 @@ static void ov8830_set_default(void)
 	ov8830_sensor.get_vflip = ov8830_get_vflip;
 	ov8830_sensor.update_flip = ov8830_update_flip;
 
-	strcpy(ov8830_sensor.info.name,"ov8830");
+	strncpy(ov8830_sensor.info.name, "ov8830", sizeof(ov8830_sensor.info.name));
 	ov8830_sensor.interface_type = MIPI1;
 #ifdef MIPI_4LANE
 	ov8830_sensor.mipi_lane_count = CSI_LINES_4;
@@ -3107,12 +3172,22 @@ static void ov8830_set_default(void)
 	ov8830_sensor.fmt[STATE_PREVIEW] = V4L2_PIX_FMT_RAW10;
 	ov8830_sensor.fmt[STATE_CAPTURE] = V4L2_PIX_FMT_RAW10;
 
+#ifdef OV8830_AP_WRITEAE_MODE /* just an example and test case for AP write AE mode */
+	ov8830_sensor.aec_addr[0] = 0;
+	ov8830_sensor.aec_addr[1] = 0;
+	ov8830_sensor.aec_addr[2] = 0;
+	ov8830_sensor.agc_addr[0] = 0;
+	ov8830_sensor.agc_addr[1] = 0;
+	ov8830_sensor.ap_writeAE_delay = 1500; /* 5 expo and gain registers, 1500us is enough */
+#else
 	ov8830_sensor.aec_addr[0] = OV8830_EXPOSURE_REG_0;
 	ov8830_sensor.aec_addr[1] = OV8830_EXPOSURE_REG_1;
 	ov8830_sensor.aec_addr[2] = OV8830_EXPOSURE_REG_2;
 	ov8830_sensor.agc_addr[0] = OV8830_GAIN_REG_H;
 	ov8830_sensor.agc_addr[1] = OV8830_GAIN_REG_L;
+#endif
 	ov8830_sensor.sensor_type = SENSOR_OV;
+	ov8830_sensor.sensor_rgb_type = SENSOR_BGGR;/* changed by y00231328. add bayer order*/
 
 	ov8830_sensor.set_gain = ov8830_set_gain;
 	ov8830_sensor.get_gain = ov8830_get_gain;
@@ -3122,19 +3197,21 @@ static void ov8830_set_default(void)
 	ov8830_sensor.set_vts = ov8830_set_vts;
 	ov8830_sensor.get_vts_reg_addr = ov8830_get_vts_reg_addr;
 
-	ov8830_sensor.sensor_gain_to_iso = ov8830_gain_to_iso;
-	ov8830_sensor.sensor_iso_to_gain = ov8830_iso_to_gain;
+	ov8830_sensor.sensor_gain_to_iso = NULL; /* no use now */
+	ov8830_sensor.sensor_iso_to_gain = NULL; /* no use now */
 
 	ov8830_sensor.get_sensor_aperture = ov8830_get_sensor_aperture;
 	ov8830_sensor.get_equivalent_focus = ov8830_get_equivalent_focus;
 
-	ov8830_sensor.get_ccm_pregain = ov8830_get_ccm_pregain;
+	ov8830_sensor.get_override_param = ov8830_get_override_param;
 
 	ov8830_sensor.get_flash_awb = ov8830_get_flash_awb;
 
 #ifndef OVISP_DEBUG_MODE
+	ov8830_sensor.get_ccm_pregain = ov8830_get_ccm_pregain;
 	ov8830_sensor.awb_dynamic_ccm_gain = ov8830_awb_dynamic_ccm_gain;
 #else
+	ov8830_sensor.get_ccm_pregain = NULL;
 	ov8830_sensor.awb_dynamic_ccm_gain = NULL;
 #endif
 	ov8830_sensor.set_effect = NULL;
@@ -3145,6 +3222,9 @@ static void ov8830_set_default(void)
 
 	/* auto focus parameters and image settings remove to function check_sensor() */
 	ov8830_sensor.af_enable = 1;
+
+	/* switch of red clip correcttion for RAW sensor, set it true to open, default close */
+	ov8830_sensor.rcc_enable = true;
 
 	ov8830_sensor.fps_max = 30;
 	ov8830_sensor.fps_min = 15;
@@ -3162,20 +3242,6 @@ static void ov8830_set_default(void)
 	ov8830_sensor.hflip = 0;
 	ov8830_sensor.vflip = 0;
 	ov8830_sensor.old_flip = 0;
-
-	chip_id = get_chipid();
-
-	if (chip_id == DI_CHIP_ID) {
-		for (i = 0; i < (ARRAY_SIZE(ov8830_framesizes)); i++) {
-			ov8830_framesizes[i].fps = ov8830_framesizes[i].fps_es;
-		}
-
-		/* full size, add by y36721 */
-		i = ARRAY_SIZE(ov8830_framesizes) - 1;
-		ov8830_framesizes[i].sensor_setting.setting = ov8830_framesize_full_es;
-		ov8830_framesizes[i].sensor_setting.seq_size= ARRAY_SIZE(ov8830_framesize_full_es);
-	}
-
 }
 
 /*

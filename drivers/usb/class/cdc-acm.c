@@ -432,6 +432,8 @@ static void acm_read_bulk_callback(struct urb *urb)
 	acm->throttled = acm->throttle_req;
 	if (!acm->throttled && !acm->susp_count) {
 		spin_unlock_irqrestore(&acm->read_lock, flags);
+		if (urb->status)
+			return;
 		acm_submit_read_urb(acm, rb->index, GFP_ATOMIC);
 	} else {
 		spin_unlock_irqrestore(&acm->read_lock, flags);
@@ -596,6 +598,12 @@ static void acm_tty_unregister(struct acm *acm)
 		usb_free_urb(acm->wb[i].urb);
 	for (i = 0; i < acm->rx_buflimit; i++)
 		usb_free_urb(acm->read_urbs[i]);
+
+	if (acm->port.tty) {
+		dev_err(&acm->data->dev, "tty should be null now, print debug!!\n");
+		acm->port.tty->driver_data = NULL;
+	}
+
 	kfree(acm->country_codes);
 	kfree(acm);
 }
@@ -647,6 +655,8 @@ static void acm_tty_hangup(struct tty_struct *tty)
 		return;
 	}
 
+	dev_info(&acm->data->dev, "acm_tty_hangup\n");
+
 	tty_port_hangup(&acm->port);
 	acm_port_down(acm);
 	tty->driver_data = NULL;
@@ -665,9 +675,11 @@ static void acm_tty_close(struct tty_struct *tty, struct file *filp)
 		mutex_lock(&sr_mutex);
 		if (acm_keeping_table[tty->index]) {
 			acm = acm_keeping_table[tty->index];
+			if (tty_port_close_start(&acm->port, tty, filp) == 0) {
+				mutex_unlock(&sr_mutex);
+				return;
+			}
 			acm_keeping_table[tty->index] = NULL;
-
-			tty_port_close_start(&acm->port, tty, filp);
 			tty_port_close_end(&acm->port, tty);
 			tty_port_tty_set(&acm->port, NULL);
 			tty_unregister_device(acm_tty_driver, acm->minor);
@@ -1422,6 +1434,8 @@ static void acm_disconnect(struct usb_interface *intf)
 	/* sibling interface is already cleaning up */
 	if (!acm)
 		return;
+
+	dev_info(&acm->data->dev, "acm_disconnect port count[%d]\n",acm->port.count);
 
 	mutex_lock(&open_mutex);
 	if (acm->country_codes) {

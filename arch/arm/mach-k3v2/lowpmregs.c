@@ -14,585 +14,30 @@
 #include <asm/hardware/gic.h>
 #include <mach/io.h>
 #include <mach/platform.h>
-#include "board.h"
 #include <mach/platform.h>
 #include <linux/platform_device.h>
 #include <linux/console.h>
 #include <mach/early-debug.h>
 #include <asm/hardware/arm_timer.h>
 #include <mach/boardid.h>
-
 #include <linux/regulator/consumer.h>
 #include <linux/regulator/driver.h>
 #include <linux/regulator/machine.h>
 #include <hsad/config_interface.h>
 #include <linux/ipps.h>
+#include "board.h"
+#include "iomux.h"
 
-static void __iomem *g_ioc_addr;
-static void __iomem *g_gpio_addr;
 static void __iomem *g_sc_addr;
 static void __iomem *g_pctrl_addr;
 static void __iomem *g_pmuspi_addr;
+static unsigned g_usavedcfg;
+#define DEBG_SUSPEND_PMU_SHOW	(1<<2)
 
 #ifdef	CONFIG_LOWPM_DEBUG
-
 static struct ipps_client ipps_client;
-
-struct iocfg_lp {
-	unsigned int uiomg_off;
-	int iomg_val;
-	unsigned int uiocg_off;
-	int iocg_val;			/*-1: need not to set*/
-	unsigned int ugpiog;    /*gpio grpup*/
-	unsigned int ugpio_bit; /*gpio bit*/
-	int gpio_dir;			/*1: out,  0: in*/
-	int gpio_val;			/*1: high, 0:low*/
-};
-
-
-#define LOW_POWER(imo, imv, ico, icv, gpiog, gpiob, gpiod, gpiov) \
-	{				\
-		.uiomg_off = imo,  .iomg_val = imv,   \
-		.uiocg_off = ico,  .iocg_val  = icv,   \
-		.ugpiog    = gpiog, .ugpio_bit = gpiob, \
-		.gpio_dir  = gpiod, .gpio_val  = gpiov, \
-	}
-
-static struct iocfg_lp iocfg_lookups[] = {
-		/*gpio_002 gpio out low iomg000 iocg006*/
-		LOW_POWER(0x0, 0x0, 0x24, 0x0, 0, 2, 0x1, 0x0),
-
-		/*gpio_003 gpio out low iomg000 iocg007*/
-		LOW_POWER(0x0, 0x0, 0x28, 0x0, 0, 3, 0x1, 0x0),
-
-		/*gpio_004 gpio in low  iomg000 iocg008*/
-		LOW_POWER(0x0, 0x0, 0x2C, 0x2, 0, 4, 0, 0x0),
-
-		/*gpio_005 gpio in high iomg000 iocg009*/
-		LOW_POWER(0x0, 0x0, 0x30, 0x1, 0, 5, 0, 0x0),
-
-		/*gpio_006 gpio out low iomg001 iocg010*/
-		LOW_POWER(0x4, 0x0, 0x34, 0x0,  0, 6, 1, 0x0),
-
-		/*gpio_007 gpio in low  iomg002 iocg011*/
-		LOW_POWER(0x8, 0x0, 0x38, 0x2, 0, 7, 0, 0x0),
-
-		/*gpio_008 gpio in low iomg003 iocg012*/
-		LOW_POWER(0x0C, 0x01, 0x3C, 0x2, 1, 0, 0, 0x0),
-
-		/*gpio_009 gpio in low iomg003 iocg013*/
-		LOW_POWER(0x0C, 0x01, 0x40, 0x2, 1, 1, 0, 0x0),
-
-		/*gpio_010 gpio in low iomg003 iocg014*/
-		LOW_POWER(0x0C, 0x01, 0x44, 0x2, 1, 2, 0, 0x0),
-
-		/*gpio_011 gpio in low iomg003 iocg015*/
-		LOW_POWER(0x0C, 0x01, 0x48, 0x2, 1, 3, 0, 0x0),
-
-		/*gpio_012 gpio in low iomg003 iocg016*/
-		LOW_POWER(0x0C, 0x01, 0x4C, 0x2, 1, 4, 0, 0x0),
-
-		/*gpio_013 gpio in low iomg004 iocg017*/
-		LOW_POWER(0x10, 0x01, 0x50, 0x2, 1, 5, 0, 0x0),
-
-		/*gpio_014 gpio in low iomg005 iocg018*/
-		LOW_POWER(0x14, 0x01, 0x54, 0x2, 1, 6, 0, 0x0),
-
-		/*gpio_015 gpio in low iomg006 iocg019*/
-		LOW_POWER(0x18, 0x01, 0x58, 0x2, 1, 7, 0, 0x0),
-
-		/*gpio_016 gpio in low iomg094 iocg020*/
-		LOW_POWER(0x1C, 0x01, 0x5C, 0x2, 2, 0, 0, 0x0),
-
-		/*gpio_017 gpio in low iomg007 iocg021*/
-		LOW_POWER(0x20, 0x01, 0x60, 0x2, 2, 1, 0, 0x0),
-
-		/*gpio_018 gpio in low iomg008 iocg022*/
-		LOW_POWER(0x20, 0x01, 0x64, 0x2, 2, 2, 0, 0x0),
-
-		/*gpio_019 gpio in low iomg009 iocg023*/
-		LOW_POWER(0x20, 0x01, 0x68, 0x2, 2, 3, 0, 0x0),
-
-		/*gpio_020 gpio in low iomg003 iocg024*/
-		LOW_POWER(0x0C, 0x01, 0x6C, 0x2, 2, 4, 0, 0x0),
-
-		/*gpio_021 gpio in low iomg003 iocg025*/
-		LOW_POWER(0x0C, 0x01, 0x70, 0x2, 2, 5, 0, 0x0),
-
-		/*gpio_022 gpio in low iomg003 iocg026*/
-		LOW_POWER(0x0C, 0x01, 0x74, 0x2, 2, 6, 0, 0x0),
-
-		/*gpio_023 gpio in low iomg003 iocg027*/
-		LOW_POWER(0x0C, 0x01, 0x78, 0x2, 2, 7, 0, 0x0),
-
-		/*gpio_024 gpio in low iomg003 iocg028*/
-		LOW_POWER(0x0C, 0x01, 0x7C, 0x2, 3, 0, 0, 0x0),
-
-		/*gpio_025 gpio in low iomg003 iocg029*/
-		LOW_POWER(0x0C, 0x01, 0x80, 0x2, 3, 1, 0, 0x0),
-
-		/*gpio_026 gpio in low iomg003 iocg030*/
-		LOW_POWER(0x0C, 0x01, 0x84, 0x2, 3, 2, 0, 0x0),
-
-		/*gpio_027 gpio in low iomg003 iocg031*/
-		LOW_POWER(0x0C, 0x01, 0x88, 0x2, 3, 3, 0, 0x0),
-
-		/*gpio_028 gpio in low iomg010 iocg032*/
-		LOW_POWER(0x2C, 0x01, 0x8C, 0x2, 3, 4, 0, 0x0),
-
-		/*gpio_029 gpio in low iomg010 iocg033*/
-		LOW_POWER(0x2C, 0x01, 0x90, 0x2, 3, 5, 0, 0x0),
-
-		/*gpio_030 gpio in low iomg010 iocg034*/
-		LOW_POWER(0x2C, 0x01, 0x94, 0x2, 3, 6, 0, 0x0),
-
-		/*gpio_031 gpio in low iomg010 iocg035*/
-		LOW_POWER(0x2C, 0x01, 0x98, 0x2, 3, 7, 0, 0x0),
-
-		/*gpio_032 gpio in low iomg010 iocg036*/
-		LOW_POWER(0x2C, 0x01, 0x9C, 0x2, 4, 0, 0, 0x0),
-
-		/*gpio_033 gpio in low iomg010 iocg037*/
-		LOW_POWER(0x2C, 0x01, 0xA0, 0x2, 4, 1, 0, 0x0),
-
-		/*gpio_034 gpio in low iomg010 iocg038*/
-		LOW_POWER(0x2C, 0x01, 0xA4, 0x2, 4, 2, 0, 0x0),
-
-		/*gpio_035 gpio in low iomg010 iocg039*/
-		LOW_POWER(0x2C, 0x01, 0xA8, 0x2, 4, 3, 0, 0x0),
-
-		/*gpio_036 gpio in low iomg012 iocg040*/
-		LOW_POWER(0x30, 0x00, 0xAC, 0x2, 4, 4, 0, 0x0),
-
-		/*gpio_037 gpio in low iomg012 iocg041*/
-		LOW_POWER(0x30, 0x00, 0xB0, 0x2, 4, 5, 0, 0x0),
-
-		/*gpio_038 gpio in nopull iomg013 iocg054*/
-		LOW_POWER(0x34, 0x01, 0xB4, 0x0, 4, 6, 0, 0x0),
-
-		/*gpio_039 gpio in nopull iomg013 iocg055*/
-		LOW_POWER(0x34, 0x01, 0xB8, 0x0, 4, 7, 0, 0x0),
-
-		/*gpio_040 gpio in pulldown (phone) iomg014 iocg056*/
-		LOW_POWER(0x38, 0x01, 0xBC, 0x2, 5, 0, 0, 0x0),
-
-		/*gpio_041 gpio in pulldown iomg015 iocg057*/
-		LOW_POWER(0x3C, 0x01, 0xC0, 0x2, 5, 1, 0, 0x0),
-
-		/*gpio_042 gpio in low iomg016 iocg058*/
-		LOW_POWER(0x40, 0x01, 0xC4, 0x2, 5, 2, 0, 0x0),
-
-		/*gpio_043 gpio in low iomg016 iocg059*/
-		LOW_POWER(0x40, 0x01, 0xC8, 0x2, 5, 3, 0, 0x0),
-
-		/*gpio_044 gpio in low iomg016 iocg060*/
-		LOW_POWER(0x40, 0x01, 0xCC, 0x2, 5, 4, 0, 0x0),
-
-		/*gpio_045 gpio in low iomg016 iocg061*/
-		LOW_POWER(0x40, 0x01, 0xD0, 0x2, 5, 5, 0, 0x0),
-
-		/*gpio_046 gpio in low iomg016 iocg062*/
-		LOW_POWER(0x40, 0x01, 0xD4, 0x2, 5, 6, 0, 0x0),
-
-		/*gpio_047 gpio in low iomg016 iocg063*/
-		LOW_POWER(0x40, 0x01, 0xD8, 0x2, 5, 7, 0, 0x0),
-
-		/*gpio_048 gpio in low iomg016 iocg064*/
-		LOW_POWER(0x40, 0x01, 0xDC, 0x2, 6, 0, 0, 0x0),
-
-		/*gpio_049 gpio in low iomg016 iocg065*/
-		LOW_POWER(0x40, 0x01, 0xE0, 0x2, 6, 1, 0, 0x0),
-
-		/*gpio_050 gpio in low iomg017 iocg066*/
-		LOW_POWER(0x44, 0x01, 0xE4, 0x2, 6, 2, 0, 0x0),
-
-		/*gpio_051 gpio in low iomg017 iocg067*/
-		LOW_POWER(0x44, 0x01, 0xE8, 0x2, 6, 3, 0, 0x0),
-
-		/*gpio_052 gpio in low iomg018 iocg068*/
-		LOW_POWER(0x48, 0x01, 0xEC, 0x2, 6, 4, 0, 0x0),
-
-		/*gpio_053 gpio in low iomg018 iocg069*/
-		LOW_POWER(0x48, 0x01, 0xF0, 0x2, 6, 5, 0, 0x0),
-
-		/*gpio_054 gpio in low iomg018 iocg070*/
-		LOW_POWER(0x48, 0x01, 0xF4, 0x2, 6, 6, 0, 0x0),
-
-		/*gpio_055 gpio in low iomg019 iocg071*/
-		LOW_POWER(0x4C, 0x01, 0xF8, 0x0, 6, 7, 0, 0x0),
-
-		/*gpio_056 gpio in low iomg019 iocg072*/
-		LOW_POWER(0x4C, 0x01, 0xFC, 0x0, 7, 0, 0, 0x0),
-
-		/*gpio_057 gpio in none iomg020 iocg073*/
-		LOW_POWER(0x50, 0x01, 0x100, 0x0, 7, 1, 0, 0x0),
-
-		/*gpio_058 gpio in none iomg021 iocg074*/
-		LOW_POWER(0x54, 0x01, 0x104, 0x0, 7, 2, 0, 0x0),
-
-		/*gpio_059 gpio in low iomg022 iocg075*/
-		LOW_POWER(0x58, 0x01, 0x108, 0x0, 7, 3, 1, 0x0),
-
-		/*gpio_060 gpio in low iomg023 iocg076*/
-		LOW_POWER(0x5C, 0x01, 0x10C, 0x0, 7, 4, 1, 0x0),
-
-		/*gpio_061 gpio out high iomg024 iocg077*/
-		LOW_POWER(0x60, 0x01, 0x110, 0x0, 7, 5, 1, 0x1),
-
-		/*gpio_062 gpio in low iomg025 iocg078*/
-		LOW_POWER(0x64, 0x01, 0x114, 0x2, 7, 6, 0, 0x0),
-
-		/*gpio_063 gpio in low iomg026 iocg079*/
-		LOW_POWER(0x68, 0x01, 0x118, 0x2, 7, 7, 0, 0x0),
-
-		/*gpio_064 gpio in low iomg027 iocg080*/
-		LOW_POWER(0x6C, 0x01, 0x11C, 0x2, 8, 0, 0, 0x0),
-
-		/*gpio_065 gpio out low iomg028 iocg081*/
-		LOW_POWER(0x70, 0x01, 0x120, 0x0, 8, 1, 1, 0x0),
-
-		/*gpio_066 gpio out low iomg029 iocg082*/
-		LOW_POWER(0x74, 0x01, 0x124, 0x0, 8, 2, 1, 0x0),
-
-		/*gpio_067 gpio out low iomg030 iocg083*/
-		LOW_POWER(0x78, 0x01, 0x128, 0x0, 8, 3, 1, 0x0),
-
-		/*gpio_068 gpio out low iomg031 iocg084*/
-		LOW_POWER(0x7C, 0x01, 0x12C, 0x0, 8, 4, 1, 0x0),
-
-		/*gpio_069 gpio out low iomg032 iocg085*/
-		LOW_POWER(0x80, 0x01, 0x130, 0x0, 8, 5, 1, 0x0),
-
-		/*gpio_070 gpio out low iomg033 iocg086*/
-		LOW_POWER(0x84, 0x01, 0x134, 0x0, 8, 6, 1, 0x0),
-
-		/*gpio_071 gpio out low iomg034 iocg087*/
-		LOW_POWER(0x88, 0x01, 0x138, 0x0, 8, 7, 1, 0x0),
-
-		/*gpio_072 gpio in low iomg035 iocg088*/
-		LOW_POWER(0x8C, 0x01, 0x13C, 0x0, 9, 0, 1, 0x0),
-
-		/*gpio_073 gpio in low iomg036 iocg089*/
-		LOW_POWER(0x90, 0x01, 0x140, 0x0, 9, 1, 1, 0x0),
-
-		/*gpio_074 gpio out low iomg037 iocg090*/
-		LOW_POWER(0x94, 0x01, 0x144, 0x0, 9, 2, 1, 0x1),
-
-		/*gpio_075 isp_gpio out low iomg038 iocg091*/
-		LOW_POWER(0x98, 0x00, 0x148, 0x0, 9, 3, 1, 0x0),
-
-		/*gpio_076 gpio in low iomg039 iocg092*/
-		LOW_POWER(0x9C, 0x01, 0x14C, 0x0, 9, 4, 1, 0x0),
-
-		/*gpio_077 gpio in low iomg040 iocg093*/
-		LOW_POWER(0xA0, 0x01, 0x150, 0x2, 9, 5, 0, 0x0),
-
-		/*gpio_078 gpio out low iomg041 iocg094*/
-		LOW_POWER(0xA4, 0x01, 0x154, 0x0, 9, 6, 1, 0x0),
-
-		/*gpio_079 gpio out low iomg043 iocg098*/
-		LOW_POWER(0xAC, 0x01, 0x168, 0x0, 9, 7, 1, 0x0),
-
-		/*gpio_080 gpio in high iomg043 iocg099*/
-		LOW_POWER(0xAC, 0x01, 0x16C, 0x1, 10, 0, 0, 0x0),
-
-		/*gpio_081 gpio out high iomg043 iocg100*/
-		LOW_POWER(0xAC, 0x01, 0x170, 0x0, 10, 1, 1, 0x1),
-
-		/*gpio_082 gpio out low iomg043 iocg101*/
-		LOW_POWER(0xAC, 0x01, 0x174, 0x0, 10, 2, 1, 0x0),
-
-		/*gpio_083 gpio in nopull(phone) iomg044 iocg102*/
-		LOW_POWER(0xB0, 0x01, 0x178, 0x0, 10, 3, 0, 0x0),
-
-		/*gpio_084 gpio in none iomg045 iocg103*/
-		LOW_POWER(0xB4, 0x01, 0x17C, 0x0, 10, 4, 0, 0x0),
-
-		/*gpio_085 gpio in low iomg046 iocg104*/
-		LOW_POWER(0xB8, 0x01, 0x180, 0x0, 10, 5, 0, 0x0),
-
-		/*gpio_086 gpio in low iomg046 iocg105*/
-		LOW_POWER(0xB8, 0x01, 0x184, 0x0, 10, 6, 0, 0x0),
-
-		/*gpio_087 gpio in low iomg046 iocg106*/
-		LOW_POWER(0xB8, 0x01, 0x188, 0x0, 10, 7, 0, 0x0),
-
-		/*gpio_088 gpio in low iomg047 iocg107*/
-		LOW_POWER(0xBC, 0x01, 0x18C, 0x2, 11, 0, 0, 0x0),
-
-		/*gpio_089 gpio in low iomg047 iocg108*/
-		LOW_POWER(0xBC, 0x01, 0x190, 0x2, 11, 1, 0, 0x0),
-
-		/*gpio_090 gpio in low iomg047 iocg109*/
-		LOW_POWER(0xBC, 0x01, 0x194, 0x2, 11, 2, 0, 0x0),
-
-		/*gpio_091 gpio in low iomg047 iocg110*/
-		LOW_POWER(0xBC, 0x01, 0x198, 0x2, 11, 3, 0, 0x0),
-
-		/*gpio_092 gpio in low iomg047 iocg111*/
-		LOW_POWER(0xBC, 0x01, 0x19C, 0x2, 11, 4, 0, 0x0),
-
-		/*gpio_093 gpio in low iomg048 iocg112*/
-		LOW_POWER(0xC0, 0x01, 0x1A0, 0x2, 11, 5, 0, 0x0),
-
-		/*gpio_094 gpio in none iomg049 iocg113*/
-		LOW_POWER(0xC4, 0x01, 0x1A4, 0x0, 11, 6, 0, 0x0),
-
-		/*gpio_095 gpio out high iomg049 iocg114*/
-		LOW_POWER(0xC4, 0x01, 0x1A8, 0x0, 11, 7, 1, 0x1),
-
-		/*gpio_096 gpio out low iomg049 iocg115*/
-		LOW_POWER(0xC4, 0x01, 0x1AC, 0x0, 12, 0, 1, 0x0),
-
-		/*gpio_097 gpio out low iomg050 iocg116*/
-		LOW_POWER(0xC8, 0x01, 0x1B0, 0x0, 12, 1, 1, 0x0),
-
-		/*gpio_098 gpio in low iomg049 iocg117*/
-		LOW_POWER(0xC4, 0x01, 0x1B4, 0x2, 12, 2, 0, 0x0),
-
-		/*gpio_099 gpio in low iomg049 iocg118*/
-		LOW_POWER(0xC4, 0x01, 0x1B8, 0x2, 12, 3, 0, 0x0),
-
-		/*gpio_100 gpio in low iomg051 iocg119*/
-		LOW_POWER(0xCC, 0x01, 0x1BC, 0x2, 12, 4, 0, 0x0),
-
-		/*gpio_101 gpio in low iomg051 iocg120*/
-		LOW_POWER(0xCC, 0x01, 0x1C0, 0x2, 12, 5, 0, 0x0),
-
-		/*gpio_102 gpio in low iomg051 iocg121*/
-		LOW_POWER(0xCC, 0x01, 0x1C4, 0x2, 12, 6, 0, 0x0),
-
-		/*gpio_103 gpio in low iomg052 iocg122*/
-		LOW_POWER(0xD0, 0x01, 0x1C8, 0x2, 12, 7, 0, 0x0),
-
-		/*gpio_104 gpio in low iomg051 iocg123*/
-		LOW_POWER(0xCC, 0x01, 0x1CC, 0x2, 13, 0, 0, 0x0),
-
-		/*gpio_105 gpio in low iomg051 iocg124*/
-		LOW_POWER(0xCC, 0x01, 0x1D0, 0x2, 13, 1, 0, 0x0),
-
-		/*gpio_106 gpio in low iomg053 iocg125*/
-		LOW_POWER(0xD4, 0x01, 0x1D4, 0x2, 13, 2, 0, 0x0),
-
-		/*gpio_107 gpio in low iomg053 iocg126*/
-		LOW_POWER(0xD4, 0x01, 0x1D8, 0x2, 13, 3, 0, 0x0),
-
-		/*gpio_108 gpio in low iomg053 iocg127*/
-		LOW_POWER(0xD4, 0x01, 0x1DC, 0x2, 13, 4, 0, 0x0),
-
-		/*gpio_109 gpio in low iomg054 iocg128*/
-		LOW_POWER(0xD8, 0x01, 0x1E0, 0x2, 13, 5, 0, 0x0),
-
-		/*gpio_110 gpio in low iomg055 iocg129*/
-		LOW_POWER(0xDC, 0x01, 0x1E4, 0x2, 13, 6, 0, 0x0),
-
-		/*gpio_111 gpio in none iomg056 iocg130*/
-		LOW_POWER(0xE0, 0x01, 0x1E8, 0x0, 13, 7, 0, 0x0),
-
-		/*gpio_112 gpio in none iomg057 iocg131*/
-		LOW_POWER(0xE4, 0x01, 0x1EC, 0x0, 14, 0, 0, 0x0),
-
-		/*gpio_113 gpio in low iomg058 iocg132*/
-		LOW_POWER(0xE8, 0x01, 0x1F0, 0x2, 14, 1, 0, 0x0),
-
-		/*gpio_114 gpio out low iomg058 iocg133*/
-		LOW_POWER(0xE8, 0x01, 0x1F4, 0x0, 14, 2, 1, 0x0),
-
-		/*gpio_115 gpio out low iomg058 iocg134*/
-		LOW_POWER(0xE8, 0x01, 0x1F8, 0x0, 14, 3, 1, 0x0),
-
-		/*gpio_116 gpio in low iomg095 iocg135*/
-		LOW_POWER(0xEC, 0x01, 0x1FC, 0x2, 14, 4, 0, 0x0),
-
-		/*gpio_117 gpio out low iomg059 iocg136*/
-		LOW_POWER(0xF0, 0x01, 0x200, 0x0, 14, 5, 1, 0x0),
-
-		/*gpio_118 gpio out low iomg059 iocg137*/
-		LOW_POWER(0xF0, 0x01, 0x204, 0x0, 14, 6, 1, 0x0),
-
-		/*gpio_119 gpio in low iomg060 iocg138*/
-		LOW_POWER(0xF4, 0x01, 0x208, 0x2, 14, 7, 0, 0x0),
-
-		/*gpio_120 gpio in low iomg060 iocg139*/
-		LOW_POWER(0xF4, 0x01, 0x20C, 0x2, 15, 0, 0, 0x0),
-
-		/*gpio_121 gpio in low iomg061 iocg140*/
-		LOW_POWER(0xF8, 0x01, 0x210, 0x2, 15, 1, 0, 0x0),
-
-		/*gpio_122 gpio in low iomg061 iocg141*/
-		LOW_POWER(0xF8, 0x01, 0x214, 0x2, 15, 2, 0, 0x0),
-
-		/*gpio_123 gpio in low iomg062 iocg142*/
-		LOW_POWER(0xFC, 0x01, 0x218, 0x2, 15, 3, 0, 0x0),
-
-		/*gpio_124 gpio in low iomg062 iocg143*/
-		LOW_POWER(0xFC, 0x01, 0x21C, 0x2, 15, 4, 0, 0x0),
-
-		/*gpio_125 gpio in low iomg063 iocg144*/
-		LOW_POWER(0x100, 0x01, 0x220, 0x2, 15, 5, 0, 0x0),
-
-		/*gpio_126 gpio in pullup iomg063 iocg145*/
-		LOW_POWER(0x100, 0x01, 0x224, -1, 15, 6, 0, 0x0),
-
-		/*gpio_127 gpio out high iomg096 iocg146*/
-		LOW_POWER(0x104, 0x01, 0x228, 0x0, 15, 7, 1, 0x1),
-
-		/*gpio_128 gpio in pulldown iomg064 iocg147*/
-		LOW_POWER(0x108, 0x01, 0x22C, 0x2, 16, 0, 0, 0x0),
-
-		/*gpio_129 gpio in low iomg065 iocg148*/
-		LOW_POWER(0x10C, 0x01, 0x230, 0x2, 16, 1, 0, 0x0),
-
-		/*gpio_130 gpio in low iomg066 iocg149*/
-		LOW_POWER(0x110, 0x01, 0x234, 0x2, 16, 2, 0, 0x0),
-
-		/*gpio_131 gpio in low iomg067 iocg150*/
-		LOW_POWER(0x114, 0x01, 0x238, 0x2, 16, 3, 0, 0x0),
-
-		/*gpio_132 gpio in low iomg068 iocg151*/
-		LOW_POWER(0x118, 0x01, 0x23C, 0x2, 16, 4, 0, 0x0),
-
-		/*gpio_133 gpio out low iomg069 iocg152*/
-		LOW_POWER(0x11C, 0x01, 0x240, 0x0, 16, 5, 1, 0x0),
-
-		/*gpio_134 gpio out low iomg070 iocg153*/
-		LOW_POWER(0x120, 0x01, 0x244, 0x0, 16, 6, 1, 0x0),
-
-		/*gpio_135 gpio in none iomg071 iocg154*/
-		LOW_POWER(0x124, 0x01, 0x248, 0x0, 16, 7, 0, 0x0),
-
-		/*gpio_136 gpio in none iomg072 iocg155*/
-		LOW_POWER(0x128, 0x01, 0x24C, 0x0, 17, 0, 0, 0x0),
-
-		/*gpio_137 gpio in pullup iomg073 iocg156*/
-		LOW_POWER(0x12C, 0x01, 0x250, 0x1, 17, 1, 0, 0x0),
-
-		/*gpio_138 gpio in pullup iomg074 iocg157*/
-		LOW_POWER(0x130, 0x01, 0x254, 0x1, 17, 2, 0, 0x0),
-
-		/*gpio_139 gpio in low iomg075 iocg158*/
-		LOW_POWER(0x134, 0x01, 0x258, 0x2, 17, 3, 0, 0x0),
-
-		/*gpio_140 gpio in low iomg076 iocg159*/
-		LOW_POWER(0x138, 0x01, 0x25C, 0x2, 17, 4, 0, 0x0),
-
-		/*gpio_141 gpio in pulldown iomg077 iocg160*/
-		LOW_POWER(0x13C, 0x01, 0x260, 0x2, 17, 5, 0, 0x0),
-
-		/*gpio_142 gpio in pulldown iomg078 iocg161*/
-		LOW_POWER(0x140, 0x01, 0x264, 0x2, 17, 6, 0, 0x0),
-
-		/*gpio_143 gpio in pullup iomg079 iocg162*/
-		LOW_POWER(0x144, 0x01, 0x268, 0x1, 17, 7, 0, 0x0),
-
-		/*gpio_144 gpio out high iomg080 iocg163*/
-		LOW_POWER(0x148, 0x01, 0x26C, 0x0, 18, 0, 1, 0x1),
-
-		/*gpio_145 gpio out high iomg081 iocg164*//*fixed*/
-		LOW_POWER(0x14C, 0x01, 0x270, 0x0, 18, 1, 1, 0x1),
-
-		/*gpio_146 gpio out high iomg081 iocg165*/
-		LOW_POWER(0x14C, 0x01, 0x274, 0x0, 18, 2, 0, 0x0),
-
-		/*gpio_147 gpio in low iomg097 iocg166*/
-		LOW_POWER(0x150, 0x01, 0x278, 0x2, 18, 3, 0, 0x0),
-
-		/*gpio_148 gpio in low iomg097 iocg167*/
-		LOW_POWER(0x150, 0x01, 0x27C, 0x2, 18, 4, 0, 0x0),
-
-		/*gpio_149 gpio out low iomg082 iocg168*/
-		LOW_POWER(0x154, 0x01, 0x280, 0, 18, 5, 1, 0x0),
-
-		/*gpio_150 gpio in low iomg083 iocg169*/
-		LOW_POWER(0x158, 0x01, 0x284, 0x2, 18, 6, 0, 0x0),
-
-		/*gpio_151 gpio out low iomg084 iocg170*/
-		LOW_POWER(0x15C, 0x01, 0x288, 0, 18, 7, 1, 0x0),
-
-		/*gpio_152 gpio out high iomg084 iocg171*/
-		LOW_POWER(0x15C, 0x01, 0x28C, 0, 19, 0, 1, 0x1),
-
-		/*gpio_153 gpio in low iomg084 iocg172*/
-		LOW_POWER(0x15C, 0x01, 0x290, 0, 19, 1, 1, 0x0),
-
-		/*gpio_154 gpio in low iomg085 iocg173*/
-		LOW_POWER(0x160, 0x01, 0x294, 0x2, 19, 2, 0, 0x0),
-
-		/*gpio_155 gpio in low iomg085 iocg174*/
-		LOW_POWER(0x160, 0x01, 0x298, 0x2, 19, 3, 0, 0x0),
-
-		/*gpio_156 gpio out high iomg--- iocg000*/
-		LOW_POWER(0x160, -1, 0x00C, 0, 19, 4, 1, 0x1),
-
-		/*gpio_157 gpio in pullup iomg--- iocg001*/
-		LOW_POWER(0x160, -1, 0x010, 0x1, 19, 5, 0, 0x0),
-
-		/*gpio_158 gpio out high iomg--- iocg002*/
-		LOW_POWER(0x160, -1, 0x014, 0, 19, 6, 1, 0x1),
-
-		/*gpio_159 gpio in high iomg--- iocg003*/
-		LOW_POWER(0x160, -1, 0x018, 0x1, 19, 7, 0, 0x0),
-
-		/*gpio_160 gpio in low iomg086 iocg175*/
-		LOW_POWER(0x164, 0x01, 0x29C, 0x2, 20, 0, 0, 0x0),
-
-		/*gpio_161 gpio in low iomg086 iocg176*/
-		LOW_POWER(0x164, 0x01, 0x2A0, 0x2, 20, 1, 0, 0x0),
-
-		/*gpio_162 gpio in low iomg087 iocg177*/
-		LOW_POWER(0x168, 0x01, 0x2A4, 0x2, 20, 2, 0, 0x0),
-
-		/*gpio_163 gpio in low iomg087 iocg178*/
-		LOW_POWER(0x168, 0x01, 0x2A8, 0x2, 20, 3, 0, 0x0),
-
-		/*gpio_164 gpio in low iomg088 iocg179*/
-		LOW_POWER(0x16C, 0x01, 0x2AC, 0x2, 20, 4, 0, 0x0),
-
-		/*gpio_165 gpio in low iomg093 iocg180*/
-		LOW_POWER(0x170, 0x01, 0x2B0, 0x2, 20, 5, 0, 0x0),
-
-		/*gpio_166 gpio in low iomg089 iocg181*/
-		LOW_POWER(0x174, 0x01, 0x2B4, 0x2, 20, 6, 0, 0x0),
-
-		/*gpio_167 gpio out low iomg089 iocg182*/  /*fix me*/
-		LOW_POWER(0x174, 0x01, 0x2B8, 0x0, 20, 7, 1, 0x0),
-
-		/*gpio_168 gpio out low iomg089 iocg183*/   /*fix me*/
-		LOW_POWER(0x174, 0x01, 0x2BC, 0x0, 21, 0, 1, 0x0),
-
-		/*gpio_169 gpio out low iomg089 iocg184*/
-		LOW_POWER(0x174, 0x01, 0x2C0, 0x0, 21, 1, 1, 0x0),
-
-		/*gpio_170 gpio in high iomg089 iocg185*/
-		LOW_POWER(0x174, 0x01, 0x2C4, 0x1, 21, 2, 0, 0x0),
-
-		/*gpio_171 gpio out low iomg090 iocg186*/
-		LOW_POWER(0x178, 0x01, 0x2C8, 0x0, 21, 3, 1, 0x0),
-
-		/*gpio_172 gpio out low iomg091 iocg187*/
-		LOW_POWER(0x17C, 0x01, 0x2CC, 0x0, 21, 4, 1, 0x0),
-
-		/*gpio_173 gpio out low iomg091 iocg188*/
-		LOW_POWER(0x17C, 0x01, 0x2D0, 0x0, 21, 5, 1, 0x0),
-
-		/*gpio_174 gpio out low iomg091 iocg189*/
-		LOW_POWER(0x17C, 0x01, 0x2D4, 0x0, 21, 6, 1, 0x0),
-
-		/*gpio_175 gpio in high iomg092 iocg190*/
-		LOW_POWER(0x180, 0x01, 0x2D8, 0x2, 21, 7, 0, 0x0),
-};
-
-#define IOMG_REG(x)			(g_ioc_addr + (iocfg_lookups[x].uiomg_off))
-#define IOCG_REG(x)			(g_ioc_addr + 0x800 + (iocfg_lookups[x].uiocg_off))
-
-#define GPIO_DIR(x)			(g_gpio_addr + (x)*0x1000 + 0x400)
-#define GPIO_DATA(x)		(g_gpio_addr + (x)*0x1000 + 0x3FC)
-#define GPIO_BIT(x, y)		((x) << (y))
-#define GPIO_IS_SET(x)		(((uregv)>>(x))&0x1)
-
 #define DEBG_SUSPEND_PRINTK		(1<<0)
 #define DEBG_SUSPEND_IO_SHOW	(1<<1)
-#define DEBG_SUSPEND_PMU_SHOW	(1<<2)
 #define DEBG_SUSPEND_IO_SET		(1<<3)
 #define DEBG_SUSPEND_PMU_SET	(1<<4)
 #define DEBG_SUSPEND_IO_S_SET	(1<<5)
@@ -602,7 +47,6 @@ static struct iocfg_lp iocfg_lookups[] = {
 #define DEBG_SUSPEND_AUDIO		(1<<9)
 
 static int g_suspended;
-static unsigned g_usavedcfg;
 static unsigned g_utimer_inms;
 static unsigned g_urtc_ins;
 
@@ -613,109 +57,12 @@ static unsigned g_urtc_ins;
 ******************************************************************/
 void setiolowpower(void)
 {
-	int i = 0;
-	int ilen = sizeof(iocfg_lookups)/sizeof(iocfg_lookups[0]);
-	unsigned int uregv = 0;
-
 	if (!(g_usavedcfg & DEBG_SUSPEND_IO_SET))
 		return;
 
 	pr_info("[%s] %d enter.\n", __func__, __LINE__);
-
-	for (i = 0; i < ilen; i++) {
-
-		uregv = ((iocfg_lookups[i].ugpiog<<3)+iocfg_lookups[i].ugpio_bit);
-
-		/*uart0 suspend printk*/
-		if ((0 == console_suspend_enabled)
-			&& ((uregv >= 117) && (uregv <= 120)))
-			continue;
-
-		if (E_BOARD_TYPE_PLATFORM == get_board_type()) {
-			/*oem board*/
-			if ((uregv == 40) || (uregv == 83))
-				continue;
-
-			if ((uregv >= 129) && (uregv <= 132))
-				continue;
-
-			if ((uregv >= 137) && (uregv <= 140))
-				continue;
-		} else {
-			if ((uregv == 145) || (uregv == 146))
-				continue;
-		}
-
-		uregv = readl(IOMG_REG(i));
-		if (iocfg_lookups[i].iomg_val != -1) {
-			if ((uregv&0x1) == iocfg_lookups[i].iomg_val)
-				writel(uregv, IOMG_REG(i));
-			else
-				writel(iocfg_lookups[i].iomg_val, IOMG_REG(i));
-		}
-
-		uregv = readl(IOCG_REG(i));
-		if (iocfg_lookups[i].iocg_val != -1) {
-			if ((uregv&0x3) == iocfg_lookups[i].iocg_val)
-				writel(uregv, IOCG_REG(i));
-			else
-				writel(iocfg_lookups[i].iocg_val, IOCG_REG(i));
-		}
-
-		uregv = readl(GPIO_DIR(iocfg_lookups[i].ugpiog));
-		uregv &= ~GPIO_BIT(1, iocfg_lookups[i].ugpio_bit);
-		uregv |= GPIO_BIT(iocfg_lookups[i].gpio_dir, iocfg_lookups[i].ugpio_bit);
-		writel(uregv, GPIO_DIR(iocfg_lookups[i].ugpiog));
-
-		uregv = readl(GPIO_DIR(iocfg_lookups[i].ugpiog));
-		uregv = readl(GPIO_DATA(iocfg_lookups[i].ugpiog));
-		uregv &= ~GPIO_BIT(1, iocfg_lookups[i].ugpio_bit);
-		uregv |= GPIO_BIT(iocfg_lookups[i].gpio_val, iocfg_lookups[i].ugpio_bit);
-		writel(uregv, GPIO_DATA(iocfg_lookups[i].ugpiog));
-
-	}
-
+	iomux_debug_set();
 	pr_info("[%s] %d leave.\n", __func__, __LINE__);
-}
-
-/*****************************************************************
-* function: setiomuxvalue
-* description:
-*  set specified io to low power state.
-******************************************************************/
-void setiomuxvalue(int igpio)
-{
-	unsigned uregv = 0;
-
-	if (!(g_usavedcfg & DEBG_SUSPEND_IO_S_SET))
-		return;
-
-	uregv = readl(IOMG_REG(igpio));
-	if (iocfg_lookups[igpio].iomg_val != -1) {
-		if ((uregv&iocfg_lookups[igpio].iomg_val) == iocfg_lookups[igpio].iomg_val)
-			writel(uregv, IOMG_REG(igpio));
-		else
-			writel(iocfg_lookups[igpio].iomg_val, IOMG_REG(igpio));
-	}
-
-	uregv = readl(IOCG_REG(igpio));
-	if (iocfg_lookups[igpio].iocg_val != -1) {
-		if ((uregv&iocfg_lookups[igpio].iocg_val) == iocfg_lookups[igpio].iocg_val)
-			writel(uregv, IOCG_REG(igpio));
-		else
-			writel(iocfg_lookups[igpio].iocg_val, IOCG_REG(igpio));
-	}
-
-
-	if (iocfg_lookups[igpio].gpio_dir != -1) {
-		uregv = readl(GPIO_DIR(iocfg_lookups[igpio].ugpiog));
-		uregv |= GPIO_BIT(iocfg_lookups[igpio].gpio_dir, iocfg_lookups[igpio].ugpio_bit);
-		writel(uregv, GPIO_DIR(iocfg_lookups[igpio].ugpiog));
-
-		uregv = readl(GPIO_DATA(iocfg_lookups[igpio].ugpiog));
-		uregv |= GPIO_BIT(iocfg_lookups[igpio].gpio_val, iocfg_lookups[igpio].ugpio_bit);
-		writel(uregv, GPIO_DATA(iocfg_lookups[igpio].ugpiog));
-	}
 }
 
 /*****************************************************************
@@ -725,83 +72,11 @@ void setiomuxvalue(int igpio)
 ******************************************************************/
 void ioshowstatus(int check)
 {
-	int i = 0;
-	int ilen = sizeof(iocfg_lookups)/sizeof(iocfg_lookups[0]);
-	unsigned int uregv = 0;
-	int iflg = 0;
-
 	if (!(g_usavedcfg & DEBG_SUSPEND_IO_SHOW))
 		return;
 
 	pr_info("[%s] %d enter.\n", __func__, __LINE__);
-
-	for (i = 0; i < ilen; i++) {
-
-		iflg = 0;
-
-		printk("GPIO_%02d_%d (%03d) ",
-			iocfg_lookups[i].ugpiog, iocfg_lookups[i].ugpio_bit,
-			((iocfg_lookups[i].ugpiog<<3)+iocfg_lookups[i].ugpio_bit));
-
-		uregv = readl(IOMG_REG(i));
-		printk("IOMG=0x%02X ", uregv);
-
-		if (check == 1) {
-			if ((uregv == iocfg_lookups[i].iomg_val)
-				|| (-1 == iocfg_lookups[i].iomg_val))
-				printk("(0x%02X) ", (unsigned char)uregv);
-			else {
-				iflg = 1;
-				printk("(0x%02X) ", (unsigned char)iocfg_lookups[i].iomg_val);
-			}
-		}
-
-		uregv = readl(IOCG_REG(i));
-		printk("IOCG=0x%02X ", uregv);
-
-		if (check == 1) {
-			if (((uregv & 0x3) == iocfg_lookups[i].iocg_val)
-				|| (-1 == iocfg_lookups[i].iocg_val))
-				printk("(0x%02X) ", (unsigned char)uregv);
-			else {
-				iflg = 1;
-				printk("(0x%02X) ", (unsigned char)iocfg_lookups[i].iocg_val);
-			}
-		}
-
-		uregv = readl(GPIO_DIR(iocfg_lookups[i].ugpiog));
-		printk("DIR=0x%02X ", GPIO_IS_SET(iocfg_lookups[i].ugpio_bit));
-
-		if (check == 1) {
-			if ((uregv & GPIO_BIT(1, iocfg_lookups[i].ugpio_bit))
-				== (GPIO_BIT(iocfg_lookups[i].gpio_dir, iocfg_lookups[i].ugpio_bit)))
-				printk("(0x%02X) ", GPIO_IS_SET(iocfg_lookups[i].ugpio_bit));
-			else {
-				iflg = 1;
-				printk("(0x%02X) ", (unsigned char)iocfg_lookups[i].gpio_dir);
-			}
-		}
-
-		uregv = readl(GPIO_DATA(iocfg_lookups[i].ugpiog));
-		printk("VAL=0x%02X ", GPIO_IS_SET(iocfg_lookups[i].ugpio_bit));
-
-		if (check == 1) {
-			if (((uregv & GPIO_BIT(1, iocfg_lookups[i].ugpio_bit))
-				== GPIO_BIT(iocfg_lookups[i].gpio_val, iocfg_lookups[i].ugpio_bit))
-				|| (uregv & GPIO_BIT(iocfg_lookups[i].iocg_val, iocfg_lookups[i].ugpio_bit)))
-				printk("(0x%02X) ", GPIO_IS_SET(iocfg_lookups[i].ugpio_bit));
-			else {
-				iflg = 1;
-				printk("(0x%02X) ", (unsigned char)iocfg_lookups[i].gpio_val);
-			}
-		}
-
-		if (iflg == 1)
-			printk("e");
-
-		printk("\n");
-	}
-
+	iomux_debug_show(check);
 	pr_info("[%s] %d leave.\n", __func__, __LINE__);
 }
 
@@ -945,6 +220,10 @@ void debuguart_reinit(void)
 	unsigned int uuart_base  = IO_ADDRESS(REG_EDB_UART);
 	unsigned int io_base = IO_ADDRESS(REG_BASE_IOC);
 	unsigned int uregv = 0;
+
+	if (console_suspend_enabled && (!(g_usavedcfg & DEBG_SUSPEND_PRINTK))) {
+		return;
+	}
 
 	/* Config necessary IOMG configuration */
 	writel(0, (io_base+0xF4));
@@ -1637,44 +916,10 @@ static ssize_t dbg_iomux_read(struct file *filp, char __user *buffer,
 	return count;
 }
 
-/*****************************************************************
-* function:    dbg_iomux_write
-* description:
-*  recieve the configuer of the user.
-******************************************************************/
-static ssize_t dbg_iomux_write(struct file *filp, const char __user *buffer,
-	size_t count, loff_t *ppos)
-{
-	char tmp[128] = {0};
-	int index = 0;
-
-    if (count > 128) {
-		pr_info("error! buffer size big than internal buffer\n");
-		return -EFAULT;
-    }
-
-	if (copy_from_user(tmp, buffer, count)) {
-		pr_info("error!\n");
-		return -EFAULT;
-	}
-
-	if (sscanf(tmp, "%d", &index)) {
-		pr_info("%s, %d, gpio=%d\n", __func__, __LINE__, index);
-		setiomuxvalue(index);
-	} else {
-		pr_info("ERRR~\n");
-	}
-
-	*ppos += count;
-
-	return count;
-}
-
 const struct file_operations dbg_iomux_fops = {
 	.owner	= THIS_MODULE,
 	.open	= dbg_iomux_open,
 	.read	= dbg_iomux_read,
-	.write	= dbg_iomux_write,
 };
 
 
@@ -2430,8 +1675,6 @@ static int lowpm_test_probe(struct platform_device *pdev)
 
 	pr_info("[%s] %d enter.\n", __func__, __LINE__);
 
-	g_ioc_addr = (void __iomem *) IO_ADDRESS(REG_BASE_IOC);
-	g_gpio_addr = (void __iomem *) IO_ADDRESS(REG_BASE_GPIO0);
 	g_sc_addr = (void __iomem *) IO_ADDRESS(REG_BASE_SCTRL);
 	g_pctrl_addr = (void __iomem *) IO_ADDRESS(REG_BASE_PCTRL);
 	g_pmuspi_addr = (void __iomem *) IO_ADDRESS(REG_BASE_PMUSPI);
@@ -2586,8 +1829,6 @@ static void __exit lowpmreg_exit(void)
 
 static int __init lowpmreg_init(void)
 {
-	g_ioc_addr		= (void __iomem *) IO_ADDRESS(REG_BASE_IOC);
-	g_gpio_addr		= (void __iomem *) IO_ADDRESS(REG_BASE_GPIO0);
 	g_sc_addr		= (void __iomem *) IO_ADDRESS(REG_BASE_SCTRL);
 	g_pctrl_addr	= (void __iomem *) IO_ADDRESS(REG_BASE_PCTRL);
 	g_pmuspi_addr	= (void __iomem *) IO_ADDRESS(REG_BASE_PMUSPI);

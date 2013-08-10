@@ -680,7 +680,6 @@ int k3_isp_init(struct platform_device *pdev, data_queue_t *data_queue)
 
 	/* init isp_data struct */
 	k3_isp_set_default();
-	sema_init(&isp_data.check_flash_level_done, 0);
 
 #ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
 	pm_qos_add_request(&g_specialpolicy, PM_QOS_IPPS_POLICY, PM_QOS_IPPS_POLICY_DEFAULT_VALUE);
@@ -965,10 +964,13 @@ int k3_isp_get_ev(void)
 int k3_isp_set_metering_area(metering_area_s *area)
 {
 	print_debug("enter %s", __func__);
+	int ret = 0;
 	if (NULL != camera_tune_ops)
-		if (camera_tune_ops->set_metering_area)
-			return camera_tune_ops->set_metering_area(area);
-	return 0;
+		if (camera_tune_ops->set_metering_area) {
+			ret |= camera_tune_ops->set_metering_area(area, isp_data.zoom);
+			memcpy(&isp_data.ae_area, area, sizeof(metering_area_s));
+		}
+	return ret;
 }
 
 /* for metering mode */
@@ -1260,13 +1262,17 @@ int k3_isp_set_zoom(char preview_running, u32 zoom)
 
 	print_debug("Enter Function:%s	zoom:%d", __func__, zoom);
 
+	isp_data.zoom = zoom;
+
 	if (preview_running) {
 		ret |= isp_hw_ctl->isp_set_zoom(zoom, HIGH_QUALITY_MODE);
 		if (isp_data.sensor->af_enable)
 			ret |= camera_tune_ops->isp_set_focus_zoom(zoom);
+		if (CAMERA_USE_K3ISP == isp_data.sensor->isp_location) {
+			ret |= camera_tune_ops->set_metering_area(&isp_data.ae_area, zoom);
+			ret |= camera_tune_ops->isp_set_sharpness_zoom(zoom);
+		}
 	}
-
-	isp_data.zoom = zoom;
 
 #ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
 	if (0 == ret) {
@@ -1600,7 +1606,7 @@ static void k3_isp_calc_zoom(camera_state state, scale_strategy_t scale_strategy
 	attr->yuv_in_width = *in_width;
 	attr->yuv_in_height = *in_height;
 
-	temp = isp_data.zoom + ZOOM_BASE;
+	temp = isp_zoom_to_ratio(isp_data.zoom, isp_data.video_stab);
 
 	/* if scale down ratio < zoom in ratio ,
 	   we need crop and yuv scale up */
@@ -1707,6 +1713,7 @@ int k3_isp_get_current_vts(void)
 	print_debug("enter %s()", __func__);
 	return isp_hw_ctl->isp_get_current_vts(isp_data.sensor);
 }
+
 int k3_isp_get_current_fps(void)
 {
 	print_debug("enter %s()", __func__);
@@ -1717,12 +1724,30 @@ int k3_isp_get_band_threshold(void)
 	print_debug("enter %s()", __func__);
 	return isp_hw_ctl->isp_get_band_threshold(isp_data.sensor, isp_data.anti_banding);
 }
+
 void k3_isp_set_fps_lock(int lock)
 {
 	print_debug("enter %s()", __func__);
 	camera_tune_ops->isp_set_fps_lock(lock);
 }
 
+void k3_isp_set_video_stabilization(int bStabilization)
+{
+	print_debug("enter %s()", __func__);
+	isp_data.video_stab = bStabilization;
+}
+
+void k3_isp_get_yuv_crop_rect(crop_rect_s *rect)
+{
+	print_debug("enter %s()", __func__);
+	isp_hw_ctl->isp_get_yuv_crop_rect(rect);
+}
+
+void k3_isp_set_yuv_crop_pos(int point)
+{
+	print_debug("enter %s()", __func__);
+	isp_hw_ctl->isp_set_yuv_crop_pos(point);
+}
 /*
  **************************************************************************
  * FunctionName: k3_isp_set_default;
@@ -1759,6 +1784,7 @@ static void k3_isp_set_default(void)
 		isp_data.pic_attr[state].crop_height		= isp_data.pic_attr[state].in_height;
 		isp_data.pic_attr[state].in_fmt			= V4L2_PIX_FMT_RAW10;
 		isp_data.pic_attr[state].out_fmt		= V4L2_PIX_FMT_NV12;
+		isp_data.video_stab = 0;
 	}
 	isp_data.zoom				= 0;
 	isp_data.sensor				= NULL;

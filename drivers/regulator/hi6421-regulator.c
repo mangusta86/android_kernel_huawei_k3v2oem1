@@ -78,6 +78,8 @@ static const u16 regulator_ctrl_to_reg[NUM_OF_HI6421_REGULATOR] = {
 	BUCK3_CTRL_REG,
 	BUCK4_CTRL_REG,
 	BUCK5_CTRL_REG,
+	HI6421_USB_HDMI_CHG_PUMP_CTRL_REG,/*donot used*/
+	HI6421_USB_HDMI_CHG_PUMP_CTRL_REG,/*donot used*/
 };
 
 /*Regulator vset register: set volatage*/
@@ -110,24 +112,28 @@ static const u16 regulator_vset_to_reg[NUM_OF_HI6421_REGULATOR] = {
 	BUCK3_VSET_REG,
 	BUCK4_VSET_REG,
 	BUCK5_VSET_REG,
+	HI6421_USB_HDMI_CHG_PUMP_CTRL_REG,/*donot used*/
+	HI6421_USB_HDMI_CHG_PUMP_CTRL_REG,/*donot used*/
 };
 
 static const u32 on_off_delay_us[NUM_OF_HI6421_REGULATOR] = {
        10000, 10000, 20000, 20000, 20000, 20000, 20000, 20000, 20000, 40000, 40000, /* LDO0 ~ 10 */
        40000, 40000,40000, 40000,40000, 40000,40000, 40000,40000, 40000, 40000, /* LDO_11 ~ LDO20 ,LDO_AUDIO */
-       20000, 20000, 100, 20000, 20000, 20000 /* BUCK0 ~ 5*/
+       20000, 20000, 100, 20000, 20000, 20000, /* BUCK0 ~ 5*/
+       0,0/*donot used*/
 };
 
 static const u32 on_enable_delay_us[NUM_OF_HI6421_REGULATOR] = {
 	250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, /* LDO0 ~ 10 */
 	250, 250, 250, 250, 250, 250, 250, 250, 250, 250, 250, /* LDO_11 ~ LDO20 ,LDO_AUDIO */
-	300, 300, 250, 250, 250, 250 /* BUCK0 ~ 5*/
+	300, 300, 250, 250, 250, 250, /* BUCK0 ~ 5*/
+	0,0 /*donot used*/
 };
 
 
 /*all regulator voltage in mv,the voltage for the regulator within the range*/
 static const u16 regulator_vset_table[NUM_OF_HI6421_REGULATOR][NUM_OF_HI6421_REGULATOR_VSET] = {
-	{1500, 1800, 2400, 2500, 2600, 2700, 2850, 3000}, 	/*ldo0 voltage in mv*/
+	{1500, 1800, 2400, 2500, 2600, 2700, 2850, 3000},	/*ldo0 voltage in mv*/
 	{1700, 1800, 1900, 2000,},
 	{1050, 1100, 1150, 1200, 1250, 1300, 1350, 1400},
 	{1050, 1100, 1150, 1200, 1250, 1300, 1350, 1400},
@@ -155,6 +161,8 @@ static const u16 regulator_vset_table[NUM_OF_HI6421_REGULATOR][NUM_OF_HI6421_REG
 	{700, 800, 900, 950, 1050, 1100, 1150, 1200},		/*buck3 voltage in mv*/
 	{1150, 1200, 1250, 1350, 1700, 1800, 1900, 2000},	/*buck4 voltage in mv*/
 	{1150, 1200, 1250, 1350, 1600, 1700, 1800, 1900},	/*buck5 voltage in mv*/
+	{0, 0, 0, 0, 0, 0, 0, 0},		/*donot used*/
+	{0, 0, 0, 0, 0, 0, 0, 0},		/*donot used*/
 };
 /*this function is get regulator name in order to trace*/
 static const char *hi6421_regulator_get_name(struct regulator_dev *rdev)
@@ -247,6 +255,7 @@ static int hi6421_regulator_enable(struct regulator_dev *dev)
 static int hi6421_regulator_disable(struct regulator_dev *dev)
 {
 	int  regulator_id;
+
 	struct hi6421_regulator_data *hi6421_regulator_data = rdev_get_drvdata(dev);
 	regulator_id =  rdev_get_id(dev);
 	/*LDO0-LDO20(HI6421_LDO_ENA_MASK),LDO_AUDIO(HI6421_LDOAUDIO_ENA_MASK),
@@ -271,13 +280,11 @@ static int hi6421_regulator_disable(struct regulator_dev *dev)
 	if (regulator_id == HI6421_LDO0) {
 		writel(0, hi6421_regulator_data->base + PMU_REST_REG);
 	}
-
 	if (regulator_id == HI6421_LDO12) {
 		gpio_direction_output(SD_GPIO_DCDC, 0);
 		gpio_free(SD_GPIO_DCDC);
 	}
 	do_gettimeofday(&hi6421_regulator_data->lastoff_time[regulator_id]);
-
 	return 0;
 }
 static int hi6421_regulator_list_voltage(struct regulator_dev *dev,
@@ -504,7 +511,7 @@ static int hi6421_chg_pump_is_enabled(struct regulator_dev *dev)
 		rdev_err(NULL, "there is no chg pump\n");
 		return -EINVAL;
 	}
-	
+
 }
 static int hi6421_chg_pump_enable(struct regulator_dev *dev)
 {
@@ -534,6 +541,7 @@ static int hi6421_chg_pump_disable(struct regulator_dev *dev)
 	#ifdef HI6421_REGULATOR_DEBUG
 	rdev_info(dev, "will be disabled\n");
 	#endif
+
 	if (regulator_id == HI6421_USB_CHG_PUMP) {
 		hi6421_regulator_set_bits(hi6421_regulator_data, (u16)HI6421_USB_HDMI_CHG_PUMP_CTRL_REG,
 			HI6421_USB_CHG_PUMP_ENA_MASK, 0);

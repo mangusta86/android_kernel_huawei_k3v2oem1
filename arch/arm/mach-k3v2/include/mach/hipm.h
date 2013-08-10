@@ -195,6 +195,7 @@ DPSLEEP_CODE_LEN:        the len of DeepSleep Code
 #ifndef __ASSEMBLY__
 extern asmlinkage void hilpm_cpu_godpsleep(void);
 extern asmlinkage void hilpm_cp_securam_code(void);
+extern asmlinkage void hilpm_cp_cpuidle_code(void);
 #endif
 
 #endif /* #ifndef __MACH_K3V2_HIPM_H */

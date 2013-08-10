@@ -33,18 +33,31 @@
 
 #define CAMERA_MIN_CAP_FRAMERATE		8
 
-#define ISP_RUNNING_CLOCK		(131000000L)
-#define ISP_MCLK_DIVIDER		(8)
-#define CAMERA_MCLK			(ISP_RUNNING_CLOCK / ISP_MCLK_DIVIDER)
+/* Default camera sensor definitions(use K3 ISP), maybe override by sensor*/
+#define CAMERA_MAX_ISO			1600
+#define CAMERA_MIN_ISO			100
 
-#define	CAMERA_EXPOSURE_MAX		2
+
+#define CAMERA_AUTO_FPS_MAX_GAIN	0x60
+#define CAMERA_AUTO_FPS_MIN_GAIN	0x28
+
+#define CAMERA_MAX_FRAMERATE		30
+#define CAMERA_MIN_FRAMERATE		15
+#define CAMERA_MIN_CAP_FRAMERATE	8
+
+#define CAMERA_FLASH_TRIGGER_GAIN	0x80
+
+#define CAMERA_SHARPNESS_PREVIEW	0x30
+#define CAMERA_SHARPNESS_CAPTURE	0x0A
+
+/* Below is recommended to be fixed parameters */
+#define AUTO_FRAME_RATE_TRIGER_COUNT		4
+#define FLASH_TRIGGER_LUM_RATIO	0xc0
+/* 600mA flash lum maybe only 4 times of 100mA. */
+#define FLASH_CAP2PRE_RATIO			0x04
+
+#define CAMERA_EXPOSURE_MAX		2
 #define CAMERA_EXPOSURE_STEP	100
-
-typedef enum {
-	CAMERA_BYD_LENSCORRECTION = 0,
-	CAMERA_LITEON_LENSCORRECTION,
-	CAMERA_SUNNY_LENSCORRECTION,
-} camera_lens_correction;
 
 typedef enum {
 	CAMERA_CONTRAST_L2 = 0,
@@ -232,6 +245,8 @@ typedef enum {
 	CAMERA_FOCUS_EDOF,
 	CAMERA_FOCUS_CONTINUOUS_VIDEO,
 	CAMERA_FOCUS_CONTINUOUS_PICTURE,
+	CAMERA_FOCUS_AUTO_VIDEO,
+	CAMERA_FOCUS_MAX,
 } camera_focus;
 
 typedef enum {
@@ -361,6 +376,13 @@ typedef struct _camera_rect_s {
 	 */
 	u32 weight;
 } camera_rect_s;
+typedef struct crop_rect_s {
+	u32 ori_width;
+	u32 ori_height;
+	u32 crop_width;
+	u32 crop_height;
+} crop_rect_s;
+
 
 typedef struct _axis_triple {
 	int x;
@@ -388,6 +410,12 @@ typedef enum _FOCUS_RANGE{
 	RANGE_MACRO,
 } FOCUS_RANGE;
 
+typedef enum _VCM_TYPE{
+	VCM_AD5823 = 0,
+	VCM_DW9714,
+	VCM_OTHER,
+} VCM_TYPE;
+
 /*default should be designed as center area focus*/
 typedef struct _focus_area_s {
 	u32 focus_rect_num;
@@ -408,7 +436,7 @@ typedef struct _metering_area_s {
 
 /* AF vcm information definition */
 typedef struct _vcm_info_s {
-	char *vcm_name;		/* for example, OV8830-4P's driver IC is "DW9714" */
+	VCM_TYPE vcm_type;
 	u32 vcm_bits;		/* 16bits or 8bits */
 	u32 vcm_id;		/* for example, "DW9714" is 0x18 */
 	u32 moveLensAddr[2];
@@ -432,8 +460,11 @@ typedef struct _vcm_info_s {
 	u32 fineStep; /* half of coarseStep */
 
 	u32 motorResTime;	/* response time, in unit of ms */
+	u32 motorDelayTime;	/* delay time of each step in stride divide case */
+	u32 strideDivideOffset;
 
 	FOCUS_RANGE moveRange;/*0:Auto; 1:Infinite; 2:Macro*/
+
 
 	void (*get_vcm_otp) (u16 *vcm_start, u16 *vcm_end);
 } vcm_info_s;
@@ -454,6 +485,7 @@ typedef struct {
 	int (*isp_set_focus_area) (focus_area_s *area, u32 zoom);	
 	int (*isp_get_focus_result) (focus_result_s *result);
 	int (*isp_set_focus_zoom) (u32 zoom);
+	int (*isp_set_sharpness_zoom) (u32 zoom);
 
 	/* For anti-shaking */
 	int (*isp_set_anti_shaking) (camera_anti_shaking flag);
@@ -464,7 +496,7 @@ typedef struct {
 	int (*set_iso) (camera_iso iso);
 	int (*set_ev) (int ev);
 	int (*set_metering_mode) (camera_metering mode);
-	int (*set_metering_area) (metering_area_s *area);
+	int (*set_metering_area) (metering_area_s *area, u32 zoom);
 
 	int (*set_gsensor_stat) (axis_triple *xyz);
 
@@ -566,10 +598,13 @@ typedef enum {
 	FLASH_FROZEN,
 } camera_flash_flow;
 
+/* changed by y00231328. sensor gain and expo active fuction is almost like OV or Sony. */
 typedef enum {
 	SENSOR_OV = 0,
 	SENSOR_SONY,
 	SENSOR_SAMSUNG,
+	SENSOR_LIKE_OV,	/* sensor gain effect next frame, expo effect next 2 frames. */
+	SENSOR_LIKE_SONY,	/* sensor gain and expo effect next 2 frames. */
 } camera_sensor_type;
 
 typedef enum {
@@ -626,6 +661,25 @@ typedef struct _ccm_gain {
 	u16 g_gain;
 	u16 r_gain;
 } ccm_gain_t;
+
+typedef enum {
+	OVERRIDE_ISO_HIGH = 0,
+	OVERRIDE_ISO_LOW,
+
+	OVERRIDE_AUTO_FPS_GAIN_HIGH,
+	OVERRIDE_AUTO_FPS_GAIN_LOW,
+
+	OVERRIDE_FPS_MAX,
+	OVERRIDE_FPS_MIN,
+	OVERRIDE_CAP_FPS_MIN,
+
+	OVERRIDE_FLASH_TRIGGER_GAIN,
+	
+	OVERRIDE_SHARPNESS_PREVIEW,
+	OVERRIDE_SHARPNESS_CAPTURE,
+
+	OVERRIDE_TYPE_MAX,
+} camera_override_type_t;
 
 typedef struct _camera_sensor {
 	/* init and exit function */
@@ -696,9 +750,14 @@ typedef struct _camera_sensor {
 	struct i2c_t i2c_config;
 
 	camera_sensor_type sensor_type;
+	/* changed by y00231328. Differ from sensor type and bayer order */
+	camera_sensor_rgb_type sensor_rgb_type;
 
 	u32 aec_addr[3];	/*high and low byte, y36721 2012-04-12 add a new higher byte */
 	u32 agc_addr[2];	/*high and low byte */
+
+	/*in AP write AE mode, delay time(unit us) between report expo&gain and ISP download sensor settings.*/
+	u32 ap_writeAE_delay;
 
 	/*if 1, then isp is integrated in sensor */
 	isp_location_t isp_location;
@@ -715,6 +774,9 @@ typedef struct _camera_sensor {
 	u32 (*get_gain) (void);
 	void (*set_exposure) (u32 exposure);
 	u32 (*get_exposure) (void);
+
+	/* changed by y00231328.some sensor such as S5K4E1, expo and gain should be set together in holdon mode */
+	void (*set_exposure_gain) (u32 exposure, u32 gain);
 
 	void (*set_vts) (u16 vts);
 	u32 (*get_vts_reg_addr) (void);
@@ -733,6 +795,9 @@ typedef struct _camera_sensor {
 
 	int (*get_sensor_aperture)(void);
 	int (*get_equivalent_focus)(void);
+
+	/*get sensor override parameters */
+	u32 (*get_override_param)(camera_override_type_t type);
 
 	u32 fmt[STATE_MAX];
 	u32 preview_frmsize_index;
@@ -769,6 +834,9 @@ typedef struct _camera_sensor {
 	/* some sensor related params */
 	image_setting_t image_setting;
 
+	/* red clip correcttion function for raw sensor switch*/
+	bool rcc_enable;
+
 	struct module *owner;
 	camera_info_t info;
 	u8 lane_clk;
@@ -777,6 +845,7 @@ typedef struct _camera_sensor {
 extern framesize_s camera_framesizes[CAMERA_RESOLUTION_MAX];
 extern vcm_info_s vcm_ad5823;
 extern vcm_info_s vcm_dw9714;
+extern u32 sensor_override_params[];
 
 /* get camera control data struct */
 camera_sensor *get_camera_sensor_from_array(sensor_index_t sensor_index);

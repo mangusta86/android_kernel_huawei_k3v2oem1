@@ -22,7 +22,6 @@ typedef struct board_id_parameter{
 	unsigned int board_id;
 }boardid_parameter;
 
-
 /* Format of hex string: 0x12345678 */
 #define HEX_STRING_MAX		(10)
 

@@ -540,6 +540,7 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 {
 	struct mmc_card *card;
 	int err, ddr = 0;
+	int card_is_null = 0;
 	u32 cid[4];
 	unsigned int max_dtr;
 	u32 rocr;
@@ -739,8 +740,10 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 
 	mmc_set_clock(host, max_dtr);
 
-	if (!oldcard)
+	if (!host->card) {
 		host->card = card;
+		card_is_null = 1;
+	}
 
 	if (card->host->ops->execute_tuning)
 		card->host->ops->execute_tuning(card->host);
@@ -821,7 +824,7 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 			printk(KERN_WARNING "%s: switch to bus width %d ddr %d "
 				"failed\n", mmc_hostname(card->host),
 				1 << bus_width, ddr);
-			if (!oldcard)
+			if (card_is_null)
 				host->card = NULL;
 
 			goto free_card;
@@ -844,7 +847,7 @@ static int mmc_init_card(struct mmc_host *host, u32 ocr,
 				err = mmc_set_signal_voltage(host,
 					MMC_SIGNAL_VOLTAGE_120, 0);
 				if (err) {
-					if (!oldcard)
+					if (card_is_null)
 						host->card = NULL;
 					goto err;
 				}

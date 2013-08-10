@@ -38,13 +38,18 @@
 #define K3FB_IOCTL_MAGIC 'm'
 #define K3FB_CURSOR _IOW(K3FB_IOCTL_MAGIC, 130, struct fb_cursor)
 #define K3FB_TIMING_SET _IOW(K3FB_IOCTL_MAGIC, 131, struct fb_var_screeninfo)
-#define K3FB_PLAYVIDEO_SET _IOW(K3FB_IOCTL_MAGIC, 132, unsigned int)
+#define K3FB_VSYNC_INT_SET _IOW(K3FB_IOCTL_MAGIC, 132, unsigned int)
 
 #define K3FB_OVERLAY_GET	_IOR(K3FB_IOCTL_MAGIC, 135, struct overlay_info)
 #define K3FB_OVERLAY_SET	_IOWR(K3FB_IOCTL_MAGIC, 136, struct overlay_info)
 #define K3FB_OVERLAY_UNSET	_IOW(K3FB_IOCTL_MAGIC, 137, unsigned int)
 #define K3FB_OVERLAY_PLAY	_IOW(K3FB_IOCTL_MAGIC, 138, struct overlay_data)
 
+#define K3FB_FRC_SET		_IOW(K3FB_IOCTL_MAGIC, 139, char *)
+#define K3FB_G2D_SET_FREQ	_IOW(K3FB_IOCTL_MAGIC, 140, char *)
+#define K3FB_SBL_SET_VALUE	_IOW(K3FB_IOCTL_MAGIC, 141, int)
+
+#define K3FB_OVC_CHECK_DDR_FREQ _IOW(K3FB_IOCTL_MAGIC, 142, char *) /* CONFIG_OVERLAY_COMPOSE */
 
 enum {
 	K3_DISABLE = 0,
@@ -188,6 +193,13 @@ struct k3fb_img {
 	uint32_t width;
 	uint32_t height;
 	uint32_t is_video;
+	/* CONFIG_OVERLAY_COMPOSE start */
+	uint32_t bgr_fmt;
+	int32_t blending;
+	struct k3fb_rect partial_dst_rect; /* partial ovc */
+	uint32_t partial_format;
+	int32_t partial_blending; /* partial ovc */
+	/* CONFIG_OVERLAY_COMPOSE end */
 };
 
 struct overlay_data {
@@ -204,6 +216,11 @@ struct overlay_info {
 	uint32_t rotation;
 	uint32_t dither;
 	uint32_t hd_enable;
+	/* CONFIG_OVERLAY_COMPOSE start */
+	uint32_t cfg_disable;
+	uint32_t is_overlay_compose;
+	uint32_t need_unset;
+	/* CONFIG_OVERLAY_COMPOSE end */
 };
 
 

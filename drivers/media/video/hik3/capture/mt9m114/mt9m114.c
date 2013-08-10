@@ -56,7 +56,7 @@
 #include "../isp/cam_log.h"
 #include "../isp/cam_dbg.h"
 
-#define QCIF_WIDTH		176		
+#define QCIF_WIDTH		176
 #define MT9M114_APERTURE_FACTOR		240 // F2.4
 #define MT9M114_EQUIVALENT_FOCUS	31  // 31mm
 
@@ -705,7 +705,8 @@ static int mt9m114_find_sensor(sensor_module fix_sensor, int index)
 	mt9m114_read_reg(0x0000, &id);
 	if (fix_sensor.chip_id == id) {
 		camera_index = index;
-		strcpy(mt9m114_sensor.info.name,fix_sensor.sensor_name);
+		memset(mt9m114_sensor.info.name, 0, sizeof(mt9m114_sensor.info.name));
+		strncpy(mt9m114_sensor.info.name, fix_sensor.sensor_name, sizeof(mt9m114_sensor.info.name) - 1);
 		print_info("mt9m114 module slave address=%d, %s verify successfully.\n", fix_sensor.slave_addr, mt9m114_sensor.info.name);
 		return 1;
 	} else {
@@ -991,7 +992,7 @@ static void mt9m114_set_default(void)
 
 	mt9m114_sensor.update_framerate = mt9m114_update_frame_rate;
 
-	strcpy(mt9m114_sensor.info.name,"mt9m114");
+	strncpy(mt9m114_sensor.info.name, "mt9m114", sizeof(mt9m114_sensor.info.name));
 	mt9m114_sensor.interface_type = MIPI2;
 	mt9m114_sensor.mipi_lane_count = CSI_LINES_1;
 	mt9m114_sensor.mipi_index = CSI_INDEX_1;

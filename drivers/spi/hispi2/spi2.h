@@ -1,9 +1,4 @@
-/*******************************************************************************
- * Copyright:   Copyright (c) 2007. Hisilicon Technologies, CO., LTD. 
- * Version:     V300R001B03
- * Filename:    spi2.h
- * Description: spi2总线驱动头文件(for android)
-*******************************************************************************/
+
 
 #include <mach/hisi_spi2.h>
 

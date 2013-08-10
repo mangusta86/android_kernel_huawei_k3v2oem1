@@ -17,8 +17,7 @@
 #include <linux/delay.h>
 #include "k3dma.h"
 
-
-static unsigned int init_nr_desc_per_channel = 64;
+static unsigned int init_desc_len = (sizeof(struct k3dma_desc) /K3_DMA_ALIGN + 1)  * K3_DMA_ALIGN;
 
 /* ---------------------------declare funcs------------------------- */
 static dma_cookie_t k3dma_tx_submit(struct dma_async_tx_descriptor *tx);
@@ -141,37 +140,15 @@ static struct device *chan2dev(struct dma_chan *chan)
 	return &chan->dev->device;
 }
 
-/**
- * k3dma_alloc_descriptor - allocate and return an initilized descriptor
- * @chan: the channel to allocate descriptors for
- * @gfp_flags: GFP allocation flags
- *
- * Note: The ack-bit is positioned in the descriptor flag at creation time
- * to make initial allocation more convenient. This bit will be cleared
- * and control will be given to client at usage time (during
- * preparation functions).
- */
-static struct k3dma_desc *k3dma_alloc_descriptor(struct dma_chan *chan,
-						gfp_t gfp_flags)
+static void k3dma_init_descriptor(struct dma_chan *chan,
+					struct k3dma_desc *desc)
 {
-	struct k3dma_desc	*desc		= NULL;
-	struct k3dma_device		*k3dma	= to_k3dma(chan->device);
-	dma_addr_t phys;
-
-	desc = dma_pool_alloc(k3dma->dma_desc_pool, gfp_flags, &phys);
-	if (desc) {
-		memset(desc, 0, sizeof(struct k3dma_desc));
-		INIT_LIST_HEAD(&desc->tx_list);
-		dma_async_tx_descriptor_init(&desc->txd, chan);
-		/* txd.flags will be overwritten in prep functions */
-		desc->txd.flags = DMA_CTRL_ACK;
-		desc->txd.tx_submit = k3dma_tx_submit;
-		desc->txd.phys = phys;
-		dev_dbg(chan2dev(chan), "desc->txd.phys=0x%x\n",
-			desc->txd.phys);
-	}
-
-	return desc;
+	INIT_LIST_HEAD(&desc->tx_list);
+	dma_async_tx_descriptor_init(&desc->txd, chan);
+	/* txd.flags will be overwritten in prep functions */
+	desc->txd.flags = DMA_CTRL_ACK;
+	desc->txd.tx_submit = k3dma_tx_submit;
+	desc->txd.phys = virt_to_dma(NULL, &desc->lli);
 }
 
 /**
@@ -217,17 +194,37 @@ static struct k3dma_desc *k3dma_desc_get(struct k3dma_chan *k3chan)
 	dev_dbg(chan2dev(&k3chan->chan_common),
 		"scanned %u descriptors on freelist\n", i);
 
-	/* no more descriptor available in initial pool: create one more */
 	if (!ret) {
-		ret = k3dma_alloc_descriptor(&k3chan->chan_common, GFP_ATOMIC);
-		if (ret) {
-			spin_lock_irqsave(&k3chan->lock, flags);
-			k3chan->descs_allocated++;
-			spin_unlock_irqrestore(&k3chan->lock, flags);
-		} else {
+		unsigned int init_nr_desc_per_channel = PAGE_SIZE / init_desc_len;
+		struct dma_chan *chan = &k3chan->chan_common;
+		struct k3dma_desc_page* k3_desc_pg = (struct k3dma_desc_page*)kmalloc(sizeof(struct k3dma_desc_page),GFP_ATOMIC);
+		if (!k3_desc_pg) {
 			dev_err(chan2dev(&k3chan->chan_common),
-					"not enough descriptors available\n");
+				"no memery for desc\n");
+			return ret;
 		}
+		memset(k3_desc_pg, 0, sizeof(struct k3dma_desc_page));
+
+		k3_desc_pg->page_link = (unsigned char *) __get_free_page(GFP_ATOMIC);
+		if (!k3_desc_pg->page_link) {
+			dev_err(chan2dev(&k3chan->chan_common),
+				"no memery for page link\n");
+			kfree(k3_desc_pg);
+			return ret;
+		}
+		memset(k3_desc_pg->page_link, 0, PAGE_SIZE);
+		for (i = 0; i < init_nr_desc_per_channel; i++) {
+			desc = (struct k3dma_desc*)((unsigned char*)k3_desc_pg->page_link + init_desc_len * i);
+			k3dma_init_descriptor(chan, desc);
+			list_add_tail(&desc->desc_node, &tmp_list);
+		}
+		spin_lock_irqsave(&k3chan->lock, flags);
+		k3chan->descs_allocated += i;
+		list_splice(&tmp_list, &k3chan->free_list);
+		ret = desc;
+		list_del(&desc->desc_node);
+		list_add(&k3_desc_pg->pg_node, &k3chan->k3chan_page_list);
+		spin_unlock_irqrestore(&k3chan->lock, flags);
 	}
 
 	return ret;
@@ -1083,13 +1080,20 @@ k3dma_prep_slave_sg(struct dma_chan *chan, struct scatterlist *sgl,
 			u32		len;
 			u32		mem;
 
+			if (unlikely(NULL == sg)) {
+				dev_err(chan2dev(chan),
+					"%s  sg is null pointer!\n",
+					__func__);
+				goto err_desc_get;
+			}
+
 			mem = sg_dma_address(sg);
 			len = sg_dma_len(sg);
 			if (unlikely(!len || (len >= SZ_1G))) {
 				dev_err(chan2dev(chan),
 					"%s  length is zero or above 1G!\n",
 					__func__);
-				return NULL;
+				goto err_desc_get;
 			}
 
 			desc = k3dma_fill_llis_for_desc(k3chan, mem, reg, len,
@@ -1109,13 +1113,20 @@ k3dma_prep_slave_sg(struct dma_chan *chan, struct scatterlist *sgl,
 			u32		len;
 			u32		mem;
 
+			if (unlikely(NULL == sg)) {
+				dev_err(chan2dev(chan),
+					"%s  sg is null pointer!\n",
+					__func__);
+				goto err_desc_get;
+			}
+
 			mem = sg_dma_address(sg);
 			len = sg_dma_len(sg);
 			if (unlikely(!len || (len >= SZ_1G))) {
 				dev_err(chan2dev(chan),
 					"%s  length is zero or above 1G!\n",
 					__func__);
-				return NULL;
+				goto err_desc_get;
 			}
 
 			desc = k3dma_fill_llis_for_desc(k3chan, reg, mem, len,
@@ -1360,33 +1371,49 @@ static void k3dma_issue_pending(struct dma_chan *chan)
 static int k3dma_alloc_chan_resources(struct dma_chan *chan)
 {
 	struct k3dma_chan	*k3chan = to_k3dma_chan(chan);
-	struct k3dma_device		*k3dma = to_k3dma(chan->device);
+	struct k3dma_desc_page* k3_desc_pg = NULL;
 	struct k3dma_desc		*desc;
 	int			i;
 	unsigned long flags;
+	unsigned int init_nr_desc_per_channel = PAGE_SIZE / init_desc_len;
+
 	LIST_HEAD(tmp_list);
 
 	dev_dbg(chan2dev(chan), "alloc_chan_resources\n");
 
 	/* have we already been set up?
 	 * reconfigure channel but no need to reallocate descriptors */
-	if (!list_empty(&k3chan->free_list))
+	if ((!list_empty(&k3chan->free_list)) && (!list_empty(&k3chan->k3chan_page_list)))
 		return k3chan->descs_allocated;
 
-	/* Allocate initial pool of descriptors */
+	/* Allocate descriptors */
+	k3_desc_pg = (struct k3dma_desc_page*)kmalloc(sizeof(struct k3dma_desc_page),GFP_KERNEL);
+	if (!k3_desc_pg) {
+		dev_err(chan2dev(&k3chan->chan_common),
+			"no memery for desc\n");
+		return 0;
+	}
+	memset(k3_desc_pg, 0, sizeof(struct k3dma_desc_page));
+
+	k3_desc_pg->page_link = (unsigned char *) __get_free_page(GFP_KERNEL);
+	if (!k3_desc_pg->page_link) {
+		dev_err(chan2dev(&k3chan->chan_common),
+			"no memery for page link\n");
+		kfree(k3_desc_pg);
+		return 0;
+	}
+	memset(k3_desc_pg->page_link, 0, PAGE_SIZE);
+
 	for (i = 0; i < init_nr_desc_per_channel; i++) {
-		desc = k3dma_alloc_descriptor(chan, GFP_KERNEL);
-		if (!desc) {
-			dev_err(k3dma->dma_common.dev,
-				"Only %d initial descriptors\n", i);
-			break;
-		}
+		desc = (struct k3dma_desc*)((unsigned char*)k3_desc_pg->page_link + init_desc_len * i);
+		k3dma_init_descriptor(chan, desc);
 		list_add_tail(&desc->desc_node, &tmp_list);
 	}
 
 	spin_lock_irqsave(&k3chan->lock, flags);
 	k3chan->descs_allocated = i;
 	list_splice(&tmp_list, &k3chan->free_list);
+	list_add(&k3_desc_pg->pg_node, &k3chan->k3chan_page_list);
 	k3chan->lc = chan->cookie = 1;
 	spin_unlock_irqrestore(&k3chan->lock, flags);
 
@@ -1404,8 +1431,8 @@ static int k3dma_alloc_chan_resources(struct dma_chan *chan)
 static void k3dma_free_chan_resources(struct dma_chan *chan)
 {
 	struct k3dma_chan	*k3chan = to_k3dma_chan(chan);
-	struct k3dma_device		*k3dma = to_k3dma(chan->device);
 	struct k3dma_desc		*desc, *_desc;
+	struct k3dma_desc_page    *k3chan_page,*_k3chan_page;
 	unsigned long flags;
 	LIST_HEAD(list);
 
@@ -1417,12 +1444,17 @@ static void k3dma_free_chan_resources(struct dma_chan *chan)
 	list_for_each_entry_safe(desc, _desc, &k3chan->free_list, desc_node) {
 		dev_dbg(chan2dev(chan), "  freeing descriptor %p\n", desc);
 		list_del(&desc->desc_node);
-		/* free link descriptor */
-		dma_pool_free(k3dma->dma_desc_pool, desc, desc->txd.phys);
+	}
+
+	list_for_each_entry_safe(k3chan_page, _k3chan_page, &k3chan->k3chan_page_list, pg_node) {
+		list_del(&k3chan_page->pg_node);
+		free_page((unsigned long)k3chan_page->page_link);
+		kfree(k3chan_page);
 	}
 
 	spin_lock_irqsave(&k3chan->lock, flags);
 	list_splice_init(&k3chan->free_list, &list);
+	list_splice_init(&k3chan->k3chan_page_list, &list);
 	k3chan->descs_allocated = 0;
 	spin_unlock_irqrestore(&k3chan->lock, flags);
 
@@ -1465,6 +1497,7 @@ static void k3dma_init_virtual_channels(struct k3dma_device *k3dma)
 
 		INIT_LIST_HEAD(&k3chan->free_list);
 		INIT_LIST_HEAD(&k3chan->pend_list);
+		INIT_LIST_HEAD(&k3chan->k3chan_page_list);
 
 		tasklet_init(&k3chan->tasklet, k3dma_tasklet,
 				(unsigned long)k3chan);
@@ -1477,6 +1510,7 @@ static void k3dma_init_virtual_channels(struct k3dma_device *k3dma)
 static void k3dma_deinit_virtual_channels(struct k3dma_device *k3dma)
 {
 	struct dma_chan		*chan, *_chan;
+	struct k3dma_desc_page    *k3chan_page,*_k3chan_page;
 
 	list_for_each_entry_safe(chan, _chan, &k3dma->dma_common.channels,
 			device_node) {
@@ -1487,6 +1521,12 @@ static void k3dma_deinit_virtual_channels(struct k3dma_device *k3dma)
 		tasklet_kill(&k3chan->tasklet);
 		k3chan->phychan = NULL;
 		k3chan->at = NULL;
+		list_for_each_entry_safe(k3chan_page, _k3chan_page, &k3chan->k3chan_page_list, pg_node) {
+			list_del(&k3chan_page->pg_node);
+			free_page((unsigned long)k3chan_page->page_link);
+			kfree(k3chan_page);
+		}
+		INIT_LIST_HEAD(&k3chan->k3chan_page_list);
 		list_del(&chan->device_node);
 	}
 
@@ -1646,19 +1686,6 @@ static int k3dma_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, k3dma);
 
-	/* create a pool of consistent memory blocks for hardware txdriptors */
-	k3dma->dma_desc_pool = dma_pool_create("k3dma_desc_pool",
-			&pdev->dev, sizeof(struct k3dma_desc),
-			K3_DMA_ALIGN /* word alignment */, 0);
-
-	if (!k3dma->dma_desc_pool) {
-		dev_err(&pdev->dev, "%s: No memory for descriptors dma pool\n",
-			__func__);
-		err = -ENOMEM;
-		goto err_pool_create;
-	}
-	dev_dbg(&pdev->dev, "sizeof(struct k3dma_desc)=0x%x\n",
-		sizeof(struct k3dma_desc));
 	spin_lock_init(&k3dma->lock);
 
 	/*initialize phy channels*/
@@ -1720,8 +1747,6 @@ out_no_virtualchans:
 	kfree(k3dma->phy_chans);
 	k3dma->phy_chans = NULL;
 out_no_phychans:
-	dma_pool_destroy(k3dma->dma_desc_pool);
-err_pool_create:
 	platform_set_drvdata(pdev, NULL);
 	free_irq(platform_get_irq(pdev, 0), k3dma);
 err_irq:
@@ -1796,9 +1821,6 @@ static int k3dma_remove(struct platform_device *pdev)
 	k3dma_deinit_virtual_channels(k3dma);
 	kfree(k3dma->dma_chans);
 	k3dma->dma_chans = NULL;
-
-	/*destrop dma pool*/
-	dma_pool_destroy(k3dma->dma_desc_pool);
 
 	 /*unmap regs*/
 	iounmap(k3dma->regs);

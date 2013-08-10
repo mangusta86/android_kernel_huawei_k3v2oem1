@@ -9,11 +9,10 @@ struct st_read_proc {
 };
 
 extern unsigned int get_pd_charge_flag(void);
-
 extern unsigned int get_boot_into_recovery_flag(void);
-
 extern unsigned int resetmode_is_normal(void);
 
+extern unsigned int get_boot_into_recovery_flag(void);
 /* same as in proc_misc.c */
 static int proc_calc_metrics(char *page, char **start, off_t off,
 				 int count, int *eof, int len)
@@ -37,7 +36,7 @@ static int app_tag_read_proc(char *page, char **start, off_t off,
 	u32 recovery_flag = 0;
 	u32 reset_normal_flag = 0;
 
-    recovery_flag = get_boot_into_recovery_flag();
+	recovery_flag = get_boot_into_recovery_flag();
 	charge_flag = get_pd_charge_flag();
 	reset_normal_flag = resetmode_is_normal();
 
@@ -64,4 +63,3 @@ void __init proc_app_info_init(void)
 	for (p = simple_ones; p->name; p++)
 		create_proc_read_entry(p->name, 0, NULL, p->read_proc, NULL);
 }
-

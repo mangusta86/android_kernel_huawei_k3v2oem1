@@ -109,6 +109,11 @@ struct k3dma_phy_chan {
 	spinlock_t				lock;
 };
 
+struct k3dma_desc_page {
+	struct list_head   pg_node;
+	unsigned char * page_link;
+};
+
 /**
  * struct k3dma_chan - internal representation of an hidmav300 slave channel
  * @chan_common: common dmaengine channel object members
@@ -149,6 +154,7 @@ struct k3dma_chan {
 	u32				ref_count;
 	dma_cookie_t	lc;
 	spinlock_t		lock;
+	struct list_head           k3chan_page_list;
 };
 
 

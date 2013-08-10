@@ -815,6 +815,10 @@ slave_mmu_enabled:
 	**/
 	bl      hilpm_cp_securam_code
 
+#ifdef CONFIG_CPU_IDLE
+	bl	hilpm_cp_cpuidle_code
+#endif
+
 goback_to_kernel:
 
 	@resume current mode registers

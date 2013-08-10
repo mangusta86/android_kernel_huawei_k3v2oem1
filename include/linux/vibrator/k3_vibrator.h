@@ -29,7 +29,10 @@
 #define SET_MODE	(0x01) /*direct mode*/
 #define	ISET_POWER	(0xF0)  /* power */
 #define ISET_POWERSTRONG (0xe0)
-#define	DR2_DISABLE	(0xFE) /*  disable */
+
+/*#define	DR2_DISABLE	(0xFE) /* linearity  disable */
+#define	DR2_DISABLE	(0xFC) /*  direct current disable */
+
 
 #define	TIMEOUT_MIN 	(35)
 

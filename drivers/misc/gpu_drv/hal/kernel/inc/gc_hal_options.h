@@ -595,9 +595,16 @@
         timeout value.
  */
 
+#ifndef CONFIG_LCD_1080P
 #ifndef gcdPOWEROFF_TIMEOUT
 #   define gcdPOWEROFF_TIMEOUT                  100
 #   define gcvPOWEROFF_TIMEOUT_2D                 1
+#endif
+#else
+#ifndef gcdPOWEROFF_TIMEOUT
+#   define gcdPOWEROFF_TIMEOUT                  0 //500
+#   define gcvPOWEROFF_TIMEOUT_2D                 1
+#endif
 #endif
 
 /*
@@ -749,6 +756,21 @@
 
 #ifndef gcdSIZE_ALLOW_TO_CONTIGUOUS
 #   define gcdSIZE_ALLOW_TO_CONTIGUOUS          (16 * 4096)
+#endif
+
+/*
+    gcdLINK_QUEUE_SIZE
+
+        When non-zero, driver maintains a queue to record information of
+        latest lined context buffer and command buffer. Data in this queue
+        is be used to debug.
+*/
+#ifndef gcdLINK_QUEUE_SIZE
+#   define gcdLINK_QUEUE_SIZE                  0
+#endif
+
+#ifndef gcdSYNC
+#   define gcdSYNC                              1
 #endif
 
 #endif /* __gc_hal_options_h_ */

@@ -62,6 +62,7 @@
 #define GPIO_PWM0   (149)
 #define GPIO_PWM1   (150)
 
+/* for framebuffer */
 #define GPIO_LCD_POWER_NAME "gpio_lcd_power"
 #define GPIO_LCD_RESET_NAME "gpio_lcd_reset"
 #define GPIO_LCD_ID0_NAME "gpio_lcd_id0"
@@ -72,20 +73,37 @@
 #define REGULATOR_DEV_LCD_NAME  "k3_dev_lcd"
 #define REGULATOR_DEV_EDC_NAME  "k3_dev_edc"
 
+#ifdef CONFIG_LCD_TOSHIBA_MDW70
+#define PLATFORM_DEVICE_LCD_NAME "mipi_toshiba_MDW70_V001"
+#elif  defined(CONFIG_LCD_PANASONIC_VVX10F002A00)
+#define PLATFORM_DEVICE_LCD_NAME "mipi_panasonic_VVX10F002A00"
+#elif defined(CONFIG_LCD_CMI_OTM1280A)
+#define PLATFORM_DEVICE_LCD_NAME "mipi_cmi_OTM1280A"
+#elif defined(CONFIG_LCD_SAMSUNG_LMS350DF04)
 #define PLATFORM_DEVICE_LCD_NAME "ldi_samsung_LMS350DF04"
-/*
+#elif defined(CONFIG_LCD_SAMSUNG_S6E39A)
 #define PLATFORM_DEVICE_LCD_NAME "mipi_samsung_S6E39A"
+#elif defined(CONFIG_LCD_SHARP_LS035B3SX)
 #define PLATFORM_DEVICE_LCD_NAME "mipi_sharp_LS035B3SX"
-#define PLATFORM_DEVICE_LCD_NAME "mipi_toshiba_MDW70"
-*/
+#elif defined(CONFIG_LCD_JDI_OTM1282B)
+#define PLATFORM_DEVICE_LCD_NAME "mipi_jdi_OTM1282B"
+#elif defined(CONFIG_LCD_CMI_PT045TN07)
+#define PLATFORM_DEVICE_LCD_NAME "mipi_cmi_PT045TN07"
+#else
+#error "PLATFORM_DEVICE_LCD_NAME not defined"
+#endif
 
+/* Added by d59977 for BCM GPS, for FPGA */
 #define GPIO_GPS_BCM_EN    (GPIO_20_6)  /*166*/
 #define GPIO_GPS_BCM_RET   (GPIO_20_7)	/*167*/
 #define GPIO_GPS_BCM_POWER (GPIO_21_5)  /*173*/
+/* End: Added by d59977 for BCM GPS */
 
+/* Begin: Added by d59977 for BCM GPS, for FPGA */
 #define GPIO_GPS_BCM_EN_NAME    "gpio_gps_bcm_enable"
 #define GPIO_GPS_BCM_RET_NAME   "gpio_gps_bcm_rest"
 #define GPIO_GPS_BCM_POWER_NAME "gpio_gps_bcm_power"
+/* End: Added by d59977 for BCM GPS */
 
 static struct resource k3_adc_resources = {
 	.start	= REG_BASE_PMUSPI,
@@ -269,6 +287,7 @@ static struct platform_device k3_lcd_device = {
 	.resource = k3_lcd_resources,
 };
 
+/* Begin: Added by d59977 for BCM GPS, for FPGA */
 static struct resource k3_gps_bcm_resources[] = {
 	[0] = {
 	.name  = GPIO_GPS_BCM_EN_NAME,
@@ -299,6 +318,7 @@ static struct platform_device k3_gps_bcm_device = {
 	.num_resources = ARRAY_SIZE(k3_gps_bcm_resources),
 	.resource = k3_gps_bcm_resources,
 };
+/* End: Added by d59977 for BCM GPS */
 
 static struct resource bluepower_resources[] = {
 	{

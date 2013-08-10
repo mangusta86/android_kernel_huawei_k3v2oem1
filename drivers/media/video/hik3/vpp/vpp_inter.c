@@ -1,15 +1,4 @@
-/*
- **************************************************************************************
- *
- *       Filename:   vpp_inter.c
- *    Description:   source file
- *
- *        Version:  1.0
- *        Created:  2011-07-8 16:20:00
- *
- *       Revision:  initial draft;
- **************************************************************************************
- */
+
 #include "vpp_inter.h"
 
 #define LOG_TAG "VPP_INTER"
@@ -860,8 +849,7 @@ int inter_init(void)
         return K3_FAILURE;
     }
 
-    hal_init();
-
+    //hal_init();
     inter_init_layer(HAL_LAYER_VIDEO1);
 
     return K3_SUCCESS;
@@ -882,9 +870,7 @@ void inter_deinit(void)
     logd("enter deinit\n");
     
     inter_deinit_layer(HAL_LAYER_VIDEO1);
-
-    hal_deinit();
-
+    //hal_deinit();
     //释放ZME系数表
     inter_deinit_zoomcoef(&s_stZoomCoef);
     

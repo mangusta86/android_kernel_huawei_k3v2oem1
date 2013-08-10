@@ -27,6 +27,7 @@
 #ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
 #include <linux/pm_qos_params.h>
 #define HDMI_PM_QOS_DDR_MIN_FREQ           120000
+#define HDMI_1080P50_60_DDR_MIN_FREQ       450000
 #endif
 
 #include "k3_edid.h"
@@ -35,6 +36,7 @@
 #define HDMI_CHIP_VER   1  //release: 1
 
 #define HDMI_FOR_CERTIFICATION     0
+#define HDCP_FOR_CERTIFICATION     0
 
 #if HDMI_FOR_CERTIFICATION
 #ifdef USE_HDCP
@@ -46,6 +48,10 @@
 #undef INFO_LEVEL
 #endif
 #define INFO_LEVEL  0
+#endif
+
+#ifndef USE_HDCP
+#define USE_HDCP    0
 #endif
 
 #define ENABLE_MOCK_HDMI_TO_MHL      0 //release: 0
@@ -165,6 +171,7 @@ typedef struct _hdmi_device {
     struct early_suspend early_suspend;
 #endif
 
+    bool has_request_ddr;
 #ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
 	struct pm_qos_request_list qos_request;
 #endif
@@ -177,6 +184,11 @@ int k3_hdmi_audio_set_param(int sample_freq, int sample_size, bool bsio, int lay
 void k3_hdmi_enable_hpd(bool enable);
 int hdmi_get_vsync_bycode(int code);
 int hdmi_get_hsync_bycode(int code);
+bool hdmi_get_cec_addr(u8* physical_addr);
+bool hdmi_is_connect(void);
+void hdmi_sys_lock(void);
+void hdmi_sys_unlock(void);
+int hdmi_control_notify_cec_cmd(char *cec_cmd);
 
 #endif
 

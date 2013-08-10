@@ -77,6 +77,9 @@ typedef struct _gckGALDEVICE
     /* States before suspend. */
     gceCHIPPOWERSTATE   statesStored[gcdCORE_COUNT];
 
+    /* Device Debug File System Entry in kernel. */
+    struct _gcsDEBUGFS_Node * dbgNode;
+
 #if gcdPOWEROFF_TIMEOUT
     struct task_struct  *pmThreadCtxts[gcdCORE_COUNT];
     gctBOOL             pmThreadInitializeds[gcdCORE_COUNT];
@@ -152,6 +155,7 @@ gceSTATUS gckGALDEVICE_Construct(
     IN gctUINT32 PhysBaseAddr,
     IN gctUINT32 PhysSize,
     IN gctINT Signal,
+    IN gctUINT32 LogFileSize,
     OUT gckGALDEVICE *Device
     );
 

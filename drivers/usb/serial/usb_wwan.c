@@ -291,7 +291,7 @@ static void usb_wwan_indat_callback(struct urb *urb)
 	endpoint = usb_pipeendpoint(urb->pipe);
 	port = urb->context;
 
-	if (status) {
+	if (status && urb->actual_length == 0) {
 		dbg("%s: nonzero status: %d on endpoint %02x.",
 		    __func__, status, endpoint);
 	} else {
@@ -307,7 +307,7 @@ static void usb_wwan_indat_callback(struct urb *urb)
 		}
 
 		/* Resubmit urb so we continue receiving */
-		if (status != -ESHUTDOWN) {
+		if (status == 0) {
 			err = usb_submit_urb(urb, GFP_ATOMIC);
 			if (err) {
 				if (err != -EPERM) {
@@ -319,6 +319,9 @@ static void usb_wwan_indat_callback(struct urb *urb)
 			} else {
 				usb_mark_last_busy(port->serial->dev);
 			}
+		}else {
+			pr_info("%s: nonzero status: %d on endpoint %02x.\n",
+				__func__, status, endpoint);
 		}
 
 	}

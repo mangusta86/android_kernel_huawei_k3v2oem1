@@ -779,6 +779,7 @@ static void hi3620_pcm_tx1_enable(unsigned int format, unsigned int infreq_index
     }
 
     /*2-channel pcm, use spdif*/
+    hi3620_reg_write(0x0, SPDIF_CTRL); //Reset SPDIF, for the Left and Right channel's data might abnormal exchange when audio paused and restarted
     hi3620_reg_write(1, ASP_SPDIFSELR);
     hi3620_reg_write(0, SPDIF_CONFIG);//line-pcm
     hi3620_reg_write(0x7, SPDIF_IRQ_MASK);//interrupt mask
@@ -1564,7 +1565,7 @@ static int status_write_proc_astatus(struct file *file, const char *buffer,
         loge("copy_from_user Error\n");
         return -EFAULT;
     }
-    if (sscanf(buf, "0x%x", &value) != 1) {
+    if (sscanf(buf, "0x%8x", &value) != 1) {
         logd("set the audiostatus error\r\n");
     }
     logd("get the audiostatus %d\r\n",value);

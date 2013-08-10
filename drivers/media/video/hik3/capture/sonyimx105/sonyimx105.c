@@ -1274,7 +1274,7 @@ static void sonyimx105_set_default(void)
 	sonyimx105_sensor.get_vflip = sonyimx105_get_vflip;
 	sonyimx105_sensor.update_flip = sonyimx105_update_flip;
 
-	strcpy(sonyimx105_sensor.info.name,"sonyimx105");
+	strncpy(sonyimx105_sensor.info.name, "sonyimx105", sizeof(sonyimx105_sensor.info.name));
 	sonyimx105_sensor.interface_type = MIPI1;
 	sonyimx105_sensor.mipi_lane_count = CSI_LINES_2;
 	sonyimx105_sensor.mipi_index = CSI_INDEX_0;
@@ -1303,6 +1303,7 @@ static void sonyimx105_set_default(void)
 	sonyimx105_sensor.agc_addr[0] = 0x0000;	/*0x0204 high byte not needed*/
 	sonyimx105_sensor.agc_addr[1] = 0x0205;
 	sonyimx105_sensor.sensor_type = SENSOR_SONY;
+	sonyimx105_sensor.sensor_rgb_type = SENSOR_RGGB;/* changed by y00231328. add bayer order*/
 
 	sonyimx105_sensor.set_gain = sonyimx105_set_gain;
 	sonyimx105_sensor.set_exposure = sonyimx105_set_exposure;
