@@ -3,7 +3,7 @@
 VERSION = 3
 PATCHLEVEL = 0
 SUBLEVEL = 8
-EXTRAVERSION =
+EXTRAVERSION = 00252-gf153003
 NAME = Sneaky Weasel
 
 # *DOCUMENTATION*
@@ -1007,12 +1007,14 @@ prepare: prepare0
 
 uts_len := 64
 define filechk_utsrelease.h
-	if [ `echo -n "$(KERNELRELEASE)" | wc -c ` -gt $(uts_len) ]; then \
-	  echo '"$(KERNELRELEASE)" exceeds $(uts_len) characters' >&2;    \
-	  exit 1;                                                         \
-	fi;                                                               \
-	(echo \#define UTS_RELEASE \"$(KERNELRELEASE)\";)
+	(echo \#define UTS_RELEASE \"3.0.8-00252-gf153003\";)
 endef
+#	if [ `echo -n "$(KERNELRELEASE)" | wc -c ` -gt $(uts_len) ]; then \
+#	  echo '"$(KERNELRELEASE)" exceeds $(uts_len) characters' >&2;    \
+#	  exit 1;                                                         \
+#	fi;                                                               \
+#	(echo \#define UTS_RELEASE \"$(KERNELRELEASE)\";)
+#endef
 
 define filechk_version.h
 	(echo \#define LINUX_VERSION_CODE $(shell                             \
@@ -1472,7 +1474,8 @@ checkstack:
 	$(PERL) $(src)/scripts/checkstack.pl $(CHECKSTACK_ARCH)
 
 kernelrelease:
-	@echo "$(KERNELVERSION)$$($(CONFIG_SHELL) $(srctree)/scripts/setlocalversion $(srctree))"
+	@echo $(KERNELVERSION)
+#$$($(CONFIG_SHELL) $(srctree)/scripts/setlocalversion $(srctree))"
 
 kernelversion:
 	@echo $(KERNELVERSION)
