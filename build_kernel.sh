@@ -32,6 +32,8 @@ export INITRAMFS_TMP=/tmp/initramfs_source;
 # kernel
 export ARCH=arm;
 export USE_SEC_FIPS_MODE=true;
+# add to try to compile huawei (MANGUSTA) TODO
+export CFLAGS_MODULE=-fno-pic
 export KERNEL_CONFIG=mangusta86_defconfig;
 
 # build script
