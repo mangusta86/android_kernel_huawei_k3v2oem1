@@ -25,15 +25,13 @@ else
 	export KERNELDIR=`readlink -f .`;
 fi;
 
-export PARENT_DIR=`readlink -f ${KERNELDIR}/..`;
+export PARENT_DIR=`readlink -f ${KERNELDIR}/../..`;
 export INITRAMFS_SOURCE=`readlink -f ${KERNELDIR}/../initramfs`;
 export INITRAMFS_TMP=/tmp/initramfs_source;
 
 # kernel
 export ARCH=arm;
 export USE_SEC_FIPS_MODE=true;
-# add to try to compile huawei (MANGUSTA) TODO
-export CFLAGS_MODULE=-fno-pic
 export KERNEL_CONFIG=mangusta86_defconfig;
 
 # build script
@@ -51,7 +49,7 @@ chmod -R 777 /tmp;
 # export CROSS_COMPILE=/media/Source-Code/android/system/prebuilt/linux-x86/toolchain/arm-eabi-4.4.3/bin/arm-eabi-;
 
 # gcc 4.6 (CM10)
-export CROSS_COMPILE=/home/marco/android/system/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.6/bin/arm-linux-androideabi-;
+export CROSS_COMPILE=$PARENT_DIR/cm-10.1/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.6/bin/arm-linux-androideabi-;
 
 # gcc 4.7 (Linaro 12.04)
 # export CROSS_COMPILE=$PARENT_DIR/linaro/bin/arm-eabi-;
@@ -62,13 +60,13 @@ export CROSS_COMPILE=/home/marco/android/system/prebuilts/gcc/linux-x86/arm/arm-
 ## importing PATCH for GCC depend on GCC version
 #GCCVERSION=`./scripts/gcc-version.sh ${CROSS_COMPILE}gcc`;
 
-## check xml-config for "STweaks"-app
-#XML2CHECK="${INITRAMFS_SOURCE}/res/customconfig/customconfig.xml";
-#xmllint --noout $XML2CHECK;
-#if [ $? == 1 ]; then
-#	echo "xml-Error: $XML2CHECK";
-#	exit 1;
-#fi;
+# check xml-config for "STweaks"-app
+XML2CHECK="${INITRAMFS_SOURCE}/res/customconfig/customconfig.xml";
+xmllint --noout $XML2CHECK;
+if [ $? == 1 ]; then
+	echo "xml-Error: $XML2CHECK";
+	exit 1;
+fi;
 
 ## compiler detection
 #if [ "a$GCCVERSION" == "a0404" ]; then
@@ -95,8 +93,8 @@ export CROSS_COMPILE=/home/marco/android/system/prebuilts/gcc/linux-x86/arm/arm-
 #fi;
 
 
-NAMBEROFCPUS=$(expr `grep processor /proc/cpuinfo | wc -l` + 1);
-echo "slow system detected, setting $NAMBEROFCPUS build treads"
+NUMBEROFCPUS=$(expr `grep processor /proc/cpuinfo | wc -l` + 1);
+echo "slow system detected, setting $NUMBEROFCPUS build treads"
 
 
 # copy config
@@ -107,7 +105,7 @@ fi;
 # read config
 . $KERNELDIR/.config;
 
-# get version from config
+## get version from config
 #GETVER=`grep 'Siyah-.*-V' $KERNELDIR/.config | sed 's/.*".//g' | sed 's/-J.*//g'`;
 GETVER="B550";
 
@@ -140,11 +138,13 @@ done;
 
 # make modules
 mkdir -p $INITRAMFS/lib/modules
-if [ $USER != "root" ]; then
-	make -j $NAMBEROFCPUS modules || exit 1;
-else
-	nice -n -15 make -j $NAMBEROFCPUS modules || exit 1;
-fi;
+#if [ $USER != "root" ]; then
+#	make -j $NUMBEROFCPUS modules || exit 1;
+#else
+#	nice -n -15 make -j $NUMBEROFCPUS modules || exit 1;
+#fi;
+
+make modules || exit 1;
 
 # copy initramfs files to tmp directory
 cp -ax $INITRAMFS_SOURCE $INITRAMFS_TMP;
@@ -190,12 +190,14 @@ mkdir -p $INITRAMFS_TMP/lib/modules;
 for i in `find $KERNELDIR -name '*.ko'`; do
 	cp -av $i $INITRAMFS_TMP/lib/modules/;
 done;
-# do not --strip-debug from wifi module
-mv $INITRAMFS_TMP/lib/modules/dhd.ko $INITRAMFS_TMP/lib/modules/dhd.tmp;
-for i in `find $INITRAMFS_TMP/lib/modules/ -name '*.ko'`; do
-	${CROSS_COMPILE}strip --strip-debug $i;
-done;
-mv $INITRAMFS_TMP/lib/modules/dhd.tmp $INITRAMFS_TMP/lib/modules/dhd.ko;
+
+## do not --strip-debug from wifi module
+#mv $INITRAMFS_TMP/lib/modules/dhd.ko $INITRAMFS_TMP/lib/modules/dhd.tmp;
+#for i in `find $INITRAMFS_TMP/lib/modules/ -name '*.ko'`; do
+#	${CROSS_COMPILE}strip --strip-debug $i;
+#done;
+#mv $INITRAMFS_TMP/lib/modules/dhd.tmp $INITRAMFS_TMP/lib/modules/dhd.ko;
+
 chmod 755 $INITRAMFS_TMP/lib/modules/*;
 
 # wait for the boot-image
@@ -207,15 +209,17 @@ done;
 md5sum PAYLOAD/res/misc/payload/STweaks.apk | awk '{print $1}' > $INITRAMFS_TMP/res/stweaks_md5;
 chmod 644 $INITRAMFS_TMP/res/stweaks_md5;
 
-# make kernel!!!
-if [ "$USER" != "root" ]; then
-	time make -j $NAMBEROFCPUS zImage CONFIG_INITRAMFS_SOURCE="$INITRAMFS_TMP";
-else
-	time nice -n -15 make -j $NAMBEROFCPUS zImage CONFIG_INITRAMFS_SOURCE="$INITRAMFS_TMP";
-fi;
+## make kernel!!!
+#if [ "$USER" != "root" ]; then
+#	time make -j $NUMBEROFCPUS zImage CONFIG_INITRAMFS_SOURCE="$INITRAMFS_TMP";
+#else
+#	time nice -n -15 make -j $NUMBEROFCPUS zImage CONFIG_INITRAMFS_SOURCE="$INITRAMFS_TMP";
+#fi;
 
-# restore clean arch/arm/boot/compressed/Makefile_clean till next time
-cp $KERNELDIR/arch/arm/boot/compressed/Makefile_clean $KERNELDIR/arch/arm/boot/compressed/Makefile;
+make zImage CONFIG_INITRAMFS_SOURCE="$INITRAMFS_TMP"
+
+## restore clean arch/arm/boot/compressed/Makefile_clean till next time
+#cp $KERNELDIR/arch/arm/boot/compressed/Makefile_clean $KERNELDIR/arch/arm/boot/compressed/Makefile;
 
 if [ -e $KERNELDIR/arch/arm/boot/zImage ]; then
 	cp $KERNELDIR/.config $KERNELDIR/arch/arm/configs/$KERNEL_CONFIG;
