@@ -1,9 +1,9 @@
--include U9508_BoardConfig.mk
--include U9508_platform.mk
+-include hwu9508_BoardConfig.mk
+-include hwu9508_platform.mk
 VERSION = 3
 PATCHLEVEL = 0
 SUBLEVEL = 8
-EXTRAVERSION = -00252-gf153003
+EXTRAVERSION =
 NAME = Sneaky Weasel
 
 # *DOCUMENTATION*
@@ -17,8 +17,6 @@ NAME = Sneaky Weasel
 #    (this increases performance and avoids hard-to-debug behaviour);
 # o  print "Entering directory ...";
 MAKEFLAGS += -rR --no-print-directory
-
-
 
 # Avoid funny character set dependencies
 unexport LC_ALL
@@ -1009,8 +1007,6 @@ prepare: prepare0
 
 uts_len := 64
 define filechk_utsrelease.h
-#(echo \#define UTS_RELEASE \"3.0.8-00252-gf153003\";)
-#endef
 	if [ `echo -n "$(KERNELRELEASE)" | wc -c ` -gt $(uts_len) ]; then \
 	  echo '"$(KERNELRELEASE)" exceeds $(uts_len) characters' >&2;    \
 	  exit 1;                                                         \
@@ -1476,7 +1472,7 @@ checkstack:
 	$(PERL) $(src)/scripts/checkstack.pl $(CHECKSTACK_ARCH)
 
 kernelrelease:
-	@echo $(KERNELVERSION)$$($(CONFIG_SHELL) $(srctree)/scripts/setlocalversion $(srctree))"
+	@echo "$(KERNELVERSION)$$($(CONFIG_SHELL) $(srctree)/scripts/setlocalversion $(srctree))"
 
 kernelversion:
 	@echo $(KERNELVERSION)
