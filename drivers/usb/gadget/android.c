@@ -1268,8 +1268,8 @@ static int android_bind(struct usb_composite_dev *cdev)
 	dev->cdev = cdev;
 
 	/* enable functions. */
-	/* functions_store(dev->dev, NULL, "adb,acm", sizeof("adb,acm")); */
-	/* enable_store(dev->dev, NULL, "1", sizeof("1")); */
+	functions_store(dev->dev, NULL, "adb,acm", sizeof("adb,acm"));
+	enable_store(dev->dev, NULL, "1", sizeof("1"));
 
 	return 0;
 }
