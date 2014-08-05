@@ -68,6 +68,7 @@ static int open_count = 0;
 
 static struct semaphore mem_sem = __SEMAPHORE_INITIALIZER(mem_sem, 1);
 
+#if 0
 /* Added MMAP method */
 static int memalloc_mmap(struct file *file, struct vm_area_struct *vma)
 {
@@ -87,6 +88,7 @@ static int memalloc_mmap(struct file *file, struct vm_area_struct *vma)
 	PDEBUG(KERN_ERR "%s(%d):QUIT:%d\n", __FUNCTION__, __LINE__, retval);
 	return retval;
 }
+#endif
 
 static long memalloc_ioctl(struct file *filp,
 			   unsigned int cmd, unsigned long arg)
@@ -212,8 +214,8 @@ static int memalloc_release(struct inode *inode, struct file *filp)
 
 /* VFS methods */
 static struct file_operations memalloc_fops = {
-mmap:
-	memalloc_mmap,
+//mmap:
+//	memalloc_mmap,
 open:
 	memalloc_open,
 release:

@@ -4,3 +4,5 @@ export USE_LCD_CMI_OTM1280A := true
 
 export USE_PRODUCT_U9508 := true
 export USE_PRODUCT_U9510 := false
+
+PRODUCT_AAPT_PREF_CONFIG := xhdpi

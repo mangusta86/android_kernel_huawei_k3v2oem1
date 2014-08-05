@@ -101,7 +101,7 @@
 
 /* USB Definitions */
 #define USB_SWITCH_CONTROL_GPIO		53
-#define USB_SWITCH_EN_GPIO			52
+#define USB_SWITCH_EN_GPIO		52
 #define USB_SWITCH_INTERRUPT_GPIO	99
 
 /*pengchao add begin*/
@@ -125,7 +125,7 @@ EXPORT_SYMBOL(time_finger_up);
 #define GPIO_LOW  0
 
 static struct platform_device hisik3_device_hwmon = {
-	.name	= "k3-hwmon",
+	.name		= "k3-hwmon",
 	.id		= -1,
 };
 

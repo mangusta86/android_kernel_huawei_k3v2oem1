@@ -19,7 +19,6 @@ AQROOT := $(PWD)/drivers/misc/gpu_drv
 AQARCH := $(AQROOT)/arch/XAQ2
 
 include $(AQROOT)/config
-#include drivers/misc/gpu_drv/config
 
 DRIVER_OUT_DIR = hal/driver
 KERNEL_DIR ?= $(TOOL_DIR)/kernel
