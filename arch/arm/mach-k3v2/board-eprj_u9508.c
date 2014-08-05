@@ -514,14 +514,13 @@ static struct platform_device tpa6132_device = {
 	},
 };
 
-static struct tps61310_platform_data tps61310_platform_data =
-{
+static struct tps61310_platform_data tps61310_platform_data = {
 	.reset_pin			= GPIO_9_4,
 	.strobe0			= GPIO_8_1,
 	.strobe1			= GPIO_8_2,
 };
 
-static struct platform_device boardid_dev ={
+static struct platform_device boardid_dev = {
     .name    = "boardid_dev",
     .id      = 0,
 };
@@ -539,8 +538,7 @@ static struct platform_device modem_switch_device = {
 };
 
 #ifdef MHL_SII9244
-static struct mhl_platform_data k3_mhl_data =
-{
+static struct mhl_platform_data k3_mhl_data = {
 	.gpio_reset 	= MHL_GPIO_RESET,
 	.gpio_wake_up	= MHL_GPIO_WAKE_UP,
 	.gpio_int		= MHL_GPIO_INT,
@@ -686,8 +684,7 @@ static struct platform_device ram_console_device = {
 	.resource	= ram_console_resources,
 };
 
-static void __init k3v2oem1_init(void)
-{
+static void __init k3v2oem1_init(void) {
 	unsigned int  index = 0;
 	int err;
 
@@ -723,8 +720,7 @@ static void __init k3v2oem1_init(void)
 	}
 }
 
-static void __init k3v2_early_init(void)
-{
+static void __init k3v2_early_init(void) {
 	int chip_id = 0;
 	k3v2_init_clock();
 	chip_id = get_chipid();
@@ -810,15 +806,13 @@ static int __init early_k3v2_mem(char *p)
 early_param("k3v2_mem", early_k3v2_mem);
 #endif
 
-static void __init k3v2_map_io(void)
-{
+static void __init k3v2_map_io(void) {
 	printk("k3v2oem2 map io\n");
 	k3v2_map_common_io();
 }
 
 
-void __init ram_console_reserve(unsigned long ram_console_size)
-{
+void __init ram_console_reserve(unsigned long ram_console_size) {
 	struct resource *res;
 	long ret;
 
