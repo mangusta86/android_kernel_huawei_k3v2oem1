@@ -61,4 +61,7 @@ extern struct regulator_ops vcc_g3d_ops;
 /*extern struct regulator_ops vcc_ops;*/
 extern struct regulator_desc vcc_regulator_desc[];
 extern struct platform_device vcc_regulator_device;
+#ifdef CONFIG_EXTRAL_DYNAMIC_DCDC
+extern struct platform_device vcc_regulator_dcdc_gpu_device;
+#endif
 #endif

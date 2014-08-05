@@ -57,6 +57,13 @@ config HIK3_CAMERA_FLASH
 	---help---
 	Hisilicon K3 flash driver
 
+config CAMERA_FLASH_LM3642
+	tristate "Hisilicon K3 flash"
+	depends on HIK3_CAMERA_FLASH&&VIDEO_HIK3_CAMERA && VIDEO_HIK3_ISP_CAMERA
+	default n
+	---help---
+	Hisilicon K3 flash driver
+
 config HIK3_CAMERA_SONYIMX091
     tristate "SONYIMX091 camera"
     depends on VIDEO_HIK3_CAMERA && VIDEO_HIK3_ISP_CAMERA
@@ -70,6 +77,44 @@ config HIK3_CAMERA_S5K5CAG
     default n
     ---help---
         HiS5K5CAG camera driver
+
+config HIK3_CAMERA_SONYIMX135
+    tristate "SONYIMX135 camera"
+    depends on VIDEO_HIK3_CAMERA && VIDEO_HIK3_ISP_CAMERA
+    default n
+    ---help---
+        HiSONYIMX135 camera driver
+	
+config HIK3_CAMERA_SONYIMX188
+    tristate "SONYIMX188 camera"
+    depends on VIDEO_HIK3_CAMERA && VIDEO_HIK3_ISP_CAMERA
+    default n
+    ---help---
+        HiSONYIMX188 camera driver
+#endif
+	
 endmenu
 
 endif
+
+config HIK3_CAMERA_SONYIMX134
+    tristate "SONYIMX134 camera"
+    depends on VIDEO_HIK3_CAMERA && VIDEO_HIK3_ISP_CAMERA
+    default n
+    ---help---
+        HiSONYIMX134 camera driver
+
+config HIK3_CAMERA_HI542
+    tristate "HI542 camera"
+    depends on VIDEO_HIK3_CAMERA && VIDEO_HIK3_ISP_CAMERA
+    default n
+    ---help---
+        HiHI542 camera driver
+
+
+config HIK3_CAMERA_S5K4E1GA_FOXCONN
+    tristate "S5K4E1GA_FOXCONN camera"
+    depends on VIDEO_HIK3_CAMERA && VIDEO_HIK3_ISP_CAMERA
+    default n
+    ---help---
+        HiS5K4E1GA_FOXCONN camera driver

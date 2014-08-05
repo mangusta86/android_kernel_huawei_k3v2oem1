@@ -69,9 +69,13 @@
 #define ISP_MAX_FOCUSED_WIN		4
 #define ISP_MAX_FOCUS_WIN		25
 
+/* camera af param default definitionr */
 /* same as metering default CWA area */
-#define DEFAULT_AF_WIDTH_PERCENT	20
-#define DEFAULT_AF_HEIGHT_PERCENT	25
+#define DEFAULT_AF_WIDTH_PERCENT	(12)
+#define DEFAULT_AF_HEIGHT_PERCENT	(15)
+#define DEFAULT_AF_MIN_HEIGHT_RATIO	(7)
+#define DEFAULT_AF_MAX_FOCUS_STEP	(6)
+#define DEFAULT_AF_GSENSOR_INTERVAL_THRESHOLD	(70)
 
 /* with stabilizer, max size is larger than 1080P. */
 #define MAX_PREVIEW_WIDTH	2112
@@ -117,7 +121,8 @@ static int __attribute__((unused)) ispv1_get_focus_win_info(camera_rect_s *raw_r
 				focus_win_info_s *win_info, int *binning);
 static int __attribute__((unused)) ispv1_get_map_table(focus_area_s *area,
 				focus_win_info_s *win_info, int *map_table);
-static int __attribute__((unused)) ispv1_check_rect_differ(camera_rect_s *rect1, camera_rect_s *rect2,
+
+static bool ispv1_check_rect_differ(camera_rect_s *rect1, camera_rect_s *rect2,
 				   u32 preview_width, u32 preview_height);
 
 struct workqueue_struct *af_start_work_queue;
@@ -128,6 +133,11 @@ static bool ispv1_setreg_vcm_code(u32 vcm_code);
 static void ispv1_focus_vcm_go_infinite(u8 delay_flag);
 
 static void ispv1_setreg_focus_win(focus_win_info_s *win_info);
+static int ispv1_setreg_vcm_DLC_mode(void);
+static int ispv1_setreg_vcm_lsc_mode(u16 para1, u16 para2);
+static void ispv1_setreg_focus_init(vcm_info_s *vcm_info);
+static void ispv1_setreg_focus_framerate(int framerate);
+static void ispv1_setreg_vcm(vcm_info_s *vcm_info);
 static int ispv1_setreg_af_mode(camera_af_mode mode);
 static int ispv1_getreg_focus_result(focused_result_s *result, int multi_win);
 
@@ -138,16 +148,19 @@ u32 ispv1_focus_get_win_lum(lum_win_info_s *lum_info);
 
 static void ispv1_assistant_af(bool action);
 static bool ispv1_focus_need_flash(u32 cur_lum, u32 cur_gain, bool binning);
+static bool ispv1_af_flash_needed(camera_sensor *sensor, camera_flash flash_mode, lum_win_info_s lum_info);
+static void ispv1_af_flash_check_open(void);
+static void ispv1_af_flash_check_close(void);
 
 static void ispv1_focus_status_reset(void);
 
 static bool ispv1_af_need_wait_stable(u8 stage, u8 hold_cnt);
 static void ispv1_af_range_cal(af_run_param *af_info, pos_info *curr, af_run_stage next_stage);
-static void ispv1_vcaf_range_cal(af_run_param *af_info, pos_info *curr, vcaf_run_stage next_stage, FOCUS_STATUS result);
+static void ispv1_vcaf_range_cal(af_run_param *af_info, pos_info *curr, af_run_stage next_stage, FOCUS_STATUS result);
 static af_run_stage ispv1_af_recognise_curve(af_run_param *af_info, pos_info *curr, vcm_info_s *vcm);
-static vcaf_run_stage ispv1_vcaf_recognise_curve(af_run_param *af_info, pos_info *curr, vcm_info_s *vcm, u32 *reserved);
+static af_run_stage ispv1_vcaf_recognise_curve(af_run_param *af_info, pos_info *curr, vcm_info_s *vcm, u32 *reserved);
 static af_run_stage ispv1_af_search_top(af_run_param *af_info, pos_info *curr, vcm_info_s *vcm, bool coarse);
-static vcaf_run_stage ispv1_vcaf_search_top(af_run_param *af_info, pos_info *curr, vcm_info_s *vcm);
+static af_run_stage ispv1_vcaf_search_top(af_run_param *af_info, pos_info *curr, vcm_info_s *vcm);
 static FOCUS_STATUS ispv1_af_judge_result(af_run_param *af_info);
 
 bool ispv1_check_caf_need_restart(focus_frame_stat_s *start_data, focus_frame_stat_s *end_data);
@@ -180,14 +193,9 @@ static inline u16 get_caf_forcestart(void)
 	return afae_ctrl->force_start;
 }
 
-static inline void set_caf_forcestart(caf_forcestart_level level)
+static inline void set_caf_forcestart(int value)
 {
-	if (level == CAF_FORCESTART_LEVEL1)
-		afae_ctrl->force_start |= 0xf000;
-	else if (level == CAF_FORCESTART_LEVEL0)
-		afae_ctrl->force_start |= 0x0f00;
-	else
-		afae_ctrl->force_start = 0;
+	afae_ctrl->force_start = value;
 }
 
 inline focus_state_e get_focus_state(void)
@@ -200,9 +208,29 @@ inline void set_focus_state(focus_state_e state)
 	afae_ctrl->focus_state = state;
 }
 
-inline bool afae_ctrl_is_null(void)
+inline af_run_stage get_focus_stage(void)
 {
-	return (afae_ctrl == NULL);
+	return afae_ctrl->af_stage;
+}
+
+inline void set_focus_stage(af_run_stage stage)
+{
+	afae_ctrl->af_stage = stage;
+}
+
+inline bool afae_ctrl_is_valid(void)
+{
+	return (afae_ctrl != NULL);
+}
+
+static inline void set_pre_focus_mode(camera_focus mode)
+{
+	afae_ctrl->pre_mode = mode;
+}
+
+static inline camera_focus get_pre_focus_mode(void)
+{
+	return afae_ctrl->pre_mode;
 }
 
 static inline camera_focus get_focus_mode(void)
@@ -220,15 +248,23 @@ static inline vcm_info_s *get_vcm_ptr(void)
 	return this_ispdata->sensor->vcm;
 }
 
-static inline void wait_af_run_start(u8 framerate)
+static inline bool ispv1_get_af_run_sem(void)
 {
-	u8 check_cnt = 0;
+	long jiffies = 0;
 
-	while ((afae_ctrl->k3focus_running == false) && (check_cnt < 5)) {
-		print_info("%s, focus doesn't started, must sleep some time", __func__);
-		check_cnt++;
-		msleep(1000 / framerate);
+	jiffies = msecs_to_jiffies(2000);
+	if (down_timeout(&(afae_ctrl->af_run_sem), jiffies)) {
+		print_error("wait focus semaphore timeout");
+		return false;
+	} else {
+		print_debug("focus semaphore waking up###########");
+		return true;
 	}
+}
+
+static inline void ispv1_free_af_run_sem(void)
+{
+	up(&(afae_ctrl->af_run_sem));
 }
 
 inline u32 ispv1_get_stat_unit_area(void)
@@ -318,8 +354,8 @@ static void ispv1_cal_vcm_range(vcm_info_s *vcm)
 		vcm->get_vcm_otp(&otp_start, &otp_end);
 		print_info("get 10bit otp start 0x%x, end 0x%x***************", otp_start, otp_end);
 
-		if (otp_start > 0xa0)
-			otp_start = 0xa0;
+		if (otp_start > 0xf0)
+			otp_start = 0xf0;
 
 		if (otp_end != 0) {
 			normal_range = vcm->normalDistanceEnd - vcm->infiniteDistance;
@@ -328,7 +364,11 @@ static void ispv1_cal_vcm_range(vcm_info_s *vcm)
 
 			normal_range = (normal_range < otp_range) ? normal_range:otp_range;
 			video_range = (video_range < otp_range) ? video_range:otp_range;
-			vcm->infiniteDistance = (otp_start & 0x3f0);
+			if( (otp_start & 0x3f0) < (2 * vcm->normalStep) ){
+				vcm->infiniteDistance = (2 * vcm->normalStep);
+			}else{
+				vcm->infiniteDistance = (otp_start & 0x3f0);
+			}
 
 			normal_end = vcm->infiniteDistance + normal_range;
 			if (normal_end >= 0x400) {
@@ -372,6 +412,9 @@ static int ispv1_setreg_vcm_code_done(vcm_info_s *vcm, u32 vcm_code)
 	} else if (vcm->vcm_type == VCM_DW9714) {
 		/*in dw9714 case, ad value must set to bit4 ~ bit13*/
 		ret |= ispv1_write_vcm(vcm->vcm_id, vcm->moveLensAddr[0], vcm_code << 4, I2C_16BIT, SCCB_BUS_MUTEX_NOWAIT);
+	} else if (vcm->vcm_type == VCM_DW9714_SS || vcm->vcm_type == VCM_DW9714_Sunny || vcm->vcm_type == VCM_DW9714_Liteon) {
+		/*in dw9714 case, ad value must set to bit4 ~ bit13*/
+		ret |= ispv1_write_vcm(vcm->vcm_id, vcm->moveLensAddr[0], (vcm_code << 4) | 0x04, I2C_16BIT, SCCB_BUS_MUTEX_NOWAIT);
 	} else {
 		print_error("%s: unsupported vcm",  __func__);
 		ret = -1;
@@ -379,6 +422,8 @@ static int ispv1_setreg_vcm_code_done(vcm_info_s *vcm, u32 vcm_code)
 #endif
 	return ret;
 }
+
+
 static bool ispv1_setreg_vcm_code(u32 dest_code)
 {
 	int ret = 0;
@@ -387,8 +432,8 @@ static bool ispv1_setreg_vcm_code(u32 dest_code)
 	bool divide_mode = false;
 	int unit_step = 0;
 	u32 safe_position = vcm->offsetInit + vcm->strideDivideOffset;
-	u32 max_step_cnt = 0;
-	u32 step_index = 0;
+	int max_step_cnt = 0;
+	int step_index = 0;
 
 	/* if the dest code smaller than safe_position and the current code is larger than safe_position, divide the stride to avoid clash */
 	if ((dest_code < safe_position) && (curr_code > safe_position)
@@ -409,6 +454,33 @@ static bool ispv1_setreg_vcm_code(u32 dest_code)
 			/* for DW9714, divide the stride into two steps */
 			unit_step = curr_code - safe_position;
 			max_step_cnt = 2;
+		}  else if ((vcm->vcm_type == VCM_DW9714_SS  || vcm->vcm_type == VCM_DW9714_Sunny || vcm->vcm_type == VCM_DW9714_Liteon) ){
+			if((curr_code - dest_code) > 550) {
+				ispv1_setreg_vcm_lsc_mode(0xA106, 0xF2B0);
+			} else if ((curr_code - dest_code) > 500) {
+				ispv1_setreg_vcm_lsc_mode(0xA106, 0xF298);
+			} else if ((curr_code - dest_code) > 450) {
+				ispv1_setreg_vcm_lsc_mode(0xA105, 0xF258);
+			} else if ((curr_code - dest_code) > 400) {
+				ispv1_setreg_vcm_lsc_mode(0xA105, 0xF228);
+			} else if ((curr_code - dest_code) > 350) {
+				ispv1_setreg_vcm_lsc_mode(0xA105, 0xF2F8);
+			} else if ((curr_code - dest_code) > 300) {
+				ispv1_setreg_vcm_lsc_mode(0xA105, 0xF2D0);
+			} else if ((curr_code - dest_code) > 250) {
+				ispv1_setreg_vcm_lsc_mode(0xA105, 0xF2A8);
+			} else if ((curr_code - dest_code) > 200) {
+				ispv1_setreg_vcm_lsc_mode(0xA105, 0xF288);
+			} else if ((curr_code - dest_code) > 150) {
+				ispv1_setreg_vcm_lsc_mode(0xA104, 0xF2F8);
+			} else if ((curr_code - dest_code) > 100) {
+				ispv1_setreg_vcm_lsc_mode(0xA104, 0xF2A8);				
+			}else if ((curr_code - dest_code) > 50) {
+				ispv1_setreg_vcm_lsc_mode(0xA104, 0xF280);				
+			}  else {
+				ispv1_setreg_vcm_DLC_mode();
+			}
+			max_step_cnt = 1;
 		} else {
 			print_error("%s: unsupported vcm",  __func__);
 			ret = -1;
@@ -422,6 +494,8 @@ static bool ispv1_setreg_vcm_code(u32 dest_code)
 		}
 		ret = ispv1_setreg_vcm_code_done(vcm, dest_code);
 	} else {
+		if (vcm->vcm_type == VCM_DW9714_SS || vcm->vcm_type == VCM_DW9714_Sunny || vcm->vcm_type == VCM_DW9714_Liteon)
+			ispv1_setreg_vcm_DLC_mode();
 		ret = ispv1_setreg_vcm_code_done(vcm, dest_code);
 	}
 
@@ -472,6 +546,55 @@ static void ispv1_focus_vcm_go_infinite(u8 delay_flag)
 		msleep(50);	/*holding time */
 	}
 }
+static int ispv1_setreg_vcm_lsc_mode(u16 para1, u16 para2)
+{
+	int ret = 0;
+	vcm_info_s *vcm = this_ispdata->sensor->vcm;
+	print_info("enter %s, para1:0x%x, para2:0x%x", __func__, para1, para2);
+	ret |= ispv1_write_vcm(vcm->vcm_id, vcm->moveLensAddr[0], 0xECA3, I2C_16BIT, SCCB_BUS_MUTEX_NOWAIT);
+	ret |= ispv1_write_vcm(vcm->vcm_id, vcm->moveLensAddr[0], para1, I2C_16BIT, SCCB_BUS_MUTEX_NOWAIT);
+	ret |= ispv1_write_vcm(vcm->vcm_id, vcm->moveLensAddr[0], para2, I2C_16BIT, SCCB_BUS_MUTEX_NOWAIT);
+	ret |= ispv1_write_vcm(vcm->vcm_id, vcm->moveLensAddr[0], 0xDC51, I2C_16BIT, SCCB_BUS_MUTEX_NOWAIT);
+
+	return ret;
+}
+static int ispv1_setreg_vcm_DLC_mode()
+	{	
+		int ret = 0;	
+		vcm_info_s *vcm = this_ispdata->sensor->vcm;	
+
+		if ((vcm->moveLensAddr[0] == 0x0) && (vcm->moveLensAddr[1] == 0x0)) {
+			/*set DLC mode*/		
+			/*			-------------DLC Mode Setting Value -------------		
+			DW9714A_WRITE(0x18, 0xEC, 0xA3); // Ringing Setting ON		
+			DW9714A_WRITE(0x18, 0xF2, 0x20); //Tvib/2 =5.8ms setting		
+			DW9714A_WRITE(0x18, 0xA1, 0x0D); //DLC=b’1, MCLK[1:0]=01		
+			DW9714A_WRITE(0x18, 0xDC, 0x51); // Ringing Setting OFF		
+
+			---------------------------------------------------------------------------------------------		*/	
+			ret |= ispv1_write_vcm(vcm->vcm_id, vcm->moveLensAddr[0], 0xECA3, I2C_16BIT, SCCB_BUS_MUTEX_NOWAIT);		
+		if (vcm->vcm_type == VCM_DW9714_SS) {
+			ret |= ispv1_write_vcm(vcm->vcm_id, vcm->moveLensAddr[0], 0xF2e8, I2C_16BIT, SCCB_BUS_MUTEX_NOWAIT);
+			ret |= ispv1_write_vcm(vcm->vcm_id, vcm->moveLensAddr[0], 0xA10d, I2C_16BIT, SCCB_BUS_MUTEX_NOWAIT);
+		} else if (vcm->vcm_type == VCM_DW9714) {
+			ret |= ispv1_write_vcm(vcm->vcm_id, vcm->moveLensAddr[0], 0xF220, I2C_16BIT, SCCB_BUS_MUTEX_NOWAIT);
+			ret |= ispv1_write_vcm(vcm->vcm_id, vcm->moveLensAddr[0], 0xA10D, I2C_16BIT, SCCB_BUS_MUTEX_NOWAIT);
+		} else if (vcm->vcm_type == VCM_DW9714_Sunny) {
+			ret |= ispv1_write_vcm(vcm->vcm_id, vcm->moveLensAddr[0], 0xF260, I2C_16BIT, SCCB_BUS_MUTEX_NOWAIT);
+			ret |= ispv1_write_vcm(vcm->vcm_id, vcm->moveLensAddr[0], 0xA10D, I2C_16BIT, SCCB_BUS_MUTEX_NOWAIT);
+		} else if (vcm->vcm_type == VCM_DW9714_Liteon) {
+			ret |= ispv1_write_vcm(vcm->vcm_id, vcm->moveLensAddr[0], 0xF208, I2C_16BIT, SCCB_BUS_MUTEX_NOWAIT);
+			ret |= ispv1_write_vcm(vcm->vcm_id, vcm->moveLensAddr[0], 0xA10D, I2C_16BIT, SCCB_BUS_MUTEX_NOWAIT);
+		}
+			ret |= ispv1_write_vcm(vcm->vcm_id, vcm->moveLensAddr[0], 0xDC51, I2C_16BIT, SCCB_BUS_MUTEX_NOWAIT);	
+			} else {		
+				print_error("%s: unsupported vcm",  __func__);	
+			}	
+
+			return ret;
+	}
+
+
 
 /* Set focus windows(suitable for ISP) to registers. */
 static void ispv1_setreg_focus_win(focus_win_info_s *win_info)
@@ -612,6 +735,13 @@ int ispv1_focus_init(void)
 {
 	vcm_info_s *vcm = get_vcm_ptr();
 	u32 size;
+	u32 width_precent = DEFAULT_AF_WIDTH_PERCENT;
+	u32 height_precent = DEFAULT_AF_HEIGHT_PERCENT;
+
+	if(this_ispdata->sensor->get_af_param){
+		width_precent = (u32)(this_ispdata->sensor->get_af_param(AF_WIDTH_PERCENT));
+		height_precent = (u32)(this_ispdata->sensor->get_af_param(AF_HEIGHT_PERCENT));
+	}
 
 	afae_ctrl = kmalloc(sizeof(ispv1_afae_ctrl), GFP_KERNEL);
 	if (!afae_ctrl) {
@@ -631,7 +761,7 @@ int ispv1_focus_init(void)
 
 	/* request stat data for copy and calculate contrast extend threshold. */
 	size = MAX_PREVIEW_WIDTH * MAX_PREVIEW_HEIGHT *
-		DEFAULT_AF_WIDTH_PERCENT * DEFAULT_AF_HEIGHT_PERCENT / 100 / 100;
+		width_precent * height_precent / 100 / 100;
 	afae_ctrl->stat_data = vmalloc(size);
 	if (afae_ctrl->stat_data == NULL) {
 		print_error("malloc is failed in %s function at line#%d\n", __func__, __LINE__);
@@ -647,7 +777,7 @@ int ispv1_focus_init(void)
 	set_focus_result(STATUS_FOCUSED);
 
 	memset(&afae_ctrl->compare_data, 0, sizeof(focus_frame_stat_s));
-	set_caf_forcestart(CAF_FORCESTART_LEVEL0);
+	set_caf_forcestart(CAF_FORCESTART_FORCEWAIT);
 
 	afae_ctrl->binning = 0;
 	afae_ctrl->focus_failed = 0;
@@ -662,6 +792,9 @@ int ispv1_focus_init(void)
 		afae_ctrl = NULL;
 		return -1;
 	}
+
+	ispv1_setreg_vcm_DLC_mode();
+	sema_init(&sem_af_schedule, 0);
 	INIT_WORK(&af_start_work, ispv1_af_start_work_func);
 
 	ispv1_cal_vcm_range(vcm);
@@ -669,6 +802,7 @@ int ispv1_focus_init(void)
 
 	ispv1_setreg_vcm_code(vcm->infiniteDistance);
 
+	sema_init(&(afae_ctrl->af_run_sem), 1);
 	return 0;
 }
 
@@ -725,25 +859,30 @@ int ispv1_focus_withdraw(void)
 	return 0;
 }
 
-/*
- **************************************************************************
- * FunctionName: ispv1_auto_focus;
- * Description : set focus start or stop; 1-start; 0-cancel or stop
- * Input       : flag;
- * Output      : NA;
- * ReturnValue : 0:ture ; -1:false;
- * Other       : NA;
- **************************************************************************
- */
+static void ispv1_exit_focus_workqueue(camera_focus focus_mode)
+{
+	afae_ctrl->k3focus_running = false;
+	ispv1_wakeup_focus_schedule(true);
+	flush_workqueue(af_start_work_queue);
+	if ((focus_mode != CAMERA_FOCUS_CONTINUOUS_VIDEO) &&
+		(focus_mode != CAMERA_FOCUS_CONTINUOUS_PICTURE)) {
+		ispv1_af_flash_check_close();
+		ispv1_set_aecagc_mode(AUTO_AECAGC);
+	}
+}
+
 int ispv1_auto_focus(int flag)
 {
-	u8 framerate = this_ispdata->sensor->fps;
-
-	print_info("enter %s: flag: %d, focus state:%d", __func__, flag, get_focus_state());
+	int ret = 0;
+	print_info("enter %s: flag: %d, focus state:%d, focus_mode:%d, result:%d",
+		__func__, flag, get_focus_state(), get_focus_mode(), afae_ctrl->af_result);
 
 	if(!this_ispdata->sensor->af_enable)
-		return 0;
+		return ret;
 
+	if (ispv1_get_af_run_sem() == false) {
+		return -1;
+	}
 	if (flag == FOCUS_START) {
 		if (get_focus_mode() == CAMERA_FOCUS_CONTINUOUS_VIDEO) {
 			if (get_focus_state() == FOCUS_STATE_STOPPED) {
@@ -751,14 +890,16 @@ int ispv1_auto_focus(int flag)
 				set_focus_result(STATUS_FOCUSED);
 			} else {
 				print_error("line %d: not valid status %d", __LINE__, get_focus_state());
-				return -1;
+				ret = -1;
+				goto free_out;
 			}
 		} else if (get_focus_mode() == CAMERA_FOCUS_CONTINUOUS_PICTURE) {
 			if (get_focus_state() == FOCUS_STATE_STOPPED) {
 				set_focus_state(FOCUS_STATE_CAF_PREPARING);
 			} else {
 				print_error("line %d: not valid status %d", __LINE__, get_focus_state());
-				return -1;
+				ret = -1;
+				goto free_out;
 			}
 		} else if (get_focus_mode() == CAMERA_FOCUS_AUTO_VIDEO) {
 			if (get_focus_state() == FOCUS_STATE_STOPPED) {
@@ -766,7 +907,8 @@ int ispv1_auto_focus(int flag)
 				set_focus_result(STATUS_FOCUSING);
 			} else {
 				print_error("line %d: not valid status %d", __LINE__, get_focus_state());
-				return -1;
+				ret = -1;
+				goto free_out;
 			}
 		} else {
 			/* if this time is snapshot focus,
@@ -778,6 +920,7 @@ int ispv1_auto_focus(int flag)
 			afae_ctrl->area_changed = false;
 		}
 		queue_work(af_start_work_queue, &af_start_work);
+		goto normal_out;
 	} else if ((flag == FOCUS_STOP) && (get_focus_state() != FOCUS_STATE_STOPPED)) {
 
 		if ((get_focus_mode() == CAMERA_FOCUS_CONTINUOUS_PICTURE) ||
@@ -785,7 +928,6 @@ int ispv1_auto_focus(int flag)
 			if (get_focus_state() != FOCUS_STATE_CAF_DETECTING) {
 				print_info("caf doesn't stoped");
 				set_focus_result(STATUS_OUT_FOCUS);
-				wait_af_run_start(framerate);
 			} else {
 				set_focus_result(STATUS_FOCUSED);
 			}
@@ -793,40 +935,66 @@ int ispv1_auto_focus(int flag)
 			if (get_focus_result() == STATUS_FOCUSING) {
 				print_info("auto focus timeout");
 				set_focus_result(STATUS_OUT_FOCUS);
-				ispv1_set_aecagc_mode(AUTO_AECAGC);
-			}
-			if (get_focus_state() != FOCUS_STATE_AF_RUNNING) {
-				wait_af_run_start(framerate);
 			}
 		}
-
+		ispv1_exit_focus_workqueue(get_focus_mode());
 		set_focus_state(FOCUS_STATE_STOPPED);
 
-		if (true == this_ispdata->assistant_af_flash) {
-			ispv1_assistant_af(false);
-			this_ispdata->assistant_af_flash = false;
-			msleep((1000 / framerate) * 3);
-		}
+		goto free_out;
+	} else if (flag == FOCUS_CAF_FORCE_AF) {
+		if ((get_focus_mode() == CAMERA_FOCUS_CONTINUOUS_PICTURE) ||
+			(get_focus_mode() == CAMERA_FOCUS_CONTINUOUS_VIDEO)) {
+			if (get_focus_state() != FOCUS_STATE_CAF_RUNNING) {
+				set_focus_result(STATUS_FOCUSING);
+				ispv1_exit_focus_workqueue(get_focus_mode());
 
-		if (afae_ctrl->k3focus_running == true)
-			ispv1_wakeup_focus_schedule(true);
+				set_pre_focus_mode(get_focus_mode());
+				if (get_focus_mode() == CAMERA_FOCUS_CONTINUOUS_VIDEO){
+					set_focus_mode(CAMERA_FOCUS_AUTO_VIDEO);
+				} else {
+					set_focus_mode(CAMERA_FOCUS_CAF_FORCE_AF);
+				}
+				set_focus_state(FOCUS_STATE_AF_PREPARING);
+				queue_work(af_start_work_queue, &af_start_work);
+				goto normal_out;
+			} else {
+				print_info("%s, CAF already running, must wait CAF done.", __func__);
+				goto free_out;
+			}
+		} else {
+			print_error("line %d: not valid status %d", __LINE__, get_focus_state());
+			goto free_out;
+		}
+	} else if (flag == FOCUS_AF_RESUME_CAF) {
+		if ((get_focus_mode() != CAMERA_FOCUS_CONTINUOUS_PICTURE) &&
+			(get_focus_mode() != CAMERA_FOCUS_CONTINUOUS_VIDEO)) {
+			set_focus_result(STATUS_OUT_FOCUS);
+			ispv1_exit_focus_workqueue(get_focus_mode());
+
+			set_caf_forcestart(CAF_FORCESTART_FORCE);
+			set_focus_mode(get_pre_focus_mode());
+			set_focus_state(FOCUS_STATE_CAF_PREPARING);
+			queue_work(af_start_work_queue, &af_start_work);
+			goto normal_out;
+		} else {
+			print_error("line %d: not valid status %d", __LINE__, get_focus_state());
+			goto free_out;
+		}
 	} else {
 		print_error("ispv1_auto_focus param error!");
-		return -1;
+		ret = -1;
+		goto free_out;
 	}
-	return 0;
+
+free_out:
+	ispv1_free_af_run_sem();
+normal_out:
+	return ret;
 }
 
 static void ispv1_af_start_work_func(struct work_struct *work)
 {
 	camera_sensor *sensor =  this_ispdata->sensor;
-	u8 framerate = sensor->fps;
-	u32 index = sensor->preview_frmsize_index;
-	bool binning = sensor->frmsize_list[index].binning;
-	u32 cur_lum;
-	u32 cur_gain;
-	u8 frame_count = 0;
-	u8 over_expo_th = GETREG8(REG_ISP_TARGET_Y_HIGH) + DEFAULT_FLASH_AEC_FAST_STEP;
 	camera_focus cur_focus_mode = get_focus_mode();
 
 	/* if focus state has changed, should return immediately. */
@@ -839,49 +1007,42 @@ static void ispv1_af_start_work_func(struct work_struct *work)
 
 	ispv1_set_focus_area_done(&afae_ctrl->af_area, afae_ctrl->zoom);
 
-	if (afae_ctrl->area_changed == true)
-		set_caf_forcestart(CAF_FORCESTART_LEVEL0);
-	else
-		ispv1_focus_status_reset();
+
+	this_ispdata->af_need_flash = ispv1_af_flash_needed(sensor, this_ispdata->flash_mode, afae_ctrl->lum_info);
 
 
-	if (get_focus_state() == FOCUS_STATE_AF_PREPARING) {
-		cur_lum = ispv1_focus_get_win_lum(&afae_ctrl->lum_info);
-		cur_gain = get_writeback_gain();
-		if (((CAMERA_FLASH_AUTO ==  this_ispdata->flash_mode) || (CAMERA_FLASH_ON == this_ispdata->flash_mode))
-			&& (true == ispv1_focus_need_flash(cur_lum, cur_gain, binning))) {
-			ispv1_assistant_af(true);
-			this_ispdata->assistant_af_flash = true;
-			msleep((1000 / framerate) * 2);
-			cur_lum = get_current_y();
-			while ((frame_count++ < FLASH_TEST_MAX_COUNT) && (cur_lum > over_expo_th)) {
-				msleep(1000 / framerate);
-				cur_lum = get_current_y();
-			}
-		} else {
-			this_ispdata->assistant_af_flash = false;
+	if ((cur_focus_mode == CAMERA_FOCUS_CONTINUOUS_PICTURE)
+		|| (cur_focus_mode== CAMERA_FOCUS_CONTINUOUS_VIDEO)){
+		set_focus_state(FOCUS_STATE_CAF_DETECTING);
+
+		if (afae_ctrl->area_changed == true)
+			set_caf_forcestart(CAF_FORCESTART_FORCEWAIT);
+		else
+			ispv1_focus_status_reset();
+
+		if (afae_ctrl->k3focus_running == false)
+			ispv1_k3focus_run();
+		else {
+			print_error("fatal error in %s line %d: state error!", __func__, __LINE__);
+			ispv1_free_af_run_sem();
 		}
-	}
-
-	if (cur_focus_mode == CAMERA_FOCUS_CONTINUOUS_PICTURE) {
-		set_focus_state(FOCUS_STATE_CAF_DETECTING);
-		if (afae_ctrl->k3focus_running == false)
-			ispv1_k3focus_run();
-		else
-			print_error("fatal error in %s line %d: state error!", __func__, __LINE__);
-	} else if (cur_focus_mode== CAMERA_FOCUS_CONTINUOUS_VIDEO) {
-		/* set_caf_forcestart(CAF_FORCESTART_LEVEL0); */
-		set_focus_state(FOCUS_STATE_CAF_DETECTING);
-		if (afae_ctrl->k3focus_running == false)
-			ispv1_k3focus_run();
-		else
-			print_error("fatal error in %s line %d: state error!", __func__, __LINE__);
+	} else if ((cur_focus_mode == CAMERA_FOCUS_CAF_FORCE_AF) &&
+			(false == this_ispdata->af_need_flash) && (CAF_FORCESTART_CLEAR == get_caf_forcestart())) {
+		print_info("%s, don't excute auto focus, af_need_flash:%d, force_start:0x%x",
+			__func__, this_ispdata->af_need_flash, get_caf_forcestart());
+		set_focus_result(STATUS_FOCUSED);
+		set_focus_state(FOCUS_STATE_STOPPED);
+		ispv1_free_af_run_sem();
 	} else {
 		set_focus_state(FOCUS_STATE_AF_RUNNING);
+		set_focus_stage(AF_RUN_STAGE_PREPARE);
+
 		if (afae_ctrl->k3focus_running == false) {
 			ispv1_k3focus_run();
-		} else
+		} else {
 			print_error("fatal error in %s line %d: state error!", __func__, __LINE__);
+			ispv1_free_af_run_sem();
+		}
 	}
 }
 
@@ -1025,11 +1186,28 @@ static int ispv1_check_rect_intersection(camera_rect_s *rect1, camera_rect_s *re
 		return -1;
 }
 
-/*
- * Check two rects if there are differ in position or size.
- * return value: 0--have a lot differ; -1--no differ or differ a little.
- */
-static int ispv1_check_rect_differ(camera_rect_s *rect1, camera_rect_s *rect2,
+
+static bool ispv1_check_rect_center(camera_rect_s *rect, u32 preview_width, u32 preview_height)
+{
+	bool ret = false;
+	coordinate_s center, rect_center;
+
+	if (rect->width == 0 || rect->height == 0)
+		return true;
+
+	center.x = preview_width / 2;
+	center.y = preview_height / 2;
+	rect_center.x = rect->left + rect->width / 2;
+	rect_center.y = rect->top + rect->height / 2;
+
+	if (abs(rect_center.x - center.x) < 4 && abs(rect_center.y - center.y) < 4)
+		ret = true;
+
+	return ret;
+}
+
+
+static bool ispv1_check_rect_differ(camera_rect_s *rect1, camera_rect_s *rect2,
 				   u32 preview_width, u32 preview_height)
 {
 	coordinate_s center1, center2;
@@ -1042,17 +1220,17 @@ static int ispv1_check_rect_differ(camera_rect_s *rect1, camera_rect_s *rect2,
 	center2.y = rect2->top + rect2->height / 2;
 
 	/* if center pointer differ a lot, then it is differ. */
-	if ((abs(center2.x - center1.x) > (preview_width / 6)) || (abs(center2.y - center1.y) > (preview_height / 4)))
-		return 0;
+	if ((abs(center2.x - center1.x) > (preview_width / 16)) || (abs(center2.y - center1.y) > (preview_height / 16)))
+		return true;
 
 	/* if size is differ a lot, then it is differ. */
 	width_diff = abs(rect1->width - rect2->width);
 	height_diff = abs(rect1->height - rect2->height);
 	if ((width_diff > rect1->width / 2) || (width_diff > rect2->width / 2)
 	    || (height_diff > rect1->height / 2) || (height_diff > rect2->height / 2))
-		return 0;
+		return true;
 
-	return -1;
+	return false;
 }
 
 static int ispv1_get_map_table(focus_area_s *area,
@@ -1098,10 +1276,18 @@ static int ispv1_get_map_table(focus_area_s *area,
 /* changed 2012-03-15 for zero size rect*/
 static int ispv1_focus_get_default_yuvrect(camera_rect_s *rectin, u32 preview_width, u32 preview_height)
 {
-	rectin->left = preview_width * (100 - DEFAULT_AF_WIDTH_PERCENT) / 200;
-	rectin->top = preview_height * (100 - DEFAULT_AF_HEIGHT_PERCENT) / 200;
-	rectin->width = preview_width * DEFAULT_AF_WIDTH_PERCENT / 100;
-	rectin->height = preview_height * DEFAULT_AF_HEIGHT_PERCENT / 100;
+	u32 width_precent = DEFAULT_AF_WIDTH_PERCENT;
+	u32 height_precent = DEFAULT_AF_HEIGHT_PERCENT;
+
+	if(this_ispdata->sensor->get_af_param){
+		width_precent = (u32)(this_ispdata->sensor->get_af_param(AF_WIDTH_PERCENT));
+		height_precent = (u32)(this_ispdata->sensor->get_af_param(AF_HEIGHT_PERCENT));
+	}
+
+	rectin->left = preview_width * (100 - width_precent) / 200;
+	rectin->top = preview_height * (100 - height_precent) / 200;
+	rectin->width = preview_width * width_precent / 100;
+	rectin->height = preview_height * height_precent / 100;
 
 	return 0;
 }
@@ -1113,19 +1299,28 @@ static int ispv1_focus_adjust_yuvrect(camera_rect_s *yuv, u32 preview_width, u32
 	int left, top;
 	u32 height_ratio;
 	u32 max_hzoom_ratio;
+	u32 width_precent = DEFAULT_AF_WIDTH_PERCENT;
+	u32 height_precent = DEFAULT_AF_HEIGHT_PERCENT;
+	u32 min_height_ratio = DEFAULT_AF_MIN_HEIGHT_RATIO;
+
+	if(this_ispdata->sensor->get_af_param){
+		width_precent = (u32)(this_ispdata->sensor->get_af_param(AF_WIDTH_PERCENT));
+		height_precent = (u32)(this_ispdata->sensor->get_af_param(AF_HEIGHT_PERCENT));
+		min_height_ratio = (u32)(this_ispdata->sensor->get_af_param(AF_MIN_HEIGHT_RATIO));
+	}
 
 	/* first re-size ratio to fit focus: 1x-4x change to 1x-2x. */
 	ratio = (ratio - ISP_ZOOM_BASE_RATIO) * (ISP_FOCUS_ZOOM_MAX_RATIO - ISP_ZOOM_BASE_RATIO);
 	ratio /= (ISP_ZOOM_MAX_RATIO - ISP_ZOOM_BASE_RATIO);
 	ratio += ISP_ZOOM_BASE_RATIO;
-	max_hzoom_ratio = FOCUS_PARAM_MIN_HEIGHT_RATIO * (ISP_FOCUS_ZOOM_MAX_RATIO / ISP_ZOOM_BASE_RATIO);
+	max_hzoom_ratio = min_height_ratio * (ISP_FOCUS_ZOOM_MAX_RATIO / ISP_ZOOM_BASE_RATIO);
 
-	height_ratio = FOCUS_PARAM_MIN_HEIGHT_RATIO * ratio / ISP_ZOOM_BASE_RATIO;
+	height_ratio = min_height_ratio * ratio / ISP_ZOOM_BASE_RATIO;
 
 	/* adjust height ratio. */
-	if (height_ratio < FOCUS_PARAM_MIN_HEIGHT_RATIO)
-		height_ratio = FOCUS_PARAM_MIN_HEIGHT_RATIO;
-	else if (height_ratio > FOCUS_PARAM_MIN_HEIGHT_RATIO * ISP_FOCUS_ZOOM_MAX_RATIO / ISP_ZOOM_BASE_RATIO)
+	if (height_ratio < min_height_ratio)
+		height_ratio = min_height_ratio;
+	else if (height_ratio > min_height_ratio * ISP_FOCUS_ZOOM_MAX_RATIO / ISP_ZOOM_BASE_RATIO)
 		height_ratio = max_hzoom_ratio;
 
 	print_debug("before left:%d, top:%d, yuv->width:%d; yuv->height:%d, height_ratio 0x%x",
@@ -1147,10 +1342,10 @@ static int ispv1_focus_adjust_yuvrect(camera_rect_s *yuv, u32 preview_width, u32
 	/* second, check if width/height is larger than default or not */
 	width = yuv->width;
 	height = yuv->height;
-	if (yuv->width > (preview_width * DEFAULT_AF_WIDTH_PERCENT / 100))
-		width = preview_width * DEFAULT_AF_WIDTH_PERCENT / 100;
-	if (yuv->height > (preview_height * DEFAULT_AF_HEIGHT_PERCENT / 100))
-		height = preview_height * DEFAULT_AF_HEIGHT_PERCENT / 100;
+	if (yuv->width > (preview_width * width_precent / 100))
+		width = preview_width * width_precent / 100;
+	if (yuv->height > (preview_height * height_precent / 100))
+		height = preview_height * height_precent / 100;
 
 	yuv->left = yuv->left + ((int)yuv->width - (int)width) / 2;
 	yuv->top = yuv->top + ((int)yuv->height - (int)height) / 2;
@@ -1418,7 +1613,7 @@ void ispv1_get_raw_lum_info(aec_data_t *ae_data, u32 stat_unit_area)
 			/* get each raw win raw */
 			lum = ispv1_get_single_win_raw_lum(win_idx, stat_unit_area);
 
-			/* reflash max raw data */
+			/* reflash max luminance */
 			if (lum_max < lum) {
 				lum_max = lum;
 				idx_max = win_idx;
@@ -1489,6 +1684,7 @@ int ispv1_set_vcm_parameters(camera_focus focus_mode)
 	case CAMERA_FOCUS_AUTO:
 	case CAMERA_FOCUS_MACRO:
 	case CAMERA_FOCUS_CONTINUOUS_PICTURE:
+	case CAMERA_FOCUS_CAF_FORCE_AF:
 		vcm->offsetInit = vcm->infiniteDistance;
 		vcm->fullRange = vcm->normalDistanceEnd;
 		vcm->moveRange = RANGE_NORMAL;
@@ -1533,6 +1729,8 @@ int ispv1_set_vcm_parameters(camera_focus focus_mode)
 
 	return ret;
 }
+
+
 int ispv1_set_focus_mode(camera_focus focus_mode)
 {
 	print_info("Enter %s, focus_mode:%d", __func__, focus_mode);
@@ -1637,6 +1835,8 @@ int ispv1_set_focus_area(focus_area_s *area, u32 zoom)
 {
 	camera_rect_s *current_rect;
 	camera_rect_s *previous_rect;
+	u32 preview_width = this_ispdata->pic_attr[STATE_PREVIEW].out_width;
+	u32 preview_height = this_ispdata->pic_attr[STATE_PREVIEW].out_height;
 	bool ret = false;
 
 	print_debug("enter %s", __func__);
@@ -1671,6 +1871,26 @@ int ispv1_set_focus_area(focus_area_s *area, u32 zoom)
 			}
 		}
 
+		ret = ispv1_check_rect_center(current_rect, preview_width, preview_height);
+		if (ret == true) {
+			/* new focus area is center focus. */
+			if (get_focus_state() == FOCUS_STATE_CAF_RUNNING)
+				set_focus_stage(AF_RUN_STAGE_BREAK);
+			set_caf_forcestart(CAF_FORCESTART_FORCEWAIT);
+		} else {
+			/* if large differ flag is set and CAF is running, should break current focusing and restart immediately */
+			ret = ispv1_check_rect_differ(current_rect, previous_rect, preview_width, preview_height);
+			if (ret == true) {
+				if (get_focus_state() == FOCUS_STATE_CAF_RUNNING)
+					set_focus_stage(AF_RUN_STAGE_BREAK);
+				set_caf_forcestart(CAF_FORCESTART_FORCE);
+			} else {
+				/*very small change, do nothing */
+				print_info("CAF rect change little, ommit it");
+				return 0;
+			}
+		}
+
 		ispv1_set_focus_area_done(area, zoom);
 	}
 
@@ -1679,23 +1899,14 @@ int ispv1_set_focus_area(focus_area_s *area, u32 zoom)
 	return 0;
 }
 
-/*
- **************************************************************************
- * FunctionName: ispv1_set_focus_area_done;
- * Description : set focus area
- * Input       : area: area information.
- * Output      : NA;
- * ReturnValue : 0 success, -1 failed
- * Other       : NA;
- **************************************************************************
- */
+
 static int ispv1_set_focus_area_done(focus_area_s *area, u32 zoom)
 {
 	u32 preview_width = this_ispdata->pic_attr[STATE_PREVIEW].out_width;
 	u32 preview_height = this_ispdata->pic_attr[STATE_PREVIEW].out_height;
 	u32 raw_width = this_ispdata->pic_attr[STATE_PREVIEW].in_width;
 	u32 raw_height = this_ispdata->pic_attr[STATE_PREVIEW].in_height;
-	camera_rect_s cur_rect, raw_rect;
+	camera_rect_s ori_rect, cur_rect, raw_rect;
 	/*camera_rect_s merged_yuv_rect;*/
 	focus_win_info_s win_info;
 	int binning = 0;
@@ -1709,7 +1920,7 @@ static int ispv1_set_focus_area_done(focus_area_s *area, u32 zoom)
 
 	print_debug("focus_area: focus_area_num %d", area->focus_rect_num);
 	for (index = 0; index < area->focus_rect_num; index++) {
-		print_info("focus rect %d:%d,%d,%d,%d,%d", index,
+		print_debug("focus rect %d:%d,%d,%d,%d,%d", index,
 					area->rect[index].left,
 					area->rect[index].top,
 					area->rect[index].width,
@@ -1731,30 +1942,33 @@ static int ispv1_set_focus_area_done(focus_area_s *area, u32 zoom)
 	if (multi_win == 0) {
 		/*y36721 changed for supporting one windows only.*/
 		#ifndef AF_SINGLE_WINMODE_ONLY
-			memcpy(&cur_rect, &area->rect[0], sizeof(camera_rect_s));
+			memcpy(&ori_rect, &area->rect[0], sizeof(camera_rect_s));
 		#else
-			memcpy(&cur_rect, &area->rect[area->focus_rect_num - 1], sizeof(camera_rect_s));
+			memcpy(&ori_rect, &area->rect[area->focus_rect_num - 1], sizeof(camera_rect_s));
 		#endif
 
 		/* check width and height are valid, then adjust it. */
-		if ((cur_rect.width == 0) || (cur_rect.height == 0)) {
-			ispv1_focus_get_default_yuvrect(&cur_rect, preview_width, preview_height);
+		if (ori_rect.width == 0 || ori_rect.height == 0) {
+			ispv1_focus_get_default_yuvrect(&ori_rect, preview_width, preview_height);
 			print_debug("default yuv rect:%d,%d,%d,%d",
-			    cur_rect.left, cur_rect.top, cur_rect.width, cur_rect.height);
+			    ori_rect.left, ori_rect.top, ori_rect.width, ori_rect.height);
 		}
 
 		/* most case is just one focus rect. */
-		if (((cur_rect.left + cur_rect.width) > preview_width) ||
-			((cur_rect.top + cur_rect.height) > preview_height)) {
+		if ((ori_rect.left + ori_rect.width) > preview_width || (ori_rect.top + ori_rect.height) > preview_height) {
 			print_error("%s, line %d: rect area error!", __func__, __LINE__);
 			return -1;
 		}
 
-		ispv1_get_yuvrect_withzoom(&cur_rect, zoom);
-		print_info("yuv after zoom %d:%d:%d:%d", cur_rect.left, cur_rect.top, cur_rect.width, cur_rect.height);
+		ispv1_get_yuvrect_withzoom(&ori_rect, zoom);
+		memcpy(&cur_rect, &ori_rect, sizeof(camera_rect_s));
 
 		/* convert yuv rect to raw rect. */
 		ispv1_focus_adjust_yuvrect(&cur_rect, preview_width, preview_height, zoom);
+		print_info("Focus area adjust: zoom %d, [%d,%d:%d x %d]->[%d,%d:%d x %d]",
+			zoom, ori_rect.left, ori_rect.top, ori_rect.width, ori_rect.height,
+			cur_rect.left, cur_rect.top, cur_rect.width, cur_rect.height);
+
 		ret = k3_isp_yuvrect_to_rawrect(&cur_rect, &raw_rect);
 		if (ret) {
 			print_error("%s, line %d: error", __func__, __LINE__);
@@ -1924,22 +2138,37 @@ static int ispv1_get_default_metering_rect(camera_metering metering,
 				camera_rect_s *yuv, u32 out_width, u32 out_height)
 {
 	int retvalue = 0;
+	camera_sensor *sensor = this_ispdata->sensor;//y00231328 0311 change to set ae statwin
 
 	print_debug("enter %s", __func__);
 
 	switch (metering) {
 	case CAMERA_METERING_SPOT:
-		yuv->width = out_width * METERING_SPOT_WIDTH_PERCENT / 100;
-		yuv->height = out_height * METERING_SPOT_HEIGHT_PERCENT / 100;
-		yuv->left = out_width * (100 - METERING_SPOT_WIDTH_PERCENT) / 200;
-		yuv->top = out_height * (100 - METERING_SPOT_HEIGHT_PERCENT) / 200;
+		if(sensor->sensor_index == CAMERA_SENSOR_SECONDARY){
+			yuv->width = out_width * METERING_SPOT_WIDTH_PERCENT_FOR_SECONDARY_CAMERA / 100;
+			yuv->height = out_height * METERING_SPOT_HEIGHT_PERCENT_FOR_SECONDARY_CAMERA / 100;
+			yuv->left = out_width * (100 - METERING_SPOT_WIDTH_PERCENT_FOR_SECONDARY_CAMERA) / 200;
+			yuv->top = out_height * (100 - METERING_SPOT_HEIGHT_PERCENT_FOR_SECONDARY_CAMERA) / 200;
+		} else {
+			yuv->width = out_width * METERING_SPOT_WIDTH_PERCENT / 100;
+			yuv->height = out_height * METERING_SPOT_HEIGHT_PERCENT / 100;
+			yuv->left = out_width * (100 - METERING_SPOT_WIDTH_PERCENT) / 200;
+			yuv->top = out_height * (100 - METERING_SPOT_HEIGHT_PERCENT) / 200;
+		}
 		break;
 
 	case CAMERA_METERING_CWA:
-		yuv->width = out_width * METERING_CWA_WIDTH_PERCENT / 100;
-		yuv->height = out_height * METERING_CWA_HEIGHT_PERCENT / 100;
-		yuv->left = out_width * (100 - METERING_CWA_WIDTH_PERCENT) / 200;
-		yuv->top = out_height * (100 - METERING_CWA_HEIGHT_PERCENT) / 200;
+		if(sensor->sensor_index == CAMERA_SENSOR_SECONDARY){
+			yuv->width = out_width * METERING_CWA_WIDTH_PERCENT_FOR_SECONDARY_CAMERA / 100;
+			yuv->height = out_height * METERING_CWA_HEIGHT_PERCENT_FOR_SECONDARY_CAMERA / 100;
+			yuv->left = out_width * (100 - METERING_CWA_WIDTH_PERCENT_FOR_SECONDARY_CAMERA) / 200;
+			yuv->top = out_height * (100 - METERING_CWA_HEIGHT_PERCENT_FOR_SECONDARY_CAMERA) / 200;
+		} else {
+			yuv->width = out_width * METERING_CWA_WIDTH_PERCENT / 100;
+			yuv->height = out_height * METERING_CWA_HEIGHT_PERCENT / 100;
+			yuv->left = out_width * (100 - METERING_CWA_WIDTH_PERCENT) / 200;
+			yuv->top = out_height * (100 - METERING_CWA_HEIGHT_PERCENT) / 200;
+		}
 		break;
 
 	case CAMERA_METERING_AVERAGE:
@@ -2006,15 +2235,15 @@ int ispv1_setreg_metering_area(camera_rect_s *raw, u32 raw_width, u32 raw_height
 		SETREG8(REG_ISP_AECAGC_WIN_WEIGHT(1), 1);
 		SETREG8(REG_ISP_AECAGC_WIN_WEIGHT(2), 1);
 		SETREG8(REG_ISP_AECAGC_WIN_WEIGHT(3), 1);
-		SETREG8(REG_ISP_AECAGC_WIN_WEIGHT(4), 2);
-		SETREG8(REG_ISP_AECAGC_WIN_WEIGHT(5), 2);
-		SETREG8(REG_ISP_AECAGC_WIN_WEIGHT(6), 2);
-		SETREG8(REG_ISP_AECAGC_WIN_WEIGHT(7), 2);
-		SETREG8(REG_ISP_AECAGC_WIN_WEIGHT(8), 4);
-		SETREG8(REG_ISP_AECAGC_WIN_WEIGHT(9), 2);
-		SETREG8(REG_ISP_AECAGC_WIN_WEIGHT(10), 2);
-		SETREG8(REG_ISP_AECAGC_WIN_WEIGHT(11), 2);
-		SETREG8(REG_ISP_AECAGC_WIN_WEIGHT(12), 2);
+		SETREG8(REG_ISP_AECAGC_WIN_WEIGHT(4), 9);
+		SETREG8(REG_ISP_AECAGC_WIN_WEIGHT(5), 9);
+		SETREG8(REG_ISP_AECAGC_WIN_WEIGHT(6), 9);
+		SETREG8(REG_ISP_AECAGC_WIN_WEIGHT(7), 9);
+		SETREG8(REG_ISP_AECAGC_WIN_WEIGHT(8), 18);
+		SETREG8(REG_ISP_AECAGC_WIN_WEIGHT(9), 9);
+		SETREG8(REG_ISP_AECAGC_WIN_WEIGHT(10), 9);
+		SETREG8(REG_ISP_AECAGC_WIN_WEIGHT(11), 9);
+		SETREG8(REG_ISP_AECAGC_WIN_WEIGHT(12), 9);
 
 		//weight shift
 		SETREG8(REG_ISP_AECAGC_WIN_WEIGHT_SHIFT, 3);
@@ -2087,6 +2316,8 @@ int ispv1_set_ae_statwin(pic_attr_t *pic_attr, u32 zoom)
 	camera_rect_s raw;
 	u32 x_offset, y_offset;
 	u32 ratio = isp_zoom_to_ratio(zoom, 0);
+	camera_sensor *sensor = this_ispdata->sensor;//y00231328 0311 change to set ae statwin
+
 
 	yuv.left = 0;
 	yuv.top = 0;
@@ -2097,11 +2328,18 @@ int ispv1_set_ae_statwin(pic_attr_t *pic_attr, u32 zoom)
 		return -1;
 	}
 
-	x_offset = (pic_attr->in_width - raw.width * METERING_AECAGC_WINDOW_PERCENT \
-		* ISP_ZOOM_BASE_RATIO / ratio / 100) / 2;
-	y_offset = (pic_attr->in_height - raw.height * METERING_AECAGC_WINDOW_PERCENT \
-		* ISP_ZOOM_BASE_RATIO / ratio / 100) / 2;
-
+	//y00231328 0311 change to set ae statwin
+	if(sensor->sensor_index == CAMERA_SENSOR_SECONDARY){
+		x_offset = (pic_attr->in_width - raw.width * METERING_AECAGC_WINDOW_PERCENT_FOR_SECONDARY_CAMERA \
+				* ISP_ZOOM_BASE_RATIO / ratio / 100) / 2;
+		y_offset = (pic_attr->in_height - raw.height * METERING_AECAGC_WINDOW_PERCENT_FOR_SECONDARY_CAMERA \
+				* ISP_ZOOM_BASE_RATIO / ratio / 100) / 2;
+	}else {
+		x_offset = (pic_attr->in_width - raw.width * METERING_AECAGC_WINDOW_PERCENT \
+				* ISP_ZOOM_BASE_RATIO / ratio / 100) / 2;
+		y_offset = (pic_attr->in_height - raw.height * METERING_AECAGC_WINDOW_PERCENT \
+				* ISP_ZOOM_BASE_RATIO / ratio / 100) / 2;
+	}
 
 	ispv1_setreg_ae_statwin(x_offset, y_offset);
 	return 0;
@@ -2146,7 +2384,6 @@ int ispv1_set_metering_area(metering_area_s *area, u32 zoom)
 	u32 preview_height = ispdata->pic_attr[STATE_PREVIEW].out_height;
 	u32 in_width = ispdata->pic_attr[STATE_PREVIEW].in_width;
 	u32 in_height = ispdata->pic_attr[STATE_PREVIEW].in_height;
-	u32 ratio = isp_zoom_to_ratio(zoom, 0);
 
 	camera_rect_s yuv;
 	camera_rect_s raw;
@@ -2189,7 +2426,7 @@ int ispv1_set_metering_area(metering_area_s *area, u32 zoom)
 		return -1;
 	}
 
-	ispv1_set_ae_statwin(&ispdata->pic_attr, zoom);
+	ispv1_set_ae_statwin(&ispdata->pic_attr[STATE_PREVIEW], zoom);
 	ispv1_setreg_metering_area(&raw, in_width, in_height, roi_flag);
 
 	return 0;
@@ -2229,8 +2466,31 @@ int ispv1_set_focus_range(camera_focus focus_mode)
  */
 int ispv1_get_focus_distance(void)
 {
-	/* just reserve interface */
-	return 0;
+    /* < zhoutian 00195335 12-9-25 added for auto scene detect begin */
+    int ret = 0;
+    int val_vcm = 0;
+    vcm_info_s *vcm = this_ispdata->sensor->vcm;
+    GETREG16(REG_ISP_FOCUS_MOTOR_CURR, val_vcm);
+
+    int focus_status = 0;
+    focus_status = GETREG8(0x1cdd4);
+
+    if (focus_status == STATUS_FOCUSING)
+        ret = ISP_FOCAL_LENGTH_FOCUSING;
+    else
+    {
+        if (val_vcm >= (vcm->normalDistanceEnd - 280))	//水平:0.1~0.5m,
+            ret = ISP_FOCAL_LENGTH_MACRO;
+        else if (val_vcm <=  (vcm->infiniteDistance + 130)) //水平:> 2m
+            ret = ISP_FOCAL_LENGTH_INFINITY;
+        else
+            ret = ISP_FOCAL_LENGTH_MIDDLE;
+    }
+    
+    return ret;
+    /* zhoutian 00195335 12-9-25 added for auto scene detect end > */
+    /* just reserve interface */
+    //return 0;     //zhoutian 00195335 removed for auto scene detect
 }
 static bool ispv1_focus_need_flash(u32 cur_lum, u32 cur_gain, bool binning)
 {
@@ -2270,6 +2530,65 @@ static void ispv1_assistant_af(bool action)
 	}
 }
 
+
+static bool ispv1_af_flash_needed(camera_sensor *sensor, camera_flash flash_mode, lum_win_info_s lum_info)
+{
+	u32 index = sensor->preview_frmsize_index;
+	bool summary = sensor->frmsize_list[index].binning;
+	u32 cur_lum;
+	u32 cur_gain;
+	bool ret = false;
+
+	if (get_focus_state() == FOCUS_STATE_AF_PREPARING) {
+		cur_lum = ispv1_focus_get_win_lum(&lum_info);
+		cur_gain = get_writeback_gain();
+		if (((CAMERA_FLASH_AUTO ==  flash_mode) || (CAMERA_FLASH_ON == flash_mode))
+			&& (true == ispv1_focus_need_flash(cur_lum, cur_gain, summary))) {
+			ret = true;
+		}
+	}
+	return ret;
+}
+
+
+static void ispv1_af_flash_check_open(void)
+{
+	camera_sensor *sensor =  this_ispdata->sensor;
+	u8 framerate = sensor->fps;
+	u32 cur_lum;
+	u8 over_expo_th = GETREG8(REG_ISP_TARGET_Y_HIGH) + DEFAULT_FLASH_AEC_FAST_STEP;
+	u8 frame_count = 0;
+
+	if (this_ispdata->af_need_flash == true) {
+		ispv1_assistant_af(true);
+		this_ispdata->assistant_af_flash = true;
+		msleep((1000 / framerate) * 2);
+		cur_lum = get_current_y();
+		while ((frame_count++ < FLASH_TEST_MAX_COUNT) &&
+			(cur_lum > over_expo_th) && (get_focus_state() != FOCUS_STATE_STOPPED)) {
+			msleep(1000 / framerate);
+			cur_lum = get_current_y();
+		}
+		print_debug("%s, af_need_flash:%d, frame_cout:%d, focus_state:%d, cur_lum:0x%x, over_expo_th:0x%x",
+			__func__, this_ispdata->af_need_flash, frame_count, get_focus_state(), cur_lum, over_expo_th);
+	}
+}
+
+
+static void ispv1_af_flash_check_close(void)
+{
+	camera_sensor *sensor =  this_ispdata->sensor;
+	u8 framerate = sensor->fps;
+
+	print_debug("%s, af_need_flash:%d", __func__, this_ispdata->af_need_flash);
+	if (true == this_ispdata->assistant_af_flash) {
+		ispv1_assistant_af(false);
+		msleep((1000 / framerate) * 3);
+		this_ispdata->assistant_af_flash = false;
+	}
+	this_ispdata->af_need_flash = false;
+}
+
 int ispv1_focus_status_collect(focus_frame_stat_s *curr_data, focus_frame_stat_s *mean_data)
 {
 	int loopi;
@@ -2305,7 +2624,7 @@ int ispv1_focus_status_collect(focus_frame_stat_s *curr_data, focus_frame_stat_s
 			 * init all frame's contrast/gain/expo/lum array as compare data.
 			 * used in preview tasklet to judge scene switch.
 			 */
-			for (loopi = 0; loopi < CAF_STAT_FRAME_FULL; loopi++) {
+			for (loopi = 0; loopi < CAF_STAT_FRAME; loopi++) {
 				memcpy(&afae_ctrl->frame_stat[loopi], &afae_ctrl->compare_data,
 					sizeof(focus_frame_stat_s));
 			}
@@ -2315,12 +2634,10 @@ int ispv1_focus_status_collect(focus_frame_stat_s *curr_data, focus_frame_stat_s
 	if (afae_ctrl->focus_stat_frames <= CAF_STAT_SKIP_FRAME)
 		return -1;
 
-	if ((curr_data->fps <= 20) || (afae_ctrl->gsensor_interval <= 50))
+	if (curr_data->fps <= 20)
 		stat_cnt = CAF_STAT_FRAME_LOW;
-	else if (afae_ctrl->gsensor_interval < 100)
-		stat_cnt = CAF_STAT_FRAME;
 	else
-		stat_cnt = CAF_STAT_FRAME_FULL;
+		stat_cnt = CAF_STAT_FRAME;
 
 	/* update new contrast/gain/expo/lum value array */
 	memcpy(&afae_ctrl->frame_stat[0], &afae_ctrl->frame_stat[1],
@@ -2350,11 +2667,12 @@ int ispv1_focus_status_collect(focus_frame_stat_s *curr_data, focus_frame_stat_s
 	mean_data->xyz.z /= stat_cnt;
 
 	for (loopi = 0; loopi < stat_cnt; loopi++) {
-		variance[0] = abs(afae_ctrl->frame_stat[loopi].contrast - mean_data->contrast);
-		variance[1] = abs(afae_ctrl->frame_stat[loopi].lum - mean_data->lum);
-		variance[2] = abs(afae_ctrl->frame_stat[loopi].xyz.x - mean_data->xyz.x);
-		variance[3] = abs(afae_ctrl->frame_stat[loopi].xyz.y - mean_data->xyz.y);
-		variance[4] = abs(afae_ctrl->frame_stat[loopi].xyz.z - mean_data->xyz.z);
+		/* use last stat data as base calculate value */
+		variance[0] = abs(afae_ctrl->frame_stat[loopi].contrast - afae_ctrl->frame_stat[stat_cnt - 1].contrast);
+		variance[1] = abs(afae_ctrl->frame_stat[loopi].lum - afae_ctrl->frame_stat[stat_cnt - 1].lum);
+		variance[2] = abs(afae_ctrl->frame_stat[loopi].xyz.x - afae_ctrl->frame_stat[stat_cnt - 1].xyz.x);
+		variance[3] = abs(afae_ctrl->frame_stat[loopi].xyz.y - afae_ctrl->frame_stat[stat_cnt - 1].xyz.y);
+		variance[4] = abs(afae_ctrl->frame_stat[loopi].xyz.z - afae_ctrl->frame_stat[stat_cnt - 1].xyz.z);
 
 		variance[0] *= variance[0];
 		variance[1] *= variance[1];
@@ -2386,7 +2704,7 @@ int ispv1_focus_status_collect(focus_frame_stat_s *curr_data, focus_frame_stat_s
 static void ispv1_focus_status_reset(void)
 {
 	afae_ctrl->focus_stat_frames = 0;
-	set_caf_forcestart(CAF_FORCESTART_NONE);
+	set_caf_forcestart(CAF_FORCESTART_CLEAR); /* clear force start bits */
 	memset(&afae_ctrl->compare_data, 0, sizeof(focus_frame_stat_s));
 }
 
@@ -2432,16 +2750,20 @@ u16 ispv1_calc_frame_stat_diff(focus_frame_stat_s *pre_data, focus_frame_stat_s 
 caf_detect_result ispv1_check_caf_need_trigger(focus_frame_stat_s *compare_data, focus_frame_stat_s *mean_data, focus_frame_stat_s cur_data)
 {
 	u8 unpeace = 0;
-	static u8 unpeace_cnt;
+	static u16 unpeace_ms;
 	u16 force_start = get_caf_forcestart();
 	u16 diff_val = 0;
 	u8 fps = this_ispdata->sensor->fps;
 	bool trigger = false;
 
-	if ((force_start & 0xf000) == 0) {
+	if (force_start == 0) {
 		/* if diff too much, should force focus start. */
 		diff_val = ispv1_calc_frame_stat_diff(compare_data, mean_data);
-		force_start |= diff_val;
+		force_start = diff_val;
+		set_caf_forcestart(force_start);
+	} else if ((force_start & CAF_FORCESTART_FORCE) != 0) {
+		unpeace_ms = 0;
+		return CAF_DETECT_RESULT_TRIGGER;
 	}
 
 	if (force_start == 0)
@@ -2451,6 +2773,7 @@ caf_detect_result ispv1_check_caf_need_trigger(focus_frame_stat_s *compare_data,
 		unpeace |= 0x01;
 	if (mean_data->lum_var > (mean_data->lum * mean_data->lum / FOCUS_PARAM_VAR_RATIO_LUM))
 		unpeace |= 0x02;
+
 	if (mean_data->xyz_var.x > FOCUS_PARAM_VAR_DIFF_XYZ)
 		unpeace |= 0x10;
 	if (mean_data->xyz_var.y > FOCUS_PARAM_VAR_DIFF_XYZ)
@@ -2458,48 +2781,51 @@ caf_detect_result ispv1_check_caf_need_trigger(focus_frame_stat_s *compare_data,
 	if (mean_data->xyz_var.z > FOCUS_PARAM_VAR_DIFF_XYZ)
 		unpeace |= 0x40;
 
-	print_debug("mean contrast var [%d:%d], lum var [0x%x:0x%x], xyz var [%d, %d, %d]",
+	print_debug("mean contrast var [0x%x:0x%x], lum var [0x%x:0x%x], xyz var [%d, %d, %d]",
 		mean_data->contrast_var, mean_data->contrast,
 		mean_data->lum_var, mean_data->lum,
 		mean_data->xyz_var.x, mean_data->xyz_var.y, mean_data->xyz_var.z);
 
-	if (force_start && (unpeace == 0)) {
+	if (force_start && unpeace == 0) {
 		if (mean_data->lum >= FOCUS_PARAM_MIN_TRIGGER_LUM) {
-			if ((afae_ctrl->focus_stat_frames > CAF_STAT_SKIP_FRAME) && ((force_start & 0xff00) == 0)) {
-				diff_val = ispv1_calc_frame_stat_diff(compare_data, mean_data);
+			if (afae_ctrl->focus_stat_frames > CAF_STAT_SKIP_FRAME
+				&& (force_start & (CAF_FORCESTART_FORCE | CAF_FORCESTART_FORCEWAIT)) == 0) {
+
+				diff_val = ispv1_calc_frame_stat_diff(compare_data, &cur_data);
 				if (diff_val != 0)
 					trigger = true;
 			}else {
-				/* CAF_FORCESTART_LEVEL1 or CAF_FORCESTART_LEVEL0 */
+				/* CAF_FORCESTART_FORCE or CAF_FORCESTART_FORCEWAIT */
 				trigger = true;
 			}
-			unpeace_cnt = 0;
+			unpeace_ms = 0;
 			if (trigger == true) {
-				print_info("CAF scene changed reason: 0x%.4x; contrast [0x%x->0x%x], lum[0x%x->0x%x]!!!!!!",
-					force_start, compare_data->contrast, mean_data->contrast, compare_data->lum, mean_data->lum);
+				print_info("CAF scene changed reason: 0x%.4x; contrast [0x%x->0x%x], diff_val 0x%x!",
+					force_start, compare_data->contrast, mean_data->contrast, diff_val);
 				return CAF_DETECT_RESULT_TRIGGER;
 			} else {
+				set_caf_forcestart(CAF_FORCESTART_CLEAR);
 				return CAF_DETECT_RESULT_NOISE;
 			}
 		} else {
 			return CAF_DETECT_RESULT_NONE;
 		}
 	} else {
-		print_debug("force_start 0x%x, but unpeace 0x%x, gsensor unpeace_cnt %d", force_start, unpeace, unpeace_cnt);
+		print_debug("force_start 0x%x, but unpeace 0x%x, gsensor unpeace_ms %d", force_start, unpeace, unpeace_ms);
 
 		/* if unpeace caused by Gsensor more than XX seconds, force VCM go to infinite. */
 		if ((unpeace & 0xf0) != 0) {
-			if (unpeace_cnt < FOCUS_PARAM_GOTO_INFINITE_TIMEOUT * fps) {
-				unpeace_cnt++;
+			if (unpeace_ms < FOCUS_PARAM_GOTO_INFINITE_TIMEOUT) {
+				unpeace_ms += 1000 / fps;
 				return CAF_DETECT_RESULT_NONE;
 			} else {
 				/* if gsensor is unpeace than (XX * fps), force VCM go to infinite */
-				unpeace_cnt = 0;
+				unpeace_ms = 0;
 				return CAF_DETECT_RESULT_INFINITE;
 			}
 		} else {
 			/* if gsensor is stable, Gsensor unpeace count set zero and return RESULT_NONE. */
-			unpeace_cnt = 0;
+			unpeace_ms = 0;
 			return CAF_DETECT_RESULT_NONE;
 		}
 	}
@@ -2536,7 +2862,7 @@ void ispv1_focus_get_curr_data(focus_frame_stat_s *curr_data)
 	}
 	memcpy(&curr_data->xyz, &mXYZ, sizeof(axis_triple));
 
-	print_debug("current contrast 0x%.3x, lum 0x%.2x, xyz: 0x%8x,  0x%8x, 0x%8x",
+	print_debug("current contrast 0x%.3x, lum 0x%.2x, xyz: %.4d, %.4d, %.4d",
 		curr_data->contrast, curr_data->lum,
 		curr_data->xyz.x, curr_data->xyz.y, curr_data->xyz.z);
 }
@@ -2576,7 +2902,7 @@ bool ispv1_copy_preview_data(u8 *dest, camera_rect_s *rect)
 		goto error_out2;
 	}
 
-	if (NULL == dest || NULL == frame) {
+	if (NULL == dest || NULL == frame || 0x0 == frame->phyaddr) {
 		print_error("params error, dest 0x%x, frame 0x%x", (unsigned int)dest, (unsigned int)frame);
 		goto error_out1;
 	}
@@ -2742,6 +3068,9 @@ static u32 ispv1_focus_calc_edge(u8 *pdata, camera_rect_s *rect, int contrast_sh
 int ispv1_focus_need_schedule(void)
 {
 	int schedule_case = -1;
+
+	if (afae_ctrl->k3focus_running == false)
+		return schedule_case;
 
 	if (get_focus_mode() == CAMERA_FOCUS_CONTINUOUS_PICTURE &&
 	    get_focus_state() == FOCUS_STATE_CAF_DETECTING) {
@@ -2955,13 +3284,17 @@ bool analysis_contrast_value(u32 *array, af_run_param *af_info)
 	af_trip_info *trip = &(af_info->trip);
 	u32 array_size = trip->step_cnt;
 	u32 index = 0;
-	u8  top_cnt = 0;
+	u32 top_cnt = 0;
+	u32 max_cnt = DEFAULT_AF_MAX_FOCUS_STEP;
 	u32 contrast_top = 0;
 	u8 top_index = 0;
 	bool ret = true;
 	u8 start_index = 0;
 	u32 contrast_threshold = 0;
 	u32 focus_lum;
+
+	if(this_ispdata->sensor->get_af_param)
+		max_cnt = (u32)(this_ispdata->sensor->get_af_param(AF_MAX_FOCUS_STEP));
 
 	/* search top contrast and count that */
 	af_info->af_analysis = 0;
@@ -3006,7 +3339,7 @@ bool analysis_contrast_value(u32 *array, af_run_param *af_info)
 				top_cnt++;
 			}
 		}
-		if (top_cnt > 4) {
+		if (top_cnt > max_cnt) {
 			af_info->af_analysis |= 0x01;
 		}
 	}
@@ -3053,7 +3386,7 @@ bool ispv1_judge_skip_frame(void)
 	} else {
 		ret = false;
 	}
-	print_debug("expo_line:%d, vts:%d, expo time:%d, stable_expo_ms:%d ret:%d, fps:%d",
+	print_info("expo_line:%d, vts:%d, expo time:%d, stable_expo_ms:%d ret:%d, fps:%d",
 		get_writeback_expo()>>4, vts, expo_time_ms, stable_expo_ms, ret, sensor->fps);
 	return ret;
 }
@@ -3086,9 +3419,7 @@ void ispv1_k3focus_run(void)
 
 	int next_code = 0;
 	int tryrewind_code = 0;
-	vcaf_run_stage vcaf_stage = VCAF_RUN_STAGE_PREPARE;
 
-	af_run_stage af_stage = AF_RUN_STAGE_PREPARE;
 	af_run_stage next_stage = AF_RUN_STAGE_PREPARE;
 
 	int aec_stable;
@@ -3116,9 +3447,6 @@ void ispv1_k3focus_run(void)
 	memset(&curr_data, 0, sizeof(focus_frame_stat_s));
 	memset(&mean_data, 0, sizeof(focus_frame_stat_s));
 
-	/* init params */
-	sema_init(&sem_af_schedule, 0);
-
 	/* first set edge_calc_coarse flag first */
 	if ((preview_width * preview_height) > FOCUS_PARAM_EDGE_CALC_COARSE_SIZE)
 		edge_calc_coarse = true;
@@ -3139,8 +3467,16 @@ void ispv1_k3focus_run(void)
 
 	/*set k3focus_running flag is true */
 	afae_ctrl->k3focus_running = true;
+
+	ispv1_free_af_run_sem();
+
+	ispv1_af_flash_check_open();
+
+	/* init params */
+	sema_init(&sem_af_schedule, 0);
+
 	while ((schedule_case = ispv1_focus_need_schedule()) != -1) {
-		ret = ispv1_wait_focus_schedule_timeout(100);
+		ret = ispv1_wait_focus_schedule_timeout(120);
 		if (ret != 0)
 			continue;
 
@@ -3153,10 +3489,12 @@ void ispv1_k3focus_run(void)
 		case FOCUS_SCHEDULE_CASE_CAF_VIDEO_DETECT:
 			result = get_focus_result();
 			if ((result == STATUS_FOCUSED) || (result == STATUS_OUT_FOCUS)) {
-				ispv1_focus_get_curr_data(&curr_data);
-				ret = ispv1_focus_status_collect(&curr_data, &mean_data);
-				if (ret != 0)
-					break;
+				if ((get_caf_forcestart() & CAF_FORCESTART_FORCE) == 0) {
+					ispv1_focus_get_curr_data(&curr_data);
+					ret = ispv1_focus_status_collect(&curr_data, &mean_data);
+					if (ret != 0)
+						break;
+				}
 
 				/* if diff too much and quiet, should force focus start. */
 				check_result = ispv1_check_caf_need_trigger(&afae_ctrl->compare_data, &mean_data, curr_data);
@@ -3165,6 +3503,10 @@ void ispv1_k3focus_run(void)
 					set_focus_state(FOCUS_STATE_CAF_RUNNING);
 					ispv1_focus_status_reset();
 					frame_count = 0;
+					if (schedule_case == FOCUS_SCHEDULE_CASE_CAF_PICTURE_DETECT)
+						set_focus_stage(AF_RUN_STAGE_PREPARE);
+					else
+						set_focus_stage(VCAF_RUN_STAGE_PREPARE);
 				} else if (check_result == CAF_DETECT_RESULT_INFINITE) {
 					if (curr.code != vcm->offsetInit) {
 						curr.code = vcm->offsetInit;
@@ -3172,7 +3514,7 @@ void ispv1_k3focus_run(void)
 						ispv1_focus_status_reset();
 
 						/* should wait peace and force CAF */
-						set_caf_forcestart(CAF_FORCESTART_LEVEL0);
+						set_caf_forcestart(CAF_FORCESTART_FORCEWAIT);
 						print_info("unpeace timeout, force go to infinite. !!!!!!!!!!!!!!!!!!!!!");
 					}
 				} else if (check_result == CAF_DETECT_RESULT_NOISE) {
@@ -3191,10 +3533,10 @@ void ispv1_k3focus_run(void)
 				break;
 
 			curr.contrast = ispv1_focus_calc_edge(pstat_data, rect, 0, edge_calc_coarse);
-			print_debug("PAF move stage %d, dir %d, [0x%3x->0x%3x], curr[0x%.3x, 0x%.3x], top[0x%.3x, 0x%.3x]######",
-				af_stage, trip->direction, trip->start_pos, trip->end_pos, curr.code, curr.contrast, top->code, top->contrast);
+			print_info("PAF move stage %d, dir %d, [0x%3x->0x%3x], curr[0x%.3x, 0x%.3x], top[0x%.3x, 0x%.3x]######",
+				get_focus_stage(), trip->direction, trip->start_pos, trip->end_pos, curr.code, curr.contrast, top->code, top->contrast);
 
-			if ((af_stage == AF_RUN_STAGE_TRY) ||(af_stage == AF_RUN_STAGE_COARSE) ||(af_stage == AF_RUN_STAGE_FINE)) {
+			if ((get_focus_stage() == AF_RUN_STAGE_TRY) ||(get_focus_stage() == AF_RUN_STAGE_COARSE) ||(get_focus_stage() == AF_RUN_STAGE_FINE)) {
 				if (skip_frame == true) {
 					if (trip->step_cnt == 0)
 						frame_count += 2;
@@ -3203,7 +3545,7 @@ void ispv1_k3focus_run(void)
 				}
 			}
 
-			switch (af_stage) {
+			switch (get_focus_stage()) {
 				case AF_RUN_STAGE_PREPARE:
 
 					#ifdef AF_TIME_PRINT
@@ -3258,7 +3600,7 @@ void ispv1_k3focus_run(void)
 						ispv1_setreg_vcm_code(next_code);
 						curr.code = next_code;
 						af_info.hold_cnt = 0; /* should hold some frames to wait stable */
-						af_stage = AF_RUN_STAGE_PREPARE_POST;
+						set_focus_stage(AF_RUN_STAGE_PREPARE_POST);
 					} else {
 						/* if do not need adjust vcm code, then go to TRY or COARSE stage directly */
 						goto do_prepare_post;
@@ -3267,7 +3609,7 @@ void ispv1_k3focus_run(void)
 
 				case AF_RUN_STAGE_PREPARE_POST:
 					af_info.hold_cnt++;
-					vcm_stable = ispv1_af_need_wait_stable(af_stage, af_info.hold_cnt);
+					vcm_stable = ispv1_af_need_wait_stable(get_focus_stage(), af_info.hold_cnt);
 					/* if vcm not stable, should wait next frame */
 					if (vcm_stable == false) {
 						break;
@@ -3282,7 +3624,7 @@ do_prepare_post:
 					histtop->contrast = 0;
 
 					ispv1_af_range_cal(&af_info, &curr, next_stage);
-					af_stage = next_stage;
+					set_focus_stage(next_stage);
 					break;
 
 				case AF_RUN_STAGE_TRY:
@@ -3292,18 +3634,18 @@ do_prepare_post:
 
 					next_stage = ispv1_af_recognise_curve(&af_info, &curr, vcm);
 					if (next_stage == AF_RUN_STAGE_COARSE) {
-						af_stage = AF_RUN_STAGE_TRY_POST;
+						set_focus_stage(AF_RUN_STAGE_TRY_POST);
 					} else if (next_stage == AF_RUN_STAGE_FINE) {
-						af_stage = AF_RUN_STAGE_TRY_POST;
+						set_focus_stage(AF_RUN_STAGE_TRY_POST);
 					} else if (next_stage == AF_RUN_STAGE_END) {
-						af_stage = AF_RUN_STAGE_END;
+						set_focus_stage(AF_RUN_STAGE_END);
 						goto af_end_out;
 					}
 					break;
 
 				case AF_RUN_STAGE_TRY_POST:
 					af_info.hold_cnt++;
-					vcm_stable = ispv1_af_need_wait_stable(af_stage, af_info.hold_cnt);
+					vcm_stable = ispv1_af_need_wait_stable(get_focus_stage(), af_info.hold_cnt);
 					/* if vcm not stable, should wait next frame */
 					if (vcm_stable == false) {
 						break;
@@ -3314,8 +3656,7 @@ do_prepare_post:
 
 					histtop->code = top->code;
 					histtop->contrast = 0;
-
-					af_stage = next_stage;
+					set_focus_stage(next_stage);
 					break;
 
 				case AF_RUN_STAGE_COARSE:
@@ -3330,19 +3671,19 @@ do_prepare_post:
 					if (next_stage == AF_RUN_STAGE_FINE) {
 						/* analysis contrast value */
 						if (analysis_contrast_value(contrast_array, &af_info)) {
-							af_stage = AF_RUN_STAGE_COARSE_POST;
+							set_focus_stage(AF_RUN_STAGE_COARSE_POST);
 						} else {
-							af_stage = AF_RUN_STAGE_END;
+							set_focus_stage(AF_RUN_STAGE_END);
 						}
 					} else if (next_stage == AF_RUN_STAGE_END) {
 						analysis_contrast_value(contrast_array, &af_info);
-						af_stage = AF_RUN_STAGE_END;
+						set_focus_stage(AF_RUN_STAGE_END);
 					}
 					break;
 
 				case AF_RUN_STAGE_COARSE_POST:
 					af_info.hold_cnt++;
-					vcm_stable = ispv1_af_need_wait_stable(af_stage, af_info.hold_cnt);
+					vcm_stable = ispv1_af_need_wait_stable(get_focus_stage(), af_info.hold_cnt);
 					/* if vcm not stable, should wait next frame */
 					if (vcm_stable == false) {
 						break;
@@ -3356,13 +3697,13 @@ do_prepare_post:
 					histtop->code = curr.code;
 					histtop->contrast = 0;
 
-					af_stage = next_stage;
+					set_focus_stage(next_stage);
 					break;
 
 				case AF_RUN_STAGE_FINE:
 					next_stage = ispv1_af_search_top(&af_info, &curr, vcm, false);
 					if (next_stage != AF_RUN_STAGE_FINE) {
-						af_stage = AF_RUN_STAGE_END;
+						set_focus_stage(AF_RUN_STAGE_END);
 						goto af_end_out;
 					}
 					break;
@@ -3379,14 +3720,24 @@ af_end_out:
 
 					#ifdef AF_TIME_PRINT
 						do_gettimeofday(&tv_end);
-						print_info("*****focus TIME: %.4dms******",
-							(int)((tv_end.tv_sec - tv_start.tv_sec)*1000 + (tv_end.tv_usec - tv_start.tv_usec) / 1000));
+						print_info("*****focus TIME: %.4dms******, result %d",
+							(int)((tv_end.tv_sec - tv_start.tv_sec)*1000 + (tv_end.tv_usec - tv_start.tv_usec) / 1000), result);
 					#endif
-					print_info("Picture AF_RUN_STAGE_END, focus result %d\n", result);
 
-					af_stage = AF_RUN_STAGE_PREPARE;
+					set_focus_stage(AF_RUN_STAGE_PREPARE);
 					if ((get_focus_mode() == CAMERA_FOCUS_CONTINUOUS_PICTURE)
 						&& (get_focus_state() == FOCUS_STATE_CAF_RUNNING))
+						set_focus_state(FOCUS_STATE_CAF_DETECTING);
+					else {
+						ispv1_set_aecagc_mode(AUTO_AECAGC);
+						goto run_out;
+					}
+					break;
+				case AF_RUN_STAGE_BREAK:
+					set_focus_result(STATUS_OUT_FOCUS);
+					print_info("picture AF_RUN_STAGE_BREAK");
+					set_focus_stage(AF_RUN_STAGE_PREPARE);
+					if (get_focus_mode() == CAMERA_FOCUS_CONTINUOUS_PICTURE)
 						set_focus_state(FOCUS_STATE_CAF_DETECTING);
 					else {
 						ispv1_set_aecagc_mode(AUTO_AECAGC);
@@ -3402,7 +3753,7 @@ af_end_out:
 
 		case FOCUS_SCHEDULE_CASE_CAF_VIDEO_MOVE:
 
-			if ((vcaf_stage == VCAF_RUN_STAGE_TRY) || (vcaf_stage == VCAF_RUN_STAGE_FORWARD)) {
+			if ((get_focus_stage() == VCAF_RUN_STAGE_TRY) || (get_focus_stage() == VCAF_RUN_STAGE_FORWARD)) {
 				/* even frame should skip */
 				if (frame_count++ % 2 == 0)
 					break;
@@ -3415,7 +3766,7 @@ af_end_out:
 
 			curr.contrast = ispv1_focus_calc_edge(pstat_data, rect, 0, edge_calc_coarse);
 		#else //use ISP contrast mode
-			if (vcaf_stage == VCAF_RUN_STAGE_STARTUP) {
+			if (get_focus_stage() == VCAF_RUN_STAGE_STARTUP) {
 				if (frame_count++ % 2 == 0)
 					break;
 			}
@@ -3423,9 +3774,9 @@ af_end_out:
 		#endif
 
 			print_debug("VCAF move stage %d, dir %d, [0x%3x->0x%3x], curr[0x%.3x, 0x%.3x], top[0x%.3x, 0x%.3x]######",
-				vcaf_stage, trip->direction, trip->start_pos, trip->end_pos, curr.code, curr.contrast, top->code, top->contrast);
+				get_focus_stage(), trip->direction, trip->start_pos, trip->end_pos, curr.code, curr.contrast, top->code, top->contrast);
 
-			switch (vcaf_stage) {
+			switch (get_focus_stage()) {
 			case VCAF_RUN_STAGE_PREPARE:
 				#ifdef AF_TIME_PRINT
 					do_gettimeofday(&tv_start);
@@ -3451,7 +3802,7 @@ af_end_out:
 				print_info("STAGE_PREPARE:goto stage %d(startup)###########", VCAF_RUN_STAGE_STARTUP);
 
 				/*in this mode, we need not break, can goto CAF_RUN_STAGE_STARTUP directly. */
-				vcaf_stage = VCAF_RUN_STAGE_STARTUP;
+				set_focus_stage(VCAF_RUN_STAGE_STARTUP);
 				/* set this frame is first frame, next frame need skip for stable */
 				frame_count = 0;
 			#else
@@ -3460,7 +3811,7 @@ af_end_out:
 					break;
 
 				ispv1_focus_update_threshold_ext(pstat_data, rect->width * rect->height);
-				vcaf_stage = VCAF_RUN_STAGE_STARTUP;
+				set_focus_stage(VCAF_RUN_STAGE_STARTUP);
 
 				/* set this frame is first frame, next frame need skip for stable */
 				frame_count = 0;
@@ -3482,13 +3833,14 @@ af_end_out:
 				ispv1_setreg_vcm_code(next_code); /* need not judge this code */
 				curr.code = next_code;
 
-				vcaf_stage = VCAF_RUN_STAGE_TRY;
+				set_focus_stage(VCAF_RUN_STAGE_TRY);
 				break;
 
 			case VCAF_RUN_STAGE_TRY:
 				contrast_array[trip->step_cnt++] = curr.contrast;
-				vcaf_stage = ispv1_vcaf_recognise_curve(&af_info, &curr, vcm, &tryrewind_code);
-				if (vcaf_stage == VCAF_RUN_STAGE_REWIND) {
+				next_stage = ispv1_vcaf_recognise_curve(&af_info, &curr, vcm, &tryrewind_code);
+				set_focus_stage(next_stage);
+				if (next_stage == VCAF_RUN_STAGE_REWIND) {
 					if ((top->contrast < histtop->contrast) ||
 					((top->contrast == histtop->contrast) && (top->code > histtop->code))) {
 						top->contrast = histtop->contrast;
@@ -3506,14 +3858,15 @@ af_end_out:
 					ispv1_setreg_vcm_code(next_code);
 					curr.code = next_code;
 				} else {
-					vcaf_stage = VCAF_RUN_STAGE_FORWARD;
+					set_focus_stage(VCAF_RUN_STAGE_FORWARD);
 				}
 				break;
 
 			case VCAF_RUN_STAGE_FORWARD:
 				contrast_array[trip->step_cnt++] = curr.contrast;
-				vcaf_stage = ispv1_vcaf_search_top(&af_info, &curr, vcm);
-				if (vcaf_stage == VCAF_RUN_STAGE_REWIND) {
+				next_stage = ispv1_vcaf_search_top(&af_info, &curr, vcm);
+				set_focus_stage(next_stage);
+				if (next_stage == VCAF_RUN_STAGE_REWIND) {
 					analysis_contrast_value(contrast_array, &af_info);
 					result = ispv1_af_judge_result(&af_info);
 					ispv1_vcaf_range_cal(&af_info, &curr, VCAF_RUN_STAGE_REWIND, result);
@@ -3527,14 +3880,14 @@ af_end_out:
 					ispv1_setreg_vcm_code(curr.code);
 				} else {
 					top->contrast = curr.contrast;
-					vcaf_stage = VCAF_RUN_STAGE_PREPARE;
+					set_focus_stage(VCAF_RUN_STAGE_PREPARE);
 					if (get_focus_state() == FOCUS_STATE_CAF_RUNNING)
 						set_focus_state(FOCUS_STATE_CAF_DETECTING);
 					set_focus_result(STATUS_FOCUSED);
 					ispv1_focus_get_curr_data(&curr_data);
 					restart = ispv1_check_caf_need_restart(&start_data, &curr_data);
 					if (restart == true)
-						set_caf_forcestart(CAF_FORCESTART_LEVEL0);
+						set_caf_forcestart(CAF_FORCESTART_FORCEWAIT);
 
 					#ifdef AF_TIME_PRINT
 						do_gettimeofday(&tv_end);
@@ -3543,9 +3896,15 @@ af_end_out:
 					#endif
 				}
 				break;
+			case AF_RUN_STAGE_BREAK:
+				set_focus_result(STATUS_FOCUSED);
+				print_info("video AF_RUN_STAGE_BREAK");
+				set_focus_stage(VCAF_RUN_STAGE_PREPARE);
+				set_focus_state(FOCUS_STATE_CAF_DETECTING);
+				break;
 
 			default:
-				print_info("error:unknow vcaf_stage %d ###########", vcaf_stage);
+				print_info("error:unknow vcaf_stage %d ###########", get_focus_stage());
 				break;
 			}
 			break;
@@ -3578,7 +3937,7 @@ static bool ispv1_af_need_wait_stable(u8 stage, u8 hold_cnt)
 
 	switch(stage) {
 		case AF_RUN_STAGE_PREPARE_POST:
-			hold_frames = FOCUS_PARAM_STAGE_HOLDING_FRAMES;
+			hold_frames = FOCUS_PARAM_STAGE_HOLDING_FRAMES+1;
 			break;
 		case AF_RUN_STAGE_TRY_POST:
 		case AF_RUN_STAGE_COARSE_POST:
@@ -3609,24 +3968,23 @@ static bool ispv1_af_need_wait_stable(u8 stage, u8 hold_cnt)
 static FOCUS_STATUS ispv1_af_judge_result(af_run_param *af_info)
 {
 	FOCUS_STATUS result;
-	pos_info *top = &(af_info->top);
 
-	print_info("enter %s, af_info->af_analysis:0x%x", __func__, af_info->af_analysis);
+	print_debug("enter %s, af_info->af_analysis:0x%x", __func__, af_info->af_analysis);
 	if (af_info->af_analysis != 0) {
 		result = STATUS_OUT_FOCUS;
 		if (af_info->af_analysis & 0x01) {
-			print_info("slope of curve is small");
+			print_warn("slope of curve is small");
 		}
 		if (af_info->af_analysis & 0x02) {
-			print_info("exist several top contrast value");
+			print_warn("exist several top contrast value");
 		}
 		if (af_info->af_analysis & 0x04) {
-			print_info("contrast diff is too low or env too dark.");
+			print_warn("contrast diff is too low or env too dark.");
 		}
 	} else {
 		result = STATUS_FOCUSED;
-		print_info("focus stop:val_vcm_top:0x%.3x, val_contrast:0x%.3x",\
-			top->code, top->contrast);
+		print_debug("focus stop:val_vcm_top:0x%.3x, val_contrast:0x%.3x",\
+			af_info->top.code, af_info->top.contrast);
 	}
 	return result;
 }
@@ -3749,20 +4107,9 @@ static void ispv1_af_range_cal(af_run_param *af_info, pos_info *curr, af_run_sta
 		break;
 	}
 
-	print_info("next stage %d, start_pos:0x%.3x, end_pos:0x%.3x",next_stage, trip->start_pos, trip->end_pos);
+	print_debug("next stage %d, start_pos:0x%.3x, end_pos:0x%.3x",next_stage, trip->start_pos, trip->end_pos);
 }
-
-/*
- **************************************************************************
- * FunctionName: ispv1_vcaf_range_cal;
- * Description : initialize the parameters of running each range;
- * Input       : NA;
- * Output      : NA;
- * ReturnValue : NA;
- * Other       : NA;
- **************************************************************************
- */
-static void ispv1_vcaf_range_cal(af_run_param *af_info, pos_info *curr, vcaf_run_stage next_stage, FOCUS_STATUS result)
+static void ispv1_vcaf_range_cal(af_run_param *af_info, pos_info *curr, af_run_stage next_stage, FOCUS_STATUS result)
 {
 	vcm_info_s *vcm = get_vcm_ptr();
 	af_trip_info *trip = &(af_info->trip);
@@ -3806,7 +4153,7 @@ static void ispv1_vcaf_range_cal(af_run_param *af_info, pos_info *curr, vcaf_run
 		break;
 	}
 
-	print_info("next stage %d, start_pos:0x%.3x, end_pos:0x%.3x",next_stage, trip->start_pos, trip->end_pos);
+	print_debug("next stage %d, start_pos:0x%.3x, end_pos:0x%.3x",next_stage, trip->start_pos, trip->end_pos);
 }
 
 /*
@@ -3846,7 +4193,7 @@ static af_run_stage ispv1_af_recognise_curve(af_run_param *af_info, pos_info *cu
 			top->code = histtop->code;
 		}
 
-		print_info("try top code 0x%x found!!!!!!!", top->code);
+		print_debug("try top code 0x%x found!!!!!!!", top->code);
 
 		af_reverse_curr_trip(vcm, trip, top->code);
 		curr->code = top->code;
@@ -3875,7 +4222,7 @@ static af_run_stage ispv1_af_recognise_curve(af_run_param *af_info, pos_info *cu
 		if (code_found == true) {
 			next_stage = AF_RUN_STAGE_COARSE;
 			curr->code = next_code;
-			print_info("%s line %d: go to STAGE COARSE!", __func__, __LINE__);
+			print_debug("%s line %d: go to STAGE COARSE!", __func__, __LINE__);
 		} else {
 			print_error("%s line %d:next vcmcode will out of range!!!!!!!", __func__, __LINE__);
 			/* Top code is this, goto REWIND stage */
@@ -3889,7 +4236,7 @@ static af_run_stage ispv1_af_recognise_curve(af_run_param *af_info, pos_info *cu
 	return next_stage;
 }
 
-static vcaf_run_stage ispv1_vcaf_recognise_curve(af_run_param *af_info, pos_info *curr, vcm_info_s *vcm, u32 *reserved)
+static af_run_stage ispv1_vcaf_recognise_curve(af_run_param *af_info, pos_info *curr, vcm_info_s *vcm, u32 *reserved)
 {
 	af_trip_info *trip = &(af_info->trip);
 	pos_info *top = &(af_info->top);
@@ -3897,7 +4244,7 @@ static vcaf_run_stage ispv1_vcaf_recognise_curve(af_run_param *af_info, pos_info
 
 	u32 next_code = 0;
 	bool code_found = false;
-	vcaf_run_stage next_stage = VCAF_RUN_STAGE_TRY;
+	af_run_stage next_stage = VCAF_RUN_STAGE_TRY;
 
 	if (curr->contrast <= get_af_judge_threshold_low(top->contrast) ||
 		(curr->contrast <= top->contrast  && check_vcmcode_is_edge(trip, curr->code) == true)) {
@@ -3915,7 +4262,7 @@ static vcaf_run_stage ispv1_vcaf_recognise_curve(af_run_param *af_info, pos_info
 			top->code = histtop->code;
 		}
 
-		print_info("try top code 0x%x found!!!!!!!", top->code);
+		print_debug("try top code 0x%x found!!!!!!!", top->code);
 
 		af_reverse_curr_trip(vcm, trip, curr->code);
 		print_info("trip [0x%x -> 0x%x, dir %d]!!!!!!!", trip->start_pos, trip->end_pos, trip->direction);
@@ -4006,7 +4353,7 @@ static af_run_stage ispv1_af_search_top(af_run_param *af_info, pos_info *curr, v
 			top->code = histtop->code;
 		}
 
-		print_info("top code 0x%x found!!!!!!!", top->code);
+		print_debug("top code 0x%x found!!!!!!!", top->code);
 
 		if (coarse == true) {
 			/* same direction, get top hand fine code(same side with current) */
@@ -4025,7 +4372,7 @@ static af_run_stage ispv1_af_search_top(af_run_param *af_info, pos_info *curr, v
 	} else if (check_vcmcode_is_edge(trip, curr->code) == true) {
 		/* reach edge code, no matter current is COARSE or FINE, stay here */
 		/* valid range run over, last position is top position */
-		print_info("reach edge code, top code is current 0x%x !!!!!!!", curr->code);
+		print_info("reach edge code, coarse flag %d, top code is current 0x%x !!!!!!!", coarse, curr->code);
 		trip->step_cnt++;
 		next_stage = AF_RUN_STAGE_END;
 		top->code = curr->code;
@@ -4084,7 +4431,7 @@ static af_run_stage ispv1_af_search_top(af_run_param *af_info, pos_info *curr, v
 	return next_stage;
 }
 
-static vcaf_run_stage ispv1_vcaf_search_top(af_run_param *af_info, pos_info *curr, vcm_info_s *vcm)
+static af_run_stage ispv1_vcaf_search_top(af_run_param *af_info, pos_info *curr, vcm_info_s *vcm)
 {
 	af_trip_info *trip = &(af_info->trip);
 	pos_info *top = &(af_info->top);
@@ -4092,7 +4439,7 @@ static vcaf_run_stage ispv1_vcaf_search_top(af_run_param *af_info, pos_info *cur
 
 	u32 next_code = 0;
 	bool code_found = false;
-	vcaf_run_stage next_stage = VCAF_RUN_STAGE_FORWARD;
+	af_run_stage next_stage = VCAF_RUN_STAGE_FORWARD;
 
 	if (curr->contrast <= get_af_judge_threshold_low(top->contrast) ||
 		(curr->contrast <= top->contrast  && check_vcmcode_is_edge(trip, curr->code) == true)) {
@@ -4117,7 +4464,7 @@ static vcaf_run_stage ispv1_vcaf_search_top(af_run_param *af_info, pos_info *cur
 
 		curr->code = next_code;
 
-		print_info("top code 0x%x found!!!!!!!", top->code);
+		print_debug("top code 0x%x found!!!!!!!", top->code);
 
 		/* rewind to next code. */
 		ispv1_setreg_vcm_code(curr->code);

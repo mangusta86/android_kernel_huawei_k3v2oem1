@@ -20,6 +20,7 @@
 #include <linux/clk.h>
 #include <linux/mux.h>
 #include <linux/regulator/consumer.h>
+#include <linux/mhl/mhl.h>
 
 #include "edc_reg.h"
 #include "ldi_reg.h"
@@ -1042,20 +1043,22 @@ int hw_configure_acr(u32 pclk, hdmi_core_fs audio_fs)
     return 0;
 }
 
-void hw_enable_tmds(void)
+void hw_enable_tmds()
 {
     /*tmds_oe enable*/
     REG_FLD_MOD(hw_res.base_core, HDMI_CORE_SYS_TMDS_CTRL4, 1, 4, 4);
     /*0xFA205804[5]= 0 phy output enable*/
     REG_FLD_MOD(hw_res.base_phy, HDMI_PHY_TDMS_CTL2, 1, 5, 5);
+    return;
 }
 
-void hw_disable_tmds(void)
+void hw_disable_tmds()
 {
     /*0xFA205804[5]= 0 phy output disable*/
     REG_FLD_MOD(hw_res.base_phy, HDMI_PHY_TDMS_CTL2, 0, 5, 5);
     /*tmds_oe disable*/
     REG_FLD_MOD(hw_res.base_core, HDMI_CORE_SYS_TMDS_CTRL4, 0, 4, 4);
+    return;
 }
 
 /******************************************************************************
@@ -1246,7 +1249,7 @@ void hw_enable(hdmi_config *cfg)
 
     hw_core_av_packet_config(av_base_addr, repeat_param);
     /*must delay here, otherwise display error*/
-    mdelay(10);
+    mdelay(200);
 
     REG_FLD_MOD(av_base_addr, HDMI_CORE_AV_HDMI_CTRL, cfg->hdmi_dvi, 0, 0);
 
@@ -1614,6 +1617,11 @@ void hw_core_power_on(void)
 
     if (!hdmi.in_reset) {
 
+#ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
+        pm_qos_add_request(&hdmi.qos_request, PM_QOS_DDR_MIN_PROFILE, HDMI_PM_QOS_DDR_MIN_FREQ);
+        logd("set ddr freq:%d\n", HDMI_PM_QOS_DDR_MIN_FREQ);
+#endif
+
         if (regulator_enable(hw_res.edc_vcc) != 0) {
             loge("failed to enable edc-vcc regulator.\n");
         }
@@ -1728,8 +1736,8 @@ void  hw_core_power_off(void)
 #ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
         if (hdmi.has_request_ddr) {
             hdmi.has_request_ddr = false;
-            pm_qos_remove_request(&hdmi.qos_request);
-            logi("remove qos request\n");
+        pm_qos_remove_request(&hdmi.qos_request);
+        logd("remove qos request\n");
         }
 #endif
 
@@ -2151,7 +2159,7 @@ bool hw_support_mhl()
 #if ENABLE_MOCK_HDMI_TO_MHL
     return false;
 #endif
-#ifdef SUPPORT_MHL_SII9244
+#ifdef SUPPORT_MHL
     return true;
 #else
     logi("this device don't support mhl.\n");

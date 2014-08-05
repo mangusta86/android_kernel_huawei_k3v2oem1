@@ -25,6 +25,7 @@
 #define LOG_TAG "hdmi-edid"
 #include "k3_hdmi_log.h"
 
+
 /* edid */
 static u8 edid_header[8] = {0x0, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x0};
 
@@ -310,6 +311,7 @@ int edid_get_timing_order(int code, bool mhl_check)
 {
     int count = ARRAY_SIZE(timing_order);
     int i = 0;
+
     int max_order = MHL_NOT_SUPPORT_TIMING_ORDER;
     struct fb_var_screeninfo * fbvar = k3fb_get_fb_var(0);
 
@@ -322,6 +324,7 @@ int edid_get_timing_order(int code, bool mhl_check)
             if(mhl_check 
             && hw_support_mhl() 
             && (i >= max_order)){
+                loge( "edid_get_timing_order: code exceed mhl support, the current i=%d, max_order = %d  \n",i,max_order);
                 return -1;
             }
             return i;
@@ -1253,7 +1256,6 @@ int edid_get_audio_format(u8 *edid, audio_format *format)
         for (j = 1 ; j < number ; j++) {
             if (1 == j%3) {
                 current_byte = edid[offset + j];
-                BUG_ON( ind >= HDMI_AUDIO_FORMAT_MAX_LENGTH );
                 format->fmt[ind].format = FLD_GET(current_byte, 6, 3);
                 format->fmt[ind].num_of_ch = FLD_GET(current_byte, 2, 0) + 1;
             } else if (2 == j%3) {
@@ -1360,7 +1362,6 @@ void edid_get_deep_color_info(u8 *edid, deep_color *format)
     BUG_ON((NULL == edid) || (NULL == format));
 
     if (!get_datablock_offset(edid, vsdb, &offset)) {
-        BUG_ON((offset < 0) || (offset >= HDMI_EDID_MAX_LENGTH));
         current_byte = edid[offset];
         number = current_byte & HDMI_EDID_EX_DATABLOCK_LEN_MASK;
 
@@ -1728,7 +1729,6 @@ hdmi_hvsync_pol* edid_get_hvpol_byindex(int index)
 *******************************************************************************/
 bool edid_is_valid_code(int mode, int code)
 {
-    BUG_ON( code < 0);
     return (((HDMI_CODE_TYPE_VESA == mode) && (code < ARRAY_SIZE(code_vesa)) && (code_vesa[code] >= 0))
             || ((HDMI_CODE_TYPE_CEA == mode) && (code < ARRAY_SIZE(code_cea)) && (code_cea[code] >= 0))) ;
 }

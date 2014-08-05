@@ -1134,7 +1134,7 @@ static int32_t handle_hc_xfercomp_intr(dwc_otg_hcd_t * hcd,
 		break;
 	case UE_INTERRUPT:
 		DWC_DEBUGPL(DBG_HCDV, "  Interrupt transfer complete\n");
-		update_urb_state_xfer_comp(hc, hc_regs, urb, qtd);
+			update_urb_state_xfer_comp(hc, hc_regs, urb, qtd);
 
 		/*
 		 * Interrupt URB is done on the first transfer complete

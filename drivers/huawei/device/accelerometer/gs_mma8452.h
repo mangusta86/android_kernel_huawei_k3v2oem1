@@ -63,12 +63,14 @@ Problem NO.         Name        Time         Reason
 #define POLL_INTERVAL_MIN			1
 #define POLL_INTERVAL_MAX			500
 #define POLL_INTERVAL				10 /* msecs */
-#define INPUT_FUZZ					32
-#define INPUT_FLAT					32
+#define INPUT_FUZZ					4
+#define INPUT_FLAT					4
 #define MODE_CHANGE_DELAY_MS		100
+#define STANDBNY_100HZ                  0x18
+#define NORMAL_TM                       10000000  /*10HZ*/
 
 #define MMA8452_STATUS_ZYXDR		0x08
-#define MMA8452_BUF_SIZE			6
+#define MMA8452_BUF_SIZE                7
 #define ACCL_DATA_SIZE				6
 #define	CONFIG_MXC_MMA_POSITION		0
 

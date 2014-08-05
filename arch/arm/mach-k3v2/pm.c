@@ -37,8 +37,6 @@
 #include <linux/wakelock.h>
 #include <mach/boardid.h>
 #include <asm/cacheflush.h>
-#include <linux/hardirq.h>
-
 #ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
 #include <linux/cpufreq-k3v2.h>
 extern struct cpu_num_limit gcpu_num_limit;
@@ -72,6 +70,20 @@ typedef struct __timer_register {
 } timer_register;
 
 static timer_register timer0[2];
+
+static int in_panic;
+
+static int panic_prep_restart(struct notifier_block *this,
+			      unsigned long event, void *ptr)
+{
+	in_panic = 1;
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block panic_blk = {
+	.notifier_call	= panic_prep_restart,
+};
+
 
 /* Protect and restore timer0_0 timer0_1 registert value */
 static int protect_timer0_register(void)
@@ -322,8 +334,12 @@ static struct k3v2_cmdword k3v2_map[] =
 	{"resetfactory", 0x03},
 	{"resetuser", 0x04},
 	{"sdupdate", 0x05},
-	{"usbupdate", 0x09},
 	{"panic", 0x06},
+	{"resize", 0x07},
+	{"modemupdate", 0x08},
+	{"usbupdate", 0x09},
+	{"oem_rtc", 0x0a},
+	{"systemcrash", 0x18},	
 };
 
 static unsigned long find_rebootmap(const char* str)
@@ -348,6 +364,16 @@ static void _k3v2oem1_reset(char mode, const char *cmd)
 
 	printk(KERN_EMERG "_k3v2oem1_reset cmd:%s.\n", cmd);
 
+	if(in_panic)
+	{
+		num = find_rebootmap("systemcrash");
+		writel(num, SECRAM_RESET_ADDR);
+		printk(KERN_EMERG "_k3v2oem1_reset type [%s 0x%lx]\n", cmd, num);
+
+		reboot_board();
+		return;
+	}
+
 	if (cmd == NULL) {
 		/* cmd = NULL; case: cold boot */
 		num = find_rebootmap(RESET_COLD_FLAG);
@@ -363,6 +389,9 @@ static void _k3v2oem1_reset(char mode, const char *cmd)
 			!strcmp(cmd, "recovery") ||
 			!strcmp(cmd, "resetfactory") ||
 			!strcmp(cmd, "resetuser") ||
+			!strcmp(cmd, "oem_rtc") ||
+			!strcmp(cmd, "modemupdate") ||
+			!strcmp(cmd, "resize") ||
 			!strcmp(cmd, "usbupdate") ||
 			!strcmp(cmd, "sdupdate")) {
 
@@ -487,7 +516,6 @@ static void sysctrl_reinit(void)
 		uregv_status = readl(ISEN_REG3) & uregv;
 		i --;
 	}
-
 	if (0 == i)
 		WARN(1, "CLOCK:Attempting to write clock enable register 1000 times.\r\n");
 }
@@ -520,32 +548,18 @@ static int hisik3_pm_enter(suspend_state_t state)
 		return -EAGAIN;
 	}
 
-	if (unlikely(in_atomic())) {
-		pr_warn("PM: in atomic[%08x] at %d\n", preempt_count(), __LINE__);
-	}
-
 	local_irq_save(flage);
 
 	hisik3_pm_save_gic();
 
-	if (unlikely(in_atomic())) {
-		pr_warn("PM: in atomic[%08x] at %d\n", preempt_count(), __LINE__);
-	}
+	flush_cache_all();
 
 #ifdef CONFIG_CACHE_L2X0
 	hisik3_pm_disable_l2x0();
 #endif
 
-	if (unlikely(in_atomic())) {
-		pr_warn("PM: in atomic[%08x] at %d\n", preempt_count(), __LINE__);
-	}
-
 	/*set pmu to low power*/
 	pmulowpower(1);
-
-	if (unlikely(in_atomic())) {
-		pr_warn("PM: in atomic[%08x] at %d\n", preempt_count(), __LINE__);
-	}
 
 	/* here is an workround way to delay 40ms
          * make sure LDO0 is poweroff very clean */
@@ -566,10 +580,6 @@ static int hisik3_pm_enter(suspend_state_t state)
 	pmulowpower_show(1);
 #endif
 
-	if (unlikely(in_atomic())) {
-		pr_warn("PM: in atomic[%08x] at %d\n", preempt_count(), __LINE__);
-	}
-
 	edb_putstr("[PM]Enter hilpm_cpu_godpsleep...\r\n");
 
 #ifdef CONFIG_LOWPM_DEBUG
@@ -580,15 +590,7 @@ static int hisik3_pm_enter(suspend_state_t state)
 	rtc_enable();
 #endif
 
-	if (unlikely(in_atomic())) {
-		pr_warn("PM: in atomic[%08x] at %d\n", preempt_count(), __LINE__);
-	}
-
 	hilpm_cpu_godpsleep();
-
-	if (unlikely(in_atomic())) {
-		pr_warn("PM: in atomic[%08x] at %d\n", preempt_count(), __LINE__);
-	}
 
 	/*
 	 *the status has been changed in fastboot,
@@ -601,10 +603,6 @@ static int hisik3_pm_enter(suspend_state_t state)
 	/*uart init.*/
 	edb_reinit();
 
-	if (unlikely(in_atomic())) {
-		pr_warn("PM: in atomic[%08x] at %d\n", preempt_count(), __LINE__);
-	}
-
 #ifdef CONFIG_LOWPM_DEBUG
 	/*restore debug uart0*/
 	debuguart_reinit();
@@ -616,39 +614,19 @@ static int hisik3_pm_enter(suspend_state_t state)
 	pmulowpowerall(0);
 #endif
 
-	if (unlikely(in_atomic())) {
-		pr_warn("PM: in atomic[%08x] at %d\n", preempt_count(), __LINE__);
-	}
-
 	/*PMU regs restore*/
 	pmulowpower(0);
-
-	if (unlikely(in_atomic())) {
-		pr_warn("PM: in atomic[%08x] at %d\n", preempt_count(), __LINE__);
-	}
 
 	/* restore timer0_0 timer0_1 and enable timer0 clk */
 	restore_timer0_register();
 
 	flush_cache_all();
 
-	if (unlikely(in_atomic())) {
-		pr_warn("PM: in atomic[%08x] at %d\n", preempt_count(), __LINE__);
-	}
-
 #ifdef CONFIG_CACHE_L2X0
 	hisik3_pm_enable_l2x0();
 #endif
 
-	if (unlikely(in_atomic())) {
-		pr_warn("PM: in atomic[%08x] at %d\n", preempt_count(), __LINE__);
-	}
-
 	hisik3_pm_retore_gic();
-
-	if (unlikely(in_atomic())) {
-		pr_warn("PM: in atomic[%08x] at %d\n", preempt_count(), __LINE__);
-	}
 
 	local_irq_restore(flage);
 
@@ -737,6 +715,8 @@ static int __init hisik3_pm_init(void)
 	arm_pm_restart = k3v2_reset;
 
 	register_reboot_notifier(&pm_reboot_nb);
+
+	atomic_notifier_chain_register(&panic_notifier_list, &panic_blk);
 
 	return 0;
 }

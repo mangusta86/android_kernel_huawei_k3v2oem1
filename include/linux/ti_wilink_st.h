@@ -22,6 +22,8 @@
  *
  */
 
+
+
 #ifndef TI_WILINK_ST_H
 #define TI_WILINK_ST_H
 
@@ -216,7 +218,7 @@ void gps_chrdrv_stub_init(void);
  * to download firmware onto chip more than once
  * since the self-test for chip takes a while
  */
-#define POR_RETRY_COUNT 5
+#define POR_RETRY_COUNT 2
 
 /**
  * struct chip_version - save the chip version
@@ -387,7 +389,7 @@ void st_ll_disable(struct st_data_s *);
  * of the chip.
  */
 unsigned long st_ll_getstate(struct st_data_s *);
-unsigned long st_ll_sleep_state(struct st_data_s *, unsigned char);
+unsigned long st_ll_sleep_state(struct st_data_s *, unsigned char, unsigned long *);
 void st_ll_wakeup(struct st_data_s *);
 
 /*
@@ -410,7 +412,28 @@ struct gps_event_hdr {
 	u16 plen;
 } __attribute__ ((packed));
 
-/* platform data */
+/**
+ * struct ti_st_plat_data - platform data shared between ST driver and
+ *	platform specific board file which adds the ST device.
+ * @nshutdown_gpio: Host's GPIO line to which chip's BT_EN is connected.
+ * @dev_name: The UART/TTY name to which chip is interfaced. (eg: /dev/ttyS1)
+ * @flow_cntrl: Should always be 1, since UART's CTS/RTS is used for PM
+ *	purposes.
+ * @baud_rate: The baud rate supported by the Host UART controller, this will
+ *	be shared across with the chip via a HCI VS command from User-Space Init
+ *	Mgr application.
+ * @suspend:
+ * @resume: legacy PM routines hooked to platform specific board file, so as
+ *	to take chip-host interface specific action.
+ * @chip_enable:
+ * @chip_disable: Platform/Interface specific mux mode setting, GPIO
+ *	configuring, Host side PM disabling etc.. can be done here.
+ * @chip_asleep:
+ * @chip_awake: Chip specific deep sleep states is communicated to Host
+ *	specific board-xx.c to take actions such as cut UART clocks when chip
+ *	asleep or run host faster when chip awake etc..
+ *
+ */
 struct ti_st_plat_data {
 	long nshutdown_gpio;
 	unsigned char dev_name[UART_DEV_NAME_LEN]; /* uart name */
@@ -418,6 +441,16 @@ struct ti_st_plat_data {
 	unsigned long baud_rate;
 	int (*suspend)(struct platform_device *, pm_message_t);
 	int (*resume)(struct platform_device *);
+	int (*chip_enable) (void);
+	int (*chip_disable) (void);
+	int (*chip_asleep) (void);
+	int (*chip_awake) (void);
 };
+
+/*ST states used in st_host_wake driver*/
+#define ST_PROTO_UNREGISTERED	0
+#define ST_PROTO_REGISTERED	1
+
+void st_host_wake_notify(int, int);
 
 #endif /* TI_WILINK_ST_H */

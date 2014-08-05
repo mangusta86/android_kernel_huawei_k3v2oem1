@@ -22,6 +22,8 @@
    SOFTWARE IS DISCLAIMED.
 */
 
+
+
 #ifndef __HCI_CORE_H
 #define __HCI_CORE_H
 
@@ -859,6 +861,10 @@ int mgmt_device_found(u16 index, bdaddr_t *bdaddr, u8 *dev_class, s8 rssi,
 								u8 *eir);
 int mgmt_remote_name(u16 index, bdaddr_t *bdaddr, u8 *name);
 int mgmt_discovering(u16 index, u8 discovering);
+
+/*soldel start ---barbara */
+int mgmt_incomming_remote_class(struct hci_dev *hdev, bdaddr_t *bdaddr, u8 dev_class[3]);
+/*soldel stop --- barbara */
 
 /* HCI info for socket */
 #define hci_pi(sk) ((struct hci_pinfo *) sk)

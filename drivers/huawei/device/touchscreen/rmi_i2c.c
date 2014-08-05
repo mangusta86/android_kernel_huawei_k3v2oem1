@@ -38,14 +38,23 @@
 #include <linux/gpio.h>
 #include <linux/rmi.h>
 #include "rmi_driver.h"
+#include "../touch_info.h"
+#include <linux/kthread.h>
 
 #include <linux/err.h>
 #include <linux/regulator/consumer.h>
 #include <linux/regulator/driver.h>
 #include <linux/regulator/machine.h>
 
+#define EPRJ_IRQ_MANAGEMENT
+
 #define RMI_PAGE_SELECT_REGISTER 0xff
 #define RMI_I2C_PAGE(addr) (((addr) >> 8) & 0xff)
+
+#ifdef EPRJ_IRQ_MANAGEMENT
+#define RMI_IRQ_WAKED  1
+unsigned long rmi_irq_flag = 0;
+#endif
 
 static char *phys_proto_name = "i2c";
 
@@ -57,6 +66,27 @@ struct rmi_i2c_data {
 	int irq_flags;
 	struct rmi_phys_device *phys;
 };
+
+#ifdef EPRJ_IRQ_MANAGEMENT
+static void rmi_i2c_irq_thread(int irq, void *p)
+{
+	struct rmi_phys_device *phys = p;
+	struct rmi_device *rmi_dev = phys->rmi_dev;
+	struct rmi_driver *driver = rmi_dev->driver;
+	struct rmi_device_platform_data *pdata = phys->dev->platform_data;
+
+#if IRQ_DEBUG
+	dev_dbg(phys->dev, "ATTN gpio, value: %d.\n",
+			gpio_get_value(pdata->attn_gpio));
+#endif
+	if (gpio_get_value(pdata->attn_gpio) == pdata->attn_polarity) {
+		phys->info.attn_count++;
+		if (driver && driver->irq_handler && rmi_dev)
+			driver->irq_handler(rmi_dev, irq);
+	}
+}
+
+#else
 
 static irqreturn_t rmi_i2c_irq_thread(int irq, void *p)
 {
@@ -77,6 +107,7 @@ static irqreturn_t rmi_i2c_irq_thread(int irq, void *p)
 
 	return IRQ_HANDLED;
 }
+#endif
 
 /*
  * rmi_set_page - Set RMI page
@@ -228,11 +259,52 @@ static int rmi_i2c_read(struct rmi_phys_device *phys, u16 addr, u8 *buf)
 	return (retval < 0) ? retval : 0;
 }
 
+#ifdef EPRJ_IRQ_MANAGEMENT
+static irqreturn_t rmi_irq_handler_process(int irq, void *dev_id){
+	struct rmi_phys_device *phys = dev_id;
+	disable_irq_nosync(irq);
+	test_and_set_bit(RMI_IRQ_WAKED, &rmi_irq_flag);
+	wake_up_process(phys->rmi_task);
+	return IRQ_HANDLED;
+}
+
+static int rmi_irq_thread(void *p)
+{
+	struct rmi_i2c_data *data = p;
+	struct rmi_phys_device *phys = data->phys;
+	struct rmi_device_platform_data *pdata = phys->dev->platform_data;
+
+	static const struct sched_param param = {
+		.sched_priority = MAX_USER_RT_PRIO/2,
+	};
+
+	sched_setscheduler(current, SCHED_FIFO, &param);
+
+	while (!kthread_should_stop()){
+		set_current_state(TASK_INTERRUPTIBLE);
+		if (test_and_clear_bit(RMI_IRQ_WAKED,&rmi_irq_flag)) {
+			set_current_state(TASK_RUNNING);
+			rmi_i2c_irq_thread(data->irq, data->phys);
+			enable_irq(data->irq);
+		}
+		else
+			schedule();
+	}
+	return 0;
+}
+static int acquire_attn_irq(struct rmi_i2c_data *data)
+{
+	return request_threaded_irq(data->irq, rmi_irq_handler_process, NULL,
+			data->irq_flags, dev_name(data->phys->dev), data->phys);
+}
+
+#else
 static int acquire_attn_irq(struct rmi_i2c_data *data)
 {
 	return request_threaded_irq(data->irq, NULL, rmi_i2c_irq_thread,
 			data->irq_flags, dev_name(data->phys->dev), data->phys);
 }
+#endif
 
 static int enable_device(struct rmi_phys_device *phys)
 {
@@ -417,6 +489,14 @@ static int __devinit rmi_i2c_probe(struct i2c_client *client,
 		goto err_gpio;
 	}
 	i2c_set_clientdata(client, rmi_phys);
+
+#ifdef EPRJ_IRQ_MANAGEMENT
+	rmi_phys->rmi_task = kthread_create(rmi_irq_thread, data, "rmi_irq_thread");
+	if (IS_ERR(rmi_phys->rmi_task)){
+		dev_err(&client->dev,	"create thread failed!\n");
+		goto err_unregister;
+	}
+#endif
 
 	if (pdata->attn_gpio > 0) {
 		error = acquire_attn_irq(data);

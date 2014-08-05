@@ -110,13 +110,14 @@ static inline void __list_del_entry(struct list_head *entry)
 		entry, LIST_POISON1) ||
 	    WARN(prev == LIST_POISON2,
 		"list_del corruption, %p->prev is LIST_POISON2 (%p)\n",
-		entry, LIST_POISON2))
+		entry, LIST_POISON2) ||
+	    WARN(prev->next != entry,
+		"list_del corruption. prev->next should be %p, "
+		"but was %p\n", entry, prev->next) ||
+	    WARN(next->prev != entry,
+		"list_del corruption. next->prev should be %p, "
+		"but was %p\n", entry, next->prev))
 		return;
-
-    WARN(prev->next != entry,
-		"list_del corruption. prev->next should be %p, but was %p\n", entry, prev->next);
-	WARN(next->prev != entry,
-		"list_del corruption. next->prev should be %p, but was %p\n", entry, next->prev);
 
 	__list_del(prev, next);
 }

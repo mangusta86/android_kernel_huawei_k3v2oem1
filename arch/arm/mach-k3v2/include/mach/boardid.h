@@ -43,4 +43,3 @@ extern unsigned int runmode_is_factory(void);
 extern unsigned int get_boot_into_recovery_flag(void);
 
 #endif
-

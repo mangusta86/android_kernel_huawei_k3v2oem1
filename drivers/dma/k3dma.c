@@ -223,7 +223,7 @@ static struct k3dma_desc *k3dma_desc_get(struct k3dma_chan *k3chan)
 		list_splice(&tmp_list, &k3chan->free_list);
 		ret = desc;
 		list_del(&desc->desc_node);
-		list_add(&k3_desc_pg->pg_node, &k3chan->k3chan_page_list);
+		list_add(&k3_desc_pg->pg_node, &k3chan->page_list);
 		spin_unlock_irqrestore(&k3chan->lock, flags);
 	}
 
@@ -1383,7 +1383,7 @@ static int k3dma_alloc_chan_resources(struct dma_chan *chan)
 
 	/* have we already been set up?
 	 * reconfigure channel but no need to reallocate descriptors */
-	if ((!list_empty(&k3chan->free_list)) && (!list_empty(&k3chan->k3chan_page_list)))
+	if ((!list_empty(&k3chan->free_list)) && (!list_empty(&k3chan->page_list)))
 		return k3chan->descs_allocated;
 
 	/* Allocate descriptors */
@@ -1413,7 +1413,7 @@ static int k3dma_alloc_chan_resources(struct dma_chan *chan)
 	spin_lock_irqsave(&k3chan->lock, flags);
 	k3chan->descs_allocated = i;
 	list_splice(&tmp_list, &k3chan->free_list);
-	list_add(&k3_desc_pg->pg_node, &k3chan->k3chan_page_list);
+	list_add(&k3_desc_pg->pg_node, &k3chan->page_list);
 	k3chan->lc = chan->cookie = 1;
 	spin_unlock_irqrestore(&k3chan->lock, flags);
 
@@ -1446,7 +1446,7 @@ static void k3dma_free_chan_resources(struct dma_chan *chan)
 		list_del(&desc->desc_node);
 	}
 
-	list_for_each_entry_safe(k3chan_page, _k3chan_page, &k3chan->k3chan_page_list, pg_node) {
+	list_for_each_entry_safe(k3chan_page, _k3chan_page, &k3chan->page_list, pg_node) {
 		list_del(&k3chan_page->pg_node);
 		free_page((unsigned long)k3chan_page->page_link);
 		kfree(k3chan_page);
@@ -1454,7 +1454,7 @@ static void k3dma_free_chan_resources(struct dma_chan *chan)
 
 	spin_lock_irqsave(&k3chan->lock, flags);
 	list_splice_init(&k3chan->free_list, &list);
-	list_splice_init(&k3chan->k3chan_page_list, &list);
+	list_splice_init(&k3chan->page_list, &list);
 	k3chan->descs_allocated = 0;
 	spin_unlock_irqrestore(&k3chan->lock, flags);
 
@@ -1497,7 +1497,7 @@ static void k3dma_init_virtual_channels(struct k3dma_device *k3dma)
 
 		INIT_LIST_HEAD(&k3chan->free_list);
 		INIT_LIST_HEAD(&k3chan->pend_list);
-		INIT_LIST_HEAD(&k3chan->k3chan_page_list);
+		INIT_LIST_HEAD(&k3chan->page_list);
 
 		tasklet_init(&k3chan->tasklet, k3dma_tasklet,
 				(unsigned long)k3chan);
@@ -1521,12 +1521,11 @@ static void k3dma_deinit_virtual_channels(struct k3dma_device *k3dma)
 		tasklet_kill(&k3chan->tasklet);
 		k3chan->phychan = NULL;
 		k3chan->at = NULL;
-		list_for_each_entry_safe(k3chan_page, _k3chan_page, &k3chan->k3chan_page_list, pg_node) {
+		list_for_each_entry_safe(k3chan_page, _k3chan_page, &k3chan->page_list, pg_node) {
 			list_del(&k3chan_page->pg_node);
 			free_page((unsigned long)k3chan_page->page_link);
 			kfree(k3chan_page);
 		}
-		INIT_LIST_HEAD(&k3chan->k3chan_page_list);
 		list_del(&chan->device_node);
 	}
 

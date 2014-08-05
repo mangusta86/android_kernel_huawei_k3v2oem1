@@ -32,7 +32,7 @@ config VGASTATE
 config VIDEO_OUTPUT_CONTROL
 	tristate "Lowlevel video output switch controls"
 	help
-	  This framework adds support for low-level control of the video 
+	  This framework adds support for low-level control of the video
 	  output switch.
 
 menuconfig FB
@@ -684,7 +684,7 @@ config FB_STI
 	  BIOS routines contained in a ROM chip in HP PA-RISC based machines.
 	  Enabling this option will implement the linux framebuffer device
 	  using calls to the STI BIOS routines for initialisation.
-	
+
 	  If you enable this option, you will get a planar framebuffer device
 	  /dev/fb which will work on the most common HP graphic cards of the
 	  NGLE family, including the artist chips (in the 7xx and Bxxx series),
@@ -809,7 +809,7 @@ config FB_GBE
 	select FB_CFB_FILLRECT
 	select FB_CFB_COPYAREA
 	select FB_CFB_IMAGEBLIT
- 	help
+	help
 	  This is the frame buffer device driver for SGI Graphics Backend.
 	  This chip is used in SGI O2 and Visual Workstation 320/540.
 
@@ -1125,36 +1125,36 @@ config FB_I810
 	select FB_CFB_IMAGEBLIT
 	select VGASTATE
 	help
-	  This driver supports the on-board graphics built in to the Intel 810 
+	  This driver supports the on-board graphics built in to the Intel 810
           and 815 chipsets.  Say Y if you have and plan to use such a board.
 
           To compile this driver as a module, choose M here: the
 	  module will be called i810fb.
 
-          For more information, please read 
+          For more information, please read
 	  <file:Documentation/fb/intel810.txt>
 
 config FB_I810_GTF
 	bool "use VESA Generalized Timing Formula"
 	depends on FB_I810
 	help
-	  If you say Y, then the VESA standard, Generalized Timing Formula 
+	  If you say Y, then the VESA standard, Generalized Timing Formula
           or GTF, will be used to calculate the required video timing values
-	  per video mode.  Since the GTF allows nondiscrete timings 
+	  per video mode.  Since the GTF allows nondiscrete timings
           (nondiscrete being a range of values as opposed to discrete being a
-          set of values), you'll be able to use any combination of horizontal 
+          set of values), you'll be able to use any combination of horizontal
 	  and vertical resolutions, and vertical refresh rates without having
 	  to specify your own timing parameters.  This is especially useful
-	  to maximize the performance of an aging display, or if you just 
-          have a display with nonstandard dimensions. A VESA compliant 
+	  to maximize the performance of an aging display, or if you just
+          have a display with nonstandard dimensions. A VESA compliant
 	  monitor is recommended, but can still work with non-compliant ones.
-	  If you need or want this, then select this option. The timings may 
-	  not be compliant with Intel's recommended values. Use at your own 
+	  If you need or want this, then select this option. The timings may
+	  not be compliant with Intel's recommended values. Use at your own
 	  risk.
 
-          If you say N, the driver will revert to discrete video timings 
+          If you say N, the driver will revert to discrete video timings
 	  using a set recommended by Intel in their documentation.
-  
+
           If unsure, say N.
 
 config FB_I810_I2C
@@ -1272,10 +1272,10 @@ config FB_MATROX_G
 	  G450/G550 secondary head and digital output are supported without
 	  additional modules.
 
-	  The driver starts in monitor mode. You must use the matroxset tool 
-	  (available at <ftp://platan.vc.cvut.cz/pub/linux/matrox-latest/>) to 
-	  swap primary and secondary head outputs, or to change output mode.  
-	  Secondary head driver always start in 640x480 resolution and you 
+	  The driver starts in monitor mode. You must use the matroxset tool
+	  (available at <ftp://platan.vc.cvut.cz/pub/linux/matrox-latest/>) to
+	  swap primary and secondary head outputs, or to change output mode.
+	  Secondary head driver always start in 640x480 resolution and you
 	  must use fbset to change it.
 
 	  Do not forget that second head supports only 16 and 32 bpp
@@ -1358,7 +1358,7 @@ config FB_RADEON_I2C
 	select FB_DDC
 	default y
 	help
-	  Say Y here if you want DDC/I2C support for your Radeon board. 
+	  Say Y here if you want DDC/I2C support for your Radeon board.
 
 config FB_RADEON_BACKLIGHT
 	bool "Support for backlight control"
@@ -1551,7 +1551,7 @@ config FB_VIA
 	  This is the frame buffer device driver for Graphics chips of VIA
 	  UniChrome (Pro) Family (CLE266,PM800/CN400,P4M800CE/P4M800Pro/
 	  CN700/VN800,CX700/VX700,P4M890) and Chrome9 Family (K8M890,CN896
- 	  /P4M900,VX800)
+	  /P4M900,VX800)
 	  Say Y if you have a VIA UniChrome graphics board.
 
 	  To compile this driver as a module, choose M here: the
@@ -1592,7 +1592,7 @@ config FB_NEOMAGIC
 	select VGASTATE
 	help
 	  This driver supports notebooks with NeoMagic PCI chips.
-	  Say Y if you have such a graphics card. 
+	  Say Y if you have such a graphics card.
 
 	  To compile this driver as a module, choose M here: the
 	  module will be called neofb.
@@ -1647,7 +1647,7 @@ config FB_VOODOO1
 	select FB_CFB_COPYAREA
 	select FB_CFB_IMAGEBLIT
 	---help---
-	  Say Y here if you have a 3Dfx Voodoo Graphics (Voodoo1/sst1) or 
+	  Say Y here if you have a 3Dfx Voodoo Graphics (Voodoo1/sst1) or
 	  Voodoo2 (cvg) based graphics card.
 
 	  To compile this driver as a module, choose M here: the
@@ -1799,9 +1799,9 @@ config FB_HIT
 config FB_PMAG_AA
 	bool "PMAG-AA TURBOchannel framebuffer support"
 	depends on (FB = y) && TC
- 	select FB_CFB_FILLRECT
- 	select FB_CFB_COPYAREA
- 	select FB_CFB_IMAGEBLIT
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
 	help
 	  Support for the PMAG-AA TURBOchannel framebuffer card (1280x1024x1)
 	  used mainly in the MIPS-based DECstation series.
@@ -1809,9 +1809,9 @@ config FB_PMAG_AA
 config FB_PMAG_BA
 	tristate "PMAG-BA TURBOchannel framebuffer support"
 	depends on FB && TC
- 	select FB_CFB_FILLRECT
- 	select FB_CFB_COPYAREA
- 	select FB_CFB_IMAGEBLIT
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
 	help
 	  Support for the PMAG-BA TURBOchannel framebuffer card (1024x864x8)
 	  used mainly in the MIPS-based DECstation series.
@@ -1819,9 +1819,9 @@ config FB_PMAG_BA
 config FB_PMAGB_B
 	tristate "PMAGB-B TURBOchannel framebuffer support"
 	depends on FB && TC
- 	select FB_CFB_FILLRECT
- 	select FB_CFB_COPYAREA
- 	select FB_CFB_IMAGEBLIT
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
 	help
 	  Support for the PMAGB-B TURBOchannel framebuffer card used mainly
 	  in the MIPS-based DECstation series. The card is currently only
@@ -1830,9 +1830,9 @@ config FB_PMAGB_B
 config FB_MAXINE
 	bool "Maxine (Personal DECstation) onboard framebuffer support"
 	depends on (FB = y) && MACH_DECSTATION
- 	select FB_CFB_FILLRECT
- 	select FB_CFB_COPYAREA
- 	select FB_CFB_IMAGEBLIT
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
 	help
 	  Support for the onboard framebuffer (1024x768x8) in the Personal
 	  DECstation series (Personal DECstation 5000/20, /25, /33, /50,
@@ -1841,9 +1841,9 @@ config FB_MAXINE
 config FB_G364
 	bool "G364 frame buffer support"
 	depends on (FB = y) && (MIPS_MAGNUM_4000 || OLIVETTI_M700)
- 	select FB_CFB_FILLRECT
- 	select FB_CFB_COPYAREA
- 	select FB_CFB_IMAGEBLIT
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
 	help
 	  The G364 driver is the framebuffer used in MIPS Magnum 4000 and
 	  Olivetti M700-10 systems.
@@ -1851,9 +1851,9 @@ config FB_G364
 config FB_68328
 	bool "Motorola 68328 native frame buffer support"
 	depends on (FB = y) && (M68328 || M68EZ328 || M68VZ328)
- 	select FB_CFB_FILLRECT
- 	select FB_CFB_COPYAREA
- 	select FB_CFB_IMAGEBLIT
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
 	help
 	  Say Y here if you want to support the built-in frame buffer of
 	  the Motorola 68328 CPU family.
@@ -1956,9 +1956,9 @@ config FB_FSL_DIU
 config FB_W100
 	tristate "W100 frame buffer support"
 	depends on FB && ARCH_PXA
- 	select FB_CFB_FILLRECT
- 	select FB_CFB_COPYAREA
- 	select FB_CFB_IMAGEBLIT
+	select FB_CFB_FILLRECT
+	select FB_CFB_COPYAREA
+	select FB_CFB_IMAGEBLIT
 	---help---
 	  Frame buffer driver for the w100 as found on the Sharp SL-Cxx series.
 	  It can also drive the w3220 chip found on iPAQ hx4700.
@@ -2407,76 +2407,101 @@ config FASTBOOT_DISP_ENABLE
 	help
 	  Display system have already initialized in fastboot.
 
+config FHD_LCD_PANEL
+	bool "LCD panel is FHD"
+	help
+	  LCD panel is FHD, ipps policy use FHD policy.
+
 config LCD_1080P
 	tristate "1080p LCD support on K3 platform"
 	depends on FB_K3_CLCD
+	select FHD_LCD_PANEL
 	help
 	  1080p LCD support on K3 platform.	If you are using 1080p LCD,
 	  please choose it.
 
 config LCD_TOSHIBA_MDW70
-	tristate "Toshiba 720p LCD support on K3 platform"
+	tristate "TOSHIBA_MDW70 720p LCD support on K3 platform"
+	select VIDEO_LCD_PANEL
 	depends on FB_K3_CLCD
 	help
-	  Toshiba 720p LCD support on K3 platform. If you are using Phone
+	  Toshiba 720p LCD support on K3 platform. If you are using U9510E,
+	  please choose it.
 
 config LCD_PANASONIC_VVX10F002A00
-	tristate "Panasonic 1080p LCD support on K3 platform"
+	tristate "PANASONIC_VVX10F002A00 1080p LCD support on K3 platform"
 	depends on FB_K3_CLCD
+	select FHD_LCD_PANEL
 	help
 	  Panasonic 1080p LCD support on K3 platform.	If you are using S10 Pad,
 	  please choose it.
 
 config LCD_CMI_OTM1280A
-	tristate "CMI 720p LCD support on K3 platform"
+	tristate "CMI_OTM1280A 720p LCD support on K3 platform"
 	depends on FB_K3_CLCD
 	help
 	  CMI 720p LCD support on K3 platform. If you are using U9508,
 	  please choose it.
 
 config LCD_CMI_PT045TN07
-	tristate "CMIMEI Innolux QHD LCD support on K3 platform"
+	tristate "CMI_PT045TN07 QHD LCD support on K3 platform"
 	depends on FB_K3_CLCD
 	help
 	  CMIMEI Innolux QHD LCD support on K3 platform. If you are using T9508,
 	  please choose it.
 
 config LCD_SAMSUNG_S6E39A
-	tristate "Samsung 960x540 LCD support on K3 platform"
+	tristate "SAMSUNG_S6E39A 960x540 LCD support on K3 platform"
 	depends on FB_K3_CLCD
 	help
 	  Samsung 960x540 LCD support on K3 platform. If you are using k3,
 	  please choose it.
 
 config LCD_SAMSUNG_LMS350DF04
-	tristate "Samsung 480x320 LCD support on K3 platform"
+	tristate "SAMSUNG_LMS350DF04 480x320 LCD support on K3 platform"
 	depends on FB_K3_CLCD
 	help
 	  Samsung 480x320 LCD support on K3 platform. If you are using k3,
 	  please choose it.
 
 config LCD_SHARP_LS035B3SX
-	tristate "Sharp 960x640 LCD support on K3 platform"
+	tristate "SHARP_LS035B3SX 960x640 LCD support on K3 platform"
 	depends on FB_K3_CLCD
 	help
 	  Sharp 960x640 LCD support on K3 platform. If you are using k3,
 	  please choose it.
 
 config LCD_JDI_OTM1282B
-	tristate "JDI 720p LCD support on K3 platform"
+	tristate "JDI_OTM1282B 720p LCD support on K3 platform"
 	depends on FB_K3_CLCD
 	help
 	  JDI 720p LCD support on K3 platform. If you are using U9700,
 	  please choose it.
 
-config K3_HDMI_SII9134 
-    tristate "K3_HDMI_SII9244"
-    default n              
-    help                   
+config P2_TP_TK_CMD_FEATURE
+	tristate "P2 TP TK support"
+        depends on FB_K3_CLCD
+        help
+	  P2 TP TK support. If you ar using U9700,
+	  please choose it.
+
+config LCD_TOSHIBA_MDY90
+	tristate "TOSHIBA_MDY90 1080p LCD support on K3 platform"
+	select VIDEO_LCD_PANEL
+	select FHD_LCD_PANEL
+	depends on FB_K3_CLCD
+	help
+	  Toshiba 1080p LCD support on K3 platform. If you are using D2,
+	  please choose it.
+
+config K3_HDMI
+    tristate "K3_HDMI"
+    default y
+    help
       If you say yes here you get support for the HDMI.
       This driver can also be built as a module.  If so, the module
-      will be called HDMI. 
-      
+      will be called HDMI.
+
 config HDCP_ENABLE
 	tristate "HDCP_ENABLE"
 	default n
@@ -2484,6 +2509,10 @@ config HDCP_ENABLE
 config HDMI_CEC_ENABLE
 	tristate "HDMI_CEC_ENABLE"
 	default n
+
+config LCD_K3_FAKE
+	tristate "LCD_K3_FAKE"
+	depends on K3_FAKE_FB
 
 config K3_FAKE_FB
 	tristate "Hisilicon K3 fake fb support"
@@ -2500,22 +2529,14 @@ config K3_FAKE_FB
 	  inserted into and removed from the running kernel), say M
 	  here and read <file:Documentation/kbuild/modules.txt>.  The module
 	  will be called amba-clcd.
+	  
+menu "MHL Support"
 
-config HUAWEI_MHL_SII9244
-	tristate "HUAWEI_MHL_SII9244"
-	default y
-	help
-	  If you say yes here you get support for the MHL_Sii9244 transimitter.
-	  This driver can also be built as a module.  If so, the module
-	  will be called sii9244.
-
-config MHL_USB_SHARE
-	tristate "MHL_USB_SHARE"
-	default y
-	help
-	  If you say yes here you get support for the MHL_Sii9244 transimitter.
-	  This driver can also be built as a module.  If so, the module
-	  will be called sii9244.
+#if you want support MHL, hdmi is the precondition
+source "drivers/video/mhl/sii8240/Kconfig"
+source "drivers/video/mhl/sii9244/Kconfig"
+	  
+endmenu
 
 source "drivers/video/omap/Kconfig"
 source "drivers/video/omap2/Kconfig"
@@ -2537,5 +2558,11 @@ config OVERLAY_COMPOSE
 	default n
     help
 	    overlay compose
-
+# < chendong 00110364 2012-11-30 add for camera pmem cache begin
+config PMEM_CACHED
+    tristate "set pmem cached mannually on K3 platform"
+    default n
+    help
+        PMEM Cache
+# chendong 00110364 2012-11-30 add for camera pmem cache end >
 endmenu

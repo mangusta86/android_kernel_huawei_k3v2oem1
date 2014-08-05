@@ -76,12 +76,6 @@
 #define SPT_CTECONFIG_T46                         46u
 #define PROCI_STYLUS_T47                          47u
 #define PROCG_NOISESUPPRESSION_T48                48u
-#define PROCG_NOISESUPPRESSION_T56                56u
-#define PROCG_NOISESUPPRESSION_T62               62u
-#define SPT_CTECONFIG_T46_224E 46u
-#define SPT_CTECONFIG_T46_224S 46u
-#define TOUCH_MULTITOUCHSCREEN_T9_224S 9u
-#define TOUCH_MULTITOUCHSCREEN_T9_224E 9u
 
 #define T37_PAGE_SIZE                           128
 
@@ -333,34 +327,23 @@ struct atmel_i2c_platform_data {
     int gpio_reset;
     int (*power)(int on);
     int8_t config_T6[6];
-    int8_t config_T7_224E[3];
-    int8_t config_T7_224S[4];
-    int8_t config_T8_224E[10];
-    int8_t config_T8_224S[10];
-    int8_t cable_config_T8_224E[10];
-    int8_t cable_config_T8_224S[10];
+    int8_t config_T7[3];
+    int8_t config_T8[10];
+    int8_t config_T9[35];
     int8_t config_T15[11];
-    int8_t config_T19_224S[6];
-    int8_t config_T19_224E[16];
+    int8_t config_T19[16];
     int8_t config_T20[12];
     int8_t config_T22[17];
     int8_t config_T23[15];
     int8_t config_T24[19];
-    int8_t config_T25_224E[14];
-    int8_t config_T25_224S[15];
+    int8_t config_T25[14];
     int8_t config_T27[7];
     int8_t config_T28[6];
     int8_t config_T40[5];
-    int8_t config_T42_224E[8];
-    int8_t config_T42_224S[10];
+    int8_t config_T42[8];
     int8_t config_T46[9];
-    int8_t config_T46_224E[9];
-    int8_t config_T46_224S[10];
-    int8_t config_T47_224E[10];
-    int8_t config_T47_224S[13];
+    int8_t config_T47[10];
     int8_t config_T48[54];
-    int8_t config_T62[54];
-    int8_t config_T56[42];
     uint8_t object_crc[3];
     int8_t cable_config[4];
     int8_t cable_config_T7[3];
@@ -369,12 +352,7 @@ struct atmel_i2c_platform_data {
     int8_t cable_config_T22[17];
     int8_t cable_config_T28[6];
     int8_t cable_config_T46[9];
-    int8_t cable_config_T62[54];
-    int8_t config_T9_224S[36];
-    int8_t config_T9_224E[35];
     int8_t cable_config_T48[54];
-    int8_t cable_config_T46_224E[9];
-    int8_t cable_config_T46_224S[10];
     int8_t noise_config[3];
     uint16_t filter_level[4];
     uint8_t GCAF_level[5];
@@ -390,10 +368,7 @@ struct atmel_config_data {
     int8_t *config_T22;
     int8_t *config_T28;
     int8_t *config_T46;
-    int8_t *config_T46_224E;
-    int8_t *config_T46_224S;
     int8_t *config_T48;
-    int8_t *config_T62;
 };
 
 #endif

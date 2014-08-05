@@ -38,6 +38,11 @@
 /*OverlayCompose: set pmem cache*/
 #define PMEM_CACHE_SET	_IOW(PMEM_IOCTL_MAGIC, 9, unsigned int)
 
+/* < chendong 00110364 2012-11-30 add for camera pmem cache begin */
+#ifdef CONFIG_PMEM_CACHED
+#define PMEM_MAP_CACHED _IOW(PMEM_IOCTL_MAGIC, 20, unsigned int)
+#endif
+/* chendong 00110364 2012-11-30 add for camera pmem cache end > */
 
 enum pmem_type {
 	PMEM_TYPE_BUDDY = 0,

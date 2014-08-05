@@ -16,10 +16,6 @@
  *
  */
 
-#include <linux/clk.h>
-#include <linux/pwm.h>
-#include <mach/gpio.h>
-
 #include "k3_fb_panel.h"
 #include "edc_overlay.h"
 
@@ -30,6 +26,194 @@ void set_reg(u32 addr, u32 val, u8 bw, u8 bs)
 	u32 tmp = inp32(addr);
 	tmp &= ~(mask << bs);
 	outp32(addr, tmp | ((val & mask) << bs));
+}
+
+int resource_cmds_tx(struct platform_device *pdev,
+	struct resource_desc *cmds, int cnt)
+{
+	struct resource *res = NULL;
+	struct resource_desc *cm = NULL;
+	int i = 0;
+
+	BUG_ON(pdev == NULL);
+	cm = cmds;
+
+	for (i = 0; i < cnt; i++) {
+		if (cm == NULL) {
+			k3fb_loge("cm(%d) is null!\n", i);
+			continue;
+		}
+
+		BUG_ON(cm->name == NULL);
+
+		res = platform_get_resource_byname(pdev, cm->flag, cm->name);
+		if (!res) {
+			k3fb_loge("failed to get %s resource!\n",
+				(cm->name == NULL) ? "NULL" : cm->name);
+		} else {
+			*(cm->value) = res->start;
+			cm++;
+		}
+	}
+
+	return cnt;
+}
+
+int vcc_cmds_tx(struct platform_device *pdev, struct vcc_desc *cmds, int cnt)
+{
+	struct vcc_desc *cm = NULL;
+	int i = 0;
+
+	cm = cmds;
+
+	for (i = 0; i < cnt; i++) {
+		if (cm == NULL) {
+			k3fb_loge("cm(%d) is null!\n", i);
+			continue;
+		}
+		if (cm->dtype == DTYPE_VCC_GET) {
+			BUG_ON(pdev == NULL);
+
+			*(cm->regulator) = regulator_get(&pdev->dev, cm->id);
+			if (IS_ERR(*(cm->regulator))) {
+				k3fb_loge("failed to get %s regulator!\n", cm->id);
+			}
+		} else if (cm->dtype == DTYPE_VCC_PUT) {
+			if (!IS_ERR(*(cm->regulator))) {
+				regulator_put(*(cm->regulator));
+			}
+		} else if (cm->dtype == DTYPE_VCC_ENABLE) {
+			if (!IS_ERR(*(cm->regulator))) {
+				if (regulator_enable(*(cm->regulator)) != 0) {
+					k3fb_loge("failed to enable %s regulator!\n",
+						(cm->id == NULL) ? "NULL" : cm->id);
+				}
+			}
+		} else if (cm->dtype == DTYPE_VCC_DISABLE) {
+			if (!IS_ERR(*(cm->regulator))) {
+				if (regulator_disable(*(cm->regulator)) != 0) {
+					k3fb_loge("failed to disable %s regulator!\n",
+						(cm->id == NULL) ? "NULL" : cm->id);
+				}
+			}
+		} else if (cm->dtype == DTYPE_VCC_SET_VOLTAGE) {
+			if (!IS_ERR(*(cm->regulator))) {
+				if (regulator_set_voltage(*(cm->regulator), cm->min_uV, cm->max_uV) != 0) {
+					k3fb_loge("failed to set %s regulator voltage!\n",
+						(cm->id == NULL) ? "NULL" : cm->id);
+				}
+			}
+		} else {
+			k3fb_loge("dtype=%x NOT supported\n", cm->dtype);
+		}
+
+		cm++;
+	}
+
+	return cnt;
+}
+
+int iomux_cmds_tx(struct iomux_desc *cmds, int cnt)
+{
+	struct iomux_desc *cm = NULL;
+	int i = 0;
+
+	cm = cmds;
+
+	for (i = 0; i < cnt; i++) {
+		if (cm == NULL) {
+			k3fb_loge("cm(%d) is null!\n", i);
+			continue;
+		}
+
+		BUG_ON(cm->name == NULL);
+
+		if (cm->dtype == DTYPE_IOMUX_GET) {
+			if (cm->name == NULL) {
+				k3fb_loge("Block name is NULL!\n");
+			}
+			*(cm->block) = iomux_get_block(cm->name);
+			if (*(cm->block) == NULL) {
+				k3fb_loge("failed to iomux_get_block, name=%s!\n",
+					(cm->name == NULL) ? "NULL" : cm->name);
+
+				continue;
+			}
+
+			*(cm->block_config) = iomux_get_blockconfig(cm->name);
+			if (*(cm->block_config) == NULL) {
+				k3fb_loge("failed to iomux_get_blockconfig, name=%s!\n",
+					(cm->name == NULL) ? "NULL" : cm->name);
+
+				continue;
+			}
+		} else if (cm->dtype == DTYPE_IOMUX_SET) {
+			if (blockmux_set(*(cm->block), *(cm->block_config), cm->mode) != 0) {
+				k3fb_loge("failed to blockmux_set, name=%s!\n",
+					(cm->name == NULL) ? "NULL" : cm->name);
+
+				continue;
+			}
+		}
+
+		cm++;
+	}
+
+	return cnt;
+}
+
+int gpio_cmds_tx(struct gpio_desc *cmds, int cnt)
+{
+	struct gpio_desc *cm = NULL;
+	int i = 0;
+
+	cm = cmds;
+
+	for (i = 0; i < cnt; i++) {
+		if (cm == NULL) {
+			k3fb_loge("cm(%d) is null!\n", i);
+			continue;
+		}
+		if (!gpio_is_valid(cm->gpio)) {
+			k3fb_loge("gpio invalid, dtype=%d, lable=%s, gpio=%d!\n",
+				cm->dtype, (cm->label == NULL) ? "NULL" : cm->label, cm->gpio);
+
+			continue;
+		}
+
+		if (cm->dtype == DTYPE_GPIO_INPUT) {
+			if (gpio_direction_input(cm->gpio) != 0) {
+				k3fb_loge("failed to gpio_direction_input, lable=%s, gpio=%d!\n",
+					(cm->label == NULL) ? "NULL" : cm->label, cm->gpio);
+			}
+		} else if (cm->dtype == DTYPE_GPIO_OUTPUT) {
+			if (gpio_direction_output(cm->gpio, cm->value) != 0) {
+				k3fb_loge("failed to gpio_direction_output, label%s, gpio=%d!\n",
+					(cm->label == NULL) ? "NULL" : cm->label, cm->gpio);
+			}
+		} else if (cm->dtype == DTYPE_GPIO_REQUEST) {
+			if (gpio_request(cm->gpio, cm->label) != 0) {
+				k3fb_loge("failed to gpio_request, lable=%s, gpio=%d!\n",
+					(cm->label == NULL) ? "NULL" : cm->label, cm->gpio);
+			}
+		} else if (cm->dtype == DTYPE_GPIO_FREE) {
+			gpio_free(cm->gpio);
+		} else {
+			k3fb_loge("dtype=%x NOT supported\n", cm->dtype);
+		}
+
+		if (cm->wait) {
+			if (cm->waittype == WAIT_TYPE_US)
+				udelay(cm->wait);
+			else if (cm->waittype == WAIT_TYPE_MS)
+				mdelay(cm->wait);
+			else
+				mdelay(cm->wait * 1000);
+		}
+		cm++;
+	}
+
+	return cnt;
 }
 
 int panel_next_on(struct platform_device *pdev)
@@ -235,359 +419,4 @@ void  k3_fb_device_free(struct platform_device *pdev)
 {
 	BUG_ON(pdev == NULL);
 	platform_device_put(pdev);
-}
-
-
-/******************************************************************************/
-
-int LCD_VCC_GET(struct platform_device *pdev, struct k3_panel_info *pinfo)
-{
-	BUG_ON(pdev == NULL);
-	BUG_ON(pinfo == NULL);
-
-	pinfo->lcdio_vcc = regulator_get(&pdev->dev, VCC_LCDIO_NAME);
-	if (IS_ERR(pinfo->lcdio_vcc)) {
-		k3fb_loge("failed to get lcdio-vcc regulator!\n");
-		return PTR_ERR((pinfo)->lcdio_vcc);
-	}
-	
-	pinfo->lcdanalog_vcc = regulator_get(&pdev->dev, VCC_LCDANALOG_NAME);
-	if (IS_ERR(pinfo->lcdanalog_vcc)) {
-		k3fb_loge("failed to get lcdanalog-vcc regulator!\n");
-		return PTR_ERR(pinfo->lcdanalog_vcc);
-	}
-
-	return 0;
-}
-
-void LCDIO_SET_VOLTAGE(struct k3_panel_info *pinfo, u32 min_uV, u32 max_uV)
-{
-	BUG_ON(pinfo == NULL);
-
-	if (regulator_set_voltage(pinfo->lcdio_vcc, min_uV, max_uV) != 0) {
-		k3fb_loge("failed to set lcdio vcc!\n");
-	}
-}
-
-void LCD_VCC_PUT(struct k3_panel_info *pinfo)
-{
-	BUG_ON(pinfo == NULL);
-
-	if (!IS_ERR(pinfo->lcdio_vcc)) {
-		regulator_put(pinfo->lcdio_vcc);
-	}
-	
-	if (!IS_ERR(pinfo->lcdanalog_vcc)) {
-		regulator_put(pinfo->lcdanalog_vcc);
-	}
-}
-
-void LCD_VCC_ENABLE(struct k3_panel_info *pinfo)
-{
-	BUG_ON(pinfo == NULL);
-
-	if (!IS_ERR(pinfo->lcdio_vcc)) {
-		if (regulator_enable(pinfo->lcdio_vcc) != 0) {
-			k3fb_loge("failed to enable lcdio-vcc regulator!\n");
-		}
-	}
-	
-	if (!IS_ERR(pinfo->lcdanalog_vcc)) {
-		if (regulator_enable(pinfo->lcdanalog_vcc) != 0) {
-			k3fb_loge("failed to enable lcdanalog-vcc regulator!\n");
-		}
-	}
-}
-
-void LCD_VCC_DISABLE(struct k3_panel_info *pinfo)
-{
-	BUG_ON(pinfo == NULL);
-
-	if (!IS_ERR(pinfo->lcdanalog_vcc)) {
-		if (regulator_disable(pinfo->lcdanalog_vcc) != 0) {
-			k3fb_loge("failed to disable lcdanalog-vcc regulator!\n");
-		}
-	}
-	
-	if (!IS_ERR(pinfo->lcdio_vcc)) {
-		if (regulator_disable(pinfo->lcdio_vcc) != 0) {
-			k3fb_loge("failed to disable lcdio-vcc regulator!\n");
-		}
-	}
-}
-
-int LCD_IOMUX_GET(struct k3_panel_info *pinfo)
-{
-	BUG_ON(pinfo == NULL);
-
-	pinfo->lcd_block = iomux_get_block(IOMUX_LCD_NAME);
-	if (!pinfo->lcd_block) {
-		k3fb_loge("failed to get iomux_lcd!\n");
-		return PTR_ERR(pinfo->lcd_block);
-	}
-	
-	pinfo->lcd_block_config = iomux_get_blockconfig(IOMUX_LCD_NAME);
-	if (!pinfo->lcd_block_config) {
-		k3fb_loge("failed to get iomux_lcd config!\n");
-		return PTR_ERR(pinfo->lcd_block_config);
-	}
-
-	return 0;
-}
-
-void LCD_IOMUX_SET(struct k3_panel_info *pinfo, int mode)
-{
-	BUG_ON(pinfo == NULL);
-
-	if (blockmux_set(pinfo->lcd_block, pinfo->lcd_block_config, mode) != 0) {
-		k3fb_loge("failed to set iomux_lcd normal mode!\n");
-	}
-}
-
-int LCD_RESOURCE(struct platform_device *pdev, struct k3_panel_info *pinfo, 
-	struct resource *res)
-{
-	BUG_ON(pdev == NULL);
-	BUG_ON(pinfo == NULL);
-
-	res = platform_get_resource_byname(pdev, IORESOURCE_IO, GPIO_LCD_RESET_NAME);
-	if (!res) {
-		k3fb_loge("failed to get gpio reset resource!\n");
-		return -ENXIO;
-	}
-	
-	pinfo->gpio_reset = res->start;
-	if (!gpio_is_valid(pinfo->gpio_reset)) {
-		k3fb_loge("failed to get gpio reset resource!\n");
-		return -ENXIO;
-	}
-	
-	res = platform_get_resource_byname(pdev, IORESOURCE_IO, GPIO_LCD_POWER_NAME);
-	if (!res) {
-		k3fb_loge("failed to get gpio power resource!\n");
-		return -ENXIO;
-	}
-	
-	pinfo->gpio_power = res->start;
-	if (!gpio_is_valid(pinfo->gpio_power)) {
-		k3fb_loge("failed to get gpio power resource!\n");
-		return -ENXIO;
-	}
-
-	res = platform_get_resource_byname(pdev, IORESOURCE_IO, GPIO_LCD_ID0_NAME);
-	if (!res) {
-		k3fb_loge("failed to get gpio_lcd_id0 resource!\n");
-		return -ENXIO;
-	}
-	
-	pinfo->gpio_lcd_id0 = res->start;
-	if (!(gpio_is_valid(pinfo->gpio_lcd_id0))) {
-		k3fb_loge("gpio_lcd_id0 is invalid!\n");
-		return -ENXIO;
-	}
-	
-	res = platform_get_resource_byname(pdev, IORESOURCE_IO, GPIO_LCD_ID1_NAME);
-	if (!res) {
-		k3fb_loge("failed to get gpio_lcd_id1 resource.\n");
-		return -ENXIO;
-	}
-	
-	pinfo->gpio_lcd_id1 = res->start;
-	if (!(gpio_is_valid(pinfo->gpio_lcd_id1))) {
-		k3fb_loge("gpio_lcd_id1 is invalid!\n");
-		return -ENXIO;
-	}
-
-	return 0;
-}
-
-void LCD_GPIO_REQUEST(struct k3_panel_info *pinfo)
-{
-	BUG_ON(pinfo == NULL);
-
-	if (gpio_request(pinfo->gpio_power, GPIO_LCD_POWER_NAME) != 0) {
-		k3fb_loge("failed to request gpio power!\n");
-	}
-
-	if (gpio_request(pinfo->gpio_reset, GPIO_LCD_RESET_NAME) != 0) {
-		k3fb_loge("failed to request gpio reset!\n");
-	}
-
-	if (gpio_request(pinfo->gpio_lcd_id0, GPIO_LCD_ID0_NAME) != 0) {
-		k3fb_loge("failed to request gpio_lcd_id0!\n");
-	}
-
-	if (gpio_request(pinfo->gpio_lcd_id1, GPIO_LCD_ID1_NAME) != 0) {
-		k3fb_loge("failed to request gpio_lcd_id1!\n");
-	}
-}
-
-void LCD_GPIO_FREE(struct k3_panel_info *pinfo)
-{
-	BUG_ON(pinfo == NULL);
-
-	if (gpio_is_valid(pinfo->gpio_reset)) {
-		gpio_free(pinfo->gpio_reset);
-	}
-	
-	if (gpio_is_valid(pinfo->gpio_power)) {
-		gpio_free(pinfo->gpio_power);
-	}
-	
-	if (gpio_is_valid(pinfo->gpio_lcd_id0)) {
-		gpio_free(pinfo->gpio_lcd_id0);
-	}
-	
-	if (gpio_is_valid(pinfo->gpio_lcd_id1)) {
-		gpio_free(pinfo->gpio_lcd_id1);
-	}
-}
-
-int PWM_CLK_GET(struct k3_panel_info *pinfo)
-{
-	BUG_ON(pinfo == NULL);
-
-	pinfo->pwm_clk = clk_get(NULL, CLK_PWM0_NAME);
-	if (IS_ERR(pinfo->pwm_clk)) {
-		k3fb_loge("failed to get pwm0 clk!\n");
-		return PTR_ERR(pinfo->pwm_clk);
-	}
-	
-	if (clk_set_rate(pinfo->pwm_clk, DEFAULT_PWM_CLK_RATE) != 0) {
-		k3fb_loge("failed to set pwm clk rate!\n");
-	}
-
-	return 0;
-}
-
-void PWM_CLK_PUT(struct k3_panel_info *pinfo)
-{
-	BUG_ON(pinfo == NULL);
-
-	if (!IS_ERR(pinfo->pwm_clk)) {
-		clk_put(pinfo->pwm_clk);
-	}
-}
-
-int PWM_IOMUX_GET(struct k3_panel_info *pinfo)
-{
-	BUG_ON(pinfo == NULL);
-
-	pinfo->pwm_block = iomux_get_block(IOMUX_PWM_NAME);
-	if (!pinfo->pwm_block) {
-		k3fb_loge("failed to get iomux_pwm!\n");
-		return PTR_ERR(pinfo->pwm_block);
-	}
-	
-	pinfo->pwm_block_config = iomux_get_blockconfig(IOMUX_PWM_NAME);
-	if (!pinfo->pwm_block_config) {
-		k3fb_loge("failed to get iomux_pwm config!\n");
-		return PTR_ERR(pinfo->pwm_block_config);
-	}
-
-	return 0;
-}
-
-void PWM_IOMUX_SET(struct k3_panel_info *pinfo, int mode)
-{
-	BUG_ON(pinfo == NULL);
-
-	if (blockmux_set(pinfo->pwm_block, pinfo->pwm_block_config, (mode)) != 0) {
-		k3fb_loge("failed to set iomux pwm normal mode!\n");
-	}
-}
-
-int PWM_RESOUTCE(struct platform_device *pdev, struct k3_panel_info *pinfo, 
-	struct resource *res)
-{
-	BUG_ON(pdev == NULL);
-	BUG_ON(pinfo == NULL);
-
-	res = platform_get_resource_byname(pdev, IORESOURCE_MEM,  REG_BASE_PWM0_NAME);
-	if (!res) {
-		k3fb_loge("failed to get pwm0 resource!\n");
-		return -ENXIO;
-	}
-	
-	pinfo->pwm_base = res->start;
-	res = platform_get_resource_byname(pdev, IORESOURCE_IO, GPIO_LCD_PWM0_NAME);
-	if (!res) {
-		k3fb_loge("failed to get gpio pwm0 resource!\n");
-		return -ENXIO;
-	}
-	
-	pinfo->gpio_pwm0 = res->start;
-	if (!(gpio_is_valid(pinfo->gpio_pwm0))) {
-		k3fb_loge("gpio pwm0 is invalid!\n");
-		return -ENXIO;
-	}
-	
-	res = platform_get_resource_byname(pdev, IORESOURCE_IO, GPIO_LCD_PWM1_NAME);
-	if (!res) {
-		k3fb_loge("failed to get gpio pwm1 resource!\n");
-		return -ENXIO;
-	}
-	
-	pinfo->gpio_pwm1 = res->start;
-	if (!(gpio_is_valid(pinfo->gpio_pwm1))) {
-		k3fb_loge("gpio pwm1 is invalid!\n");
-		return -ENXIO;
-	}
-
-	return 0;
-}
-
-void PWM_GPIO_REQUEST(struct k3_panel_info *pinfo)
-{
-	BUG_ON(pinfo == NULL);
-
-	if (gpio_request(pinfo->gpio_pwm0, GPIO_LCD_PWM0_NAME) != 0) {
-		k3fb_loge("failed to request gpio pwm0!\n");
-	}
-	
-	if (gpio_request(pinfo->gpio_pwm1, GPIO_LCD_PWM1_NAME) != 0) {
-		k3fb_loge("failed to request gpio pwm1!\n");
-	}
-}
-
-void PWM_GPIO_FREE(struct k3_panel_info *pinfo)
-{
-	BUG_ON(pinfo == NULL);
-
-	if (gpio_is_valid(pinfo->gpio_pwm0)) {
-		gpio_free(pinfo->gpio_pwm0);
-	}
-	
-	if (gpio_is_valid(pinfo->gpio_pwm1)) {
-		gpio_free(pinfo->gpio_pwm1);
-	}
-}
-
-int LCD_GET_CLK_RATE(struct k3_panel_info *pinfo)
-{
-	return 0;
-}
-
-u32 square_point_six(u32 x)
-{
-	unsigned long t = x * x * x;
-	unsigned long t0 = 0;
-	u32 i = 0, j = 255, k = 0;
-
-	while(j - i > 1)
-	{
-		k = (i + j) / 2;
-		t0 = k * k * k * k * k;
-		if(t0 < t){
-		    i = k;
-		}
-		else if(t0 > t){
-		    j = k;
-		}
-		else{
-		    return k;
-		}
-	}
-
-	return k;
 }

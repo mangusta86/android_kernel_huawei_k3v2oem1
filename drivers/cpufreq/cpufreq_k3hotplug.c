@@ -77,7 +77,7 @@ struct cpu_num_limit gcpu_num_limit = {
 /***************************cpu hotplug*************************/
 #ifndef NO_CPU_HOTPLUG
 
-#define DEFAULT_HOTPLUG_IN_LOAD			(95)
+#define DEFAULT_HOTPLUG_IN_LOAD			(85)
 #define DEFAULT_HOTPLUG_OUT_LOAD		(3)
 #define DEFAULT_DIFFERENTIAL			(10)
 

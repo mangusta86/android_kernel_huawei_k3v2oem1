@@ -246,16 +246,28 @@
 #define REG_ISP_AWB_OFFSET_R		(0x1c1c1)
 
 #define ISP_YDENOISE_COFF_1X		2
-#define ISP_YDENOISE_COFF_2X		4
+#define ISP_YDENOISE_COFF_2X		2
 #define ISP_YDENOISE_COFF_4X		6
 #define ISP_YDENOISE_COFF_8X		8
-#define ISP_YDENOISE_COFF_16X		12
+#define ISP_YDENOISE_COFF_16X   	16
+#define ISP_YDENOISE_COFF_32X		0x20
+#define ISP_YDENOISE_COFF_64X		0x30
 
 #define REG_ISP_YDENOISE_1X		(0x6551a)
 #define REG_ISP_YDENOISE_2X		(0x6551b)
 #define REG_ISP_YDENOISE_4X		(0x6551c)
 #define REG_ISP_YDENOISE_8X		(0x6551d)
 #define REG_ISP_YDENOISE_16X		(0x6551e)
+#define REG_ISP_YDENOISE_32X		(0x6551f)
+#define REG_ISP_YDENOISE_64X		(0x65520)
+
+#define REG_ISP_UVDENOISE_1X		(0x65522)
+#define REG_ISP_UVDENOISE_2X		(0x65524)
+#define REG_ISP_UVDENOISE_4X		(0x65526)
+#define REG_ISP_UVDENOISE_8X		(0x65528)
+#define REG_ISP_UVDENOISE_16X		(0x6552a)
+#define REG_ISP_UVDENOISE_32X		(0x6552c)
+#define REG_ISP_UVDENOISE_64X		(0x6552e)
 
 #define REG_ISP_REF_BIN					(0x66302)
 
@@ -731,13 +743,11 @@ typedef enum {
 	FLASH_AWBTEST_POLICY_FREEGO,
 } FLASH_AWBTEST_POLICY;
 
-
 typedef enum {
 	U9508_FLASH_TYPE_UNKNOW = 0,
 	U9508_FLASH_TYPE_EVERLIGHT,
 	U9508_FLASH_TYPE_OSRAM,
 } U9508_FLASH_TYPE_T;
-
 
 typedef struct _irq_reg {
 	u32 irq_status;
@@ -807,9 +817,8 @@ typedef struct _isp_hw_data {
 	bool ae_resume;
 	awb_gain_t led_awb[2];
 	FLASH_AWBTEST_POLICY awb_test; /* used to save policy of flash awb test. */
-	
-	U9508_FLASH_TYPE_T flash_type;
 
+	U9508_FLASH_TYPE_T flash_type;
 
 	isp_process_mode_t process_mode;
 
@@ -822,6 +831,7 @@ typedef struct _isp_hw_data {
 	bool preview_stop;
 	u8 fps_max;
 	u8 fps_min;
+	u8 fps_mid;
 
 	camera_flash	flash_mode;
 
@@ -989,6 +999,12 @@ static inline void SETREG8(u32 reg, u8 value) {
 #define REG_ISP_SDE_YBRIGHT			(0x65b07)
 
 #define REG_ISP_SHARPNESS			(0x6560d)
+
+#define REG_ISP_SHARPNESS_REG1		(0x65608)
+#define REG_ISP_SHARPNESS_REG2		(0x65609)
+#define REG_ISP_SHARPNESS_REG3		(0x6560c)
+#define REG_ISP_SHARPNESS_REG4		(0x6560d)
+
 
 #define SDE_BRIGHTNESS_CAPTURE_STEP		(0x10)
 #define SDE_BRIGHTNESS_CAPTURE_H2		(SDE_BRIGHTNESS_CAPTURE_STEP * 2)
@@ -1351,10 +1367,19 @@ u32 get_writeback_cap_gain(void);
 
 /* only useful for ISO auto mode */
 int ispv1_get_actual_iso(void);
+int ispv1_get_hdr_iso_exp(hdr_para_reserved *iso_exp);
 
 #define ispv1_expo_time2line(expo_time, fps, vts) ((fps) * (vts) / (expo_time))
 #define ispv1_expo_line2time(expo_line, fps, vts) ((fps) * (vts) / (expo_line))
 int ispv1_get_exposure_time(void);
+
+/* < zhoutian 00195335 2012-10-20 added for hwscope begin */
+int ispv1_set_hwscope(hwscope_coff *hwscope_data);
+/* zhoutian 00195335 2012-10-20 added for hwscope end > */
+/* < zhoutian 00195335 2013-03-02 added for SuperZoom-LowLight begin */
+int ispv1_set_hw_lowlight(int ctl);
+int ispv1_get_binning_size(binning_size *size);
+/* zhoutian 00195335 2013-03-02 added for SuperZoom-LowLight end > */
 
 u32 ispv1_get_awb_gain(int withShift);
 u32 ispv1_get_focus_code(void);
@@ -1366,6 +1391,10 @@ u32 ispv1_get_sensor_vts(void);
 u32 ispv1_get_current_ccm_rgain(void);
 u32 ispv1_get_current_ccm_bgain(void);
 
+//hdr movie interface debug
+int  ispv1_get_sensor_lux_matrix(lux_stat_matrix_tbl * lux_matrix);
+int  ispv1_get_sensor_hdr_points(atr_ctrl_points* hdr_points);
+int  ispv1_get_sensor_hdr_info(hdr_info* hdr_info);
 int ispv1_get_fps(camera_sensor *sensor, camera_fps fps);
 int ispv1_set_fps(camera_sensor *sensor, camera_fps fps, u8 value);
 
@@ -1385,6 +1414,32 @@ int ispv1_get_anti_banding(void);
  */
 int ispv1_set_awb(camera_white_balance awb_mode);
 
+/* < zhoutian 00195335 12-7-16 added for auto scene detect begin */
+int ispv1_get_extra_coff(extra_coff *extra_data);
+
+int ispv1_get_ae_coff(ae_coff *ae_data);
+int ispv1_set_ae_coff(ae_coff *ae_data);
+
+int ispv1_get_awb_coff(awb_coff *awb_data);
+int ispv1_set_awb_coff(awb_coff *awb_data);
+
+int ispv1_get_awb_ct_coff(awb_ct_coff *awb_ct_data);
+int ispv1_set_awb_ct_coff(awb_ct_coff *awb_ct_data);
+
+int ispv1_get_ccm_coff(ccm_coff *ccm_data);
+int ispv1_set_ccm_coff(ccm_coff *ccm_data);
+
+int ispv1_set_added_coff(added_coff *added_data);
+
+void ispv1_change_fps(camera_frame_rate_mode mode);
+
+int ispv1_set_max_exposure(camera_max_exposrure mode);
+
+int ispv1_get_coff_seq(seq_coffs *seq_data);
+int ispv1_set_coff_seq(seq_coffs *seq_data);
+
+int ispv1_set_max_expo_time(int time);
+/* zhoutian 00195335 12-7-16 added for auto scene detect end > */
 /*also called edge enhancement*/
 int ispv1_set_sharpness(camera_sharpness sharpness);
 int ispv1_set_saturation(camera_saturation saturation);
@@ -1457,6 +1512,8 @@ void ispv1_get_wb_value(awb_gain_t *awb);
 void ispv1_set_wb_value(awb_gain_t *awb);
 bool ispv1_copy_preview_data(u8 *dest, camera_rect_s *rect);
 
+void ispv1_write_isp_reg(u32 isp_addr, u8 reg_value);
+
 int ispv1_get_frame_rate_level(void);
 void ispv1_set_frame_rate_level(int level);
 
@@ -1471,6 +1528,11 @@ void ispv1_red_clip_correction(void);
 int ispv1_uv_stat_init(void);
 void ispv1_uv_stat_excute(void);
 void ispv1_uv_stat_exit(void);
+
+int ispv1_load_isp_setting(char *filename);
+int ispv1_load_sensor_setting(camera_sensor *sensor,char *filename);
+void ispv1_dynamic_ydenoise(camera_sensor *sensor, camera_state state, bool flash_on);
+
 
 #endif /*__K3_ISPV1_H__ */
 /********************************* END ***********************************************/

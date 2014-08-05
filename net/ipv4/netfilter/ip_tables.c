@@ -979,18 +979,6 @@ copy_entries_to_user(unsigned int total_size,
 		}
 
 		t = ipt_get_target_c(e);
-		if(NULL == t)
-		{
-		    WARN_ON(1);
-		    ret = -EFAULT;
-	            goto free_counters;
-		}
-		else if(NULL == t->u.kernel.target)
-		{
-		    WARN_ON(1);
-		    ret = -EFAULT;
-		    goto free_counters;
-		}
 		if (copy_to_user(userptr + off + e->target_offset
 				 + offsetof(struct xt_entry_target,
 					    u.user.name),

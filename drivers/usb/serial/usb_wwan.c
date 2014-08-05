@@ -38,6 +38,95 @@
 #include "usb-wwan.h"
 
 static int debug;
+enum DEBUG_DIRECTION_E{
+    SERIAL_VERBOSE_DEBUG_IN             = 1U << 0,
+    SERIAL_VERBOSE_DEBUG_OUT             = 1U << 1,
+};
+
+enum DEBUG_GRADE_E{
+    SERIAL_VERBOSE_DEBUG_LENGTH     = 1U << 0,
+    SERIAL_VERBOSE_DEBUG_CONTENT    = 1U << 1,
+};
+
+enum DEBUG_DEPTH_E{
+    SERIAL_VERBOSE_DEBUG_ONLY_AT     = 1U << 0,
+    SERIAL_VERBOSE_DEBUG_ALL            = 1U << 1,
+};
+
+
+static uint32_t usbserial_debugdirection = 0;       // define debug direction, in buffer or out buffer or all
+static uint32_t usbserial_debuggrade = 0;           //define debug grade, only print buffer len or buffer content
+static uint32_t usbserial_debugdepth = 0;           //define debug depth, only print AT content or all tty content
+
+/*
+ * Utility procedures to print a buffer in hex/ascii
+ */
+static void
+tty_print_hex (register __u8 * out, const __u8 * in, int count)
+{
+	register __u8 next_ch;
+	static const char hex[] = "0123456789ABCDEF";
+
+	while (count-- > 0) {
+		next_ch = *in++;
+		*out++ = hex[(next_ch >> 4) & 0x0F];
+		*out++ = hex[next_ch & 0x0F];
+		++out;
+	}
+}
+
+static void
+tty_print_char (register __u8 * out, const __u8 * in, int count)
+{
+	register __u8 next_ch;
+
+	while (count-- > 0) {
+		next_ch = *in++;
+
+		if (next_ch < 0x20 || next_ch > 0x7e)
+			*out++ = '.';
+		else {
+			*out++ = next_ch;
+			if (next_ch == '%')   /* printk/syslogd has a bug !! */
+				*out++ = '%';
+		}
+	}
+	*out = '\0';
+}
+
+//out is 1, in is 0
+static void
+tty_print_buffer (const char *name, const __u8 *buf, int count,int inout_flag)
+{
+#define CLEN 32
+	__u8 line[CLEN*4+4];
+
+	if (name != NULL)
+	{
+		if(inout_flag)
+		    printk(KERN_DEBUG "[%s,>>>count=%d]", name, count);
+		else
+		    printk(KERN_DEBUG "[%s,<<<count=%d]", name, count);
+	}
+
+      if(usbserial_debuggrade & SERIAL_VERBOSE_DEBUG_CONTENT) {
+            while (count > CLEN) {
+                memset (line, 32, CLEN*3+1);
+                tty_print_hex (line, buf, CLEN);
+                tty_print_char (&line[CLEN * 3], buf, CLEN);
+                printk(KERN_DEBUG "%s\n", line);
+                count -= CLEN;
+                buf += CLEN;
+            }
+
+            if (count > 0) {
+                memset (line, 32, CLEN*3+1);
+                tty_print_hex (line, buf, count);
+                tty_print_char (&line[CLEN * 3], buf, count);
+                printk(KERN_DEBUG "%s\n", line);
+            }
+      }
+}
 
 void usb_wwan_dtr_rts(struct usb_serial_port *port, int on)
 {
@@ -227,6 +316,11 @@ int usb_wwan_write(struct tty_struct *tty, struct usb_serial_port *port,
 			todo = OUT_BUFLEN;
 
 		this_urb = portdata->out_urbs[i];
+	#ifdef CONFIG_BALONG_POWER
+        #define BALONG_ID_TABLE_INDEX   1   //must modify with the index of Balong VID,PID in id_table
+        if(  port->serial->dev->descriptor.idVendor==port->serial->type->id_table[BALONG_ID_TABLE_INDEX].idVendor )  //Special for Balong modem
+		this_urb->transfer_flags |= URB_ZERO_PACKET;
+	#endif
 		if (test_and_set_bit(i, &portdata->out_busy)) {
 			if (time_before(jiffies,
 					portdata->tx_start_time[i] + 10 * HZ))
@@ -244,6 +338,18 @@ int usb_wwan_write(struct tty_struct *tty, struct usb_serial_port *port,
 		/* send the data */
 		memcpy(this_urb->transfer_buffer, buf, todo);
 		this_urb->transfer_buffer_length = todo;
+
+		if (usbserial_debugdirection & SERIAL_VERBOSE_DEBUG_OUT) {
+                   if (usbserial_debugdepth & SERIAL_VERBOSE_DEBUG_ALL) {
+			        tty_print_buffer (tty->name, buf, todo,1);
+                    } else if(usbserial_debugdepth & SERIAL_VERBOSE_DEBUG_ONLY_AT){
+                        if((strcmp(tty->name, "ttyUSB0") == 0) || (strcmp(tty->name,"ttyUSB1") == 0))
+                            tty_print_buffer (tty->name, buf, todo,1);
+                    } else
+                    {
+                        //print nothing
+                    }
+            }
 
 		spin_lock_irqsave(&intfdata->susp_lock, flags);
 		if (intfdata->suspended) {
@@ -298,6 +404,20 @@ static void usb_wwan_indat_callback(struct urb *urb)
 		tty = tty_port_tty_get(&port->port);
 		if (tty) {
 			if (urb->actual_length) {
+				dbg("%s,receive urb length=%d",__func__,urb->actual_length);
+
+				if (usbserial_debugdirection & SERIAL_VERBOSE_DEBUG_IN) {
+                                if (usbserial_debugdepth & SERIAL_VERBOSE_DEBUG_ALL) {
+                                    tty_print_buffer (tty->name, data, urb->actual_length,0);
+                                } else if(usbserial_debugdepth & SERIAL_VERBOSE_DEBUG_ONLY_AT){
+                                    if((strcmp(tty->name, "ttyUSB0") == 0) || (strcmp(tty->name,"ttyUSB1") == 0))
+                                        tty_print_buffer (tty->name, data, urb->actual_length,0);
+                                } else
+                                {
+                                    //print nothing
+                                }
+                          }
+
 				tty_insert_flip_string(tty, data,
 						urb->actual_length);
 				tty_flip_buffer_push(tty);
@@ -323,7 +443,6 @@ static void usb_wwan_indat_callback(struct urb *urb)
 			pr_info("%s: nonzero status: %d on endpoint %02x.\n",
 				__func__, status, endpoint);
 		}
-
 	}
 }
 
@@ -425,8 +544,7 @@ int usb_wwan_open(struct tty_struct *tty, struct usb_serial_port *port)
 
 	if (intfdata->send_setup)
 		intfdata->send_setup(port);
-
-	serial->interface->needs_remote_wakeup = 1;
+	serial->interface->needs_remote_wakeup = 0;
 	spin_lock_irq(&intfdata->susp_lock);
 	portdata->opened = 1;
 	spin_unlock_irq(&intfdata->susp_lock);
@@ -458,8 +576,11 @@ void usb_wwan_close(struct usb_serial_port *port)
 		for (i = 0; i < N_OUT_URB; i++)
 			usb_kill_urb(portdata->out_urbs[i]);
 		/* balancing - important as an error cannot be handled*/
-		usb_autopm_get_interface_no_resume(serial->interface);
-		serial->interface->needs_remote_wakeup = 0;
+		printk("%s,%d: serial->disconnected=%d\n", __func__, __LINE__, serial->disconnected);
+		if(!serial->disconnected) {
+			usb_autopm_get_interface_no_resume(serial->interface);
+			serial->interface->needs_remote_wakeup = 0;
+		} 
 	}
 }
 EXPORT_SYMBOL(usb_wwan_close);
@@ -734,15 +855,16 @@ int usb_wwan_resume(struct usb_serial *serial)
 		}
 	}
 
+	spin_lock_irq(&intfdata->susp_lock);
 	for (i = 0; i < serial->num_ports; i++) {
 		/* walk all ports */
 		port = serial->port[i];
 		portdata = usb_get_serial_port_data(port);
 
 		/* skip closed ports */
-		spin_lock_irq(&intfdata->susp_lock);
+//		spin_lock_irq(&intfdata->susp_lock);
 		if (!portdata->opened) {
-			spin_unlock_irq(&intfdata->susp_lock);
+//			spin_unlock_irq(&intfdata->susp_lock);
 			continue;
 		}
 
@@ -757,9 +879,10 @@ int usb_wwan_resume(struct usb_serial *serial)
 			}
 		}
 		play_delayed(port);
-		spin_unlock_irq(&intfdata->susp_lock);
+		//spin_unlock_irq(&intfdata->susp_lock);
 	}
-	spin_lock_irq(&intfdata->susp_lock);
+
+//	spin_lock_irq(&intfdata->susp_lock);
 	intfdata->suspended = 0;
 	spin_unlock_irq(&intfdata->susp_lock);
 err_out:
@@ -775,3 +898,6 @@ MODULE_LICENSE("GPL");
 
 module_param(debug, bool, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(debug, "Debug messages");
+module_param_named(debug_direction, usbserial_debugdirection, uint, S_IWUSR | S_IRUGO);
+module_param_named(debug_grade, usbserial_debuggrade, uint, S_IWUSR | S_IRUGO);
+module_param_named(debug_depth, usbserial_debugdepth, uint, S_IWUSR | S_IRUGO);

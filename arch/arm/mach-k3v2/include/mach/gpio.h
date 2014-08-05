@@ -220,4 +220,6 @@
 #define GPIO_21_6 174
 #define GPIO_21_7 175
 
+#define EXTRAL_DYNAMIC_DCDC_EN  (GPIO_2_3)
+
 #endif

@@ -52,6 +52,10 @@
 #include <mach/hisi_mem.h>
 #endif
 
+#ifdef CONFIG_SRECORDER
+#include <linux/srecorder.h>
+#endif
+
 /*
  * Architectures can override it:
  */
@@ -140,7 +144,12 @@ static DEFINE_SPINLOCK(logbuf_lock);
  */
 static unsigned log_start;	/* Index into log_buf: next char to be read by syslog() */
 static unsigned con_start;	/* Index into log_buf: next char to be sent to consoles */
+
+#ifdef CONFIG_SRECORDER
+static unsigned log_end __attribute__((__section__(".data")));	/* Index into log_buf: most-recently-written-char + 1 */
+#else
 static unsigned log_end;	/* Index into log_buf: most-recently-written-char + 1 */
+#endif
 
 /*
  * If exclusive_console is non-NULL then only this console is to be printed to.
@@ -171,11 +180,53 @@ EXPORT_SYMBOL(console_set_on_cmdline);
 /* Flag: console code may call schedule() */
 static int console_may_schedule;
 
+#ifdef CONFIG_SRECORDER
+static char srecorder_log_buf[CONFIG_SRECORDER_LOG_BUF_LEN] __attribute__((__section__(".data")));
+static int srecorder_log_buf_len __attribute__((__section__(".data"))) = CONFIG_SRECORDER_LOG_BUF_LEN;
+void get_srecorder_log_buf_info(
+    unsigned long *psrecorder_log_buf, 
+    unsigned long *psrecorder_log_buf_len)
+{
+    if (unlikely(NULL == psrecorder_log_buf || NULL == psrecorder_log_buf_len))
+    {
+        return;
+    }
+
+    *psrecorder_log_buf = (unsigned long)srecorder_log_buf;
+    *psrecorder_log_buf_len = srecorder_log_buf_len;
+}
+EXPORT_SYMBOL(get_srecorder_log_buf_info);
+#endif
+
 #ifdef CONFIG_PRINTK
 
+#if defined(CONFIG_SRECORDER)
+static char __log_buf[__LOG_BUF_LEN] __attribute__((__section__(".data")));
+static char *log_buf __attribute__((__section__(".data"))) = __log_buf;
+static int log_buf_len __attribute__((__section__(".data"))) = __LOG_BUF_LEN;
+#else
 static char __log_buf[__LOG_BUF_LEN];
 static char *log_buf = __log_buf;
 static int log_buf_len = __LOG_BUF_LEN;
+#endif
+
+#ifdef CONFIG_SRECORDER
+void get_log_buf_info(unsigned long *plog_buf, 
+    unsigned long *plog_end, 
+    unsigned long *plog_buf_len)
+{
+    if (unlikely(NULL == plog_buf || NULL == plog_end || NULL == plog_buf_len))
+    {
+        return;
+    }
+
+    *plog_buf = (unsigned long)&log_buf;
+    *plog_end = (unsigned long)&log_end;
+    *plog_buf_len = log_buf_len;
+}
+EXPORT_SYMBOL(get_log_buf_info);
+#endif /* CONFIG_SRECORDER */
+
 static unsigned logged_chars; /* Number of chars produced since last read+clear operation */
 static int saved_console_loglevel = -1;
 
@@ -394,8 +445,10 @@ static int check_syslog_permissions(int type, bool from_file)
 			return 0;
 		/* For historical reasons, accept CAP_SYS_ADMIN too, with a warning */
 		if (capable(CAP_SYS_ADMIN)) {
-			WARN_ONCE(1, "Attempt to access syslog with CAP_SYS_ADMIN "
-				 "but no CAP_SYSLOG (deprecated).\n");
+			printk_once(KERN_WARNING "%s (%d): "
+				 "Attempt to access syslog with CAP_SYS_ADMIN "
+				 "but no CAP_SYSLOG (deprecated).\n",
+				 current->comm, task_pid_nr(current));
 			return 0;
 		}
 		return -EPERM;
@@ -707,8 +760,19 @@ static void call_console_drivers(unsigned start, unsigned end)
 	start_print = start;
 	while (cur_index != end) {
 		if (msg_level < 0 && ((end - cur_index) > 2)) {
+			/*
+			 * prepare buf_prefix, as a contiguous array,
+			 * to be processed by log_prefix function
+			 */
+			char buf_prefix[SYSLOG_PRI_MAX_LENGTH+1];
+			unsigned i;
+			for (i = 0; i < ((end - cur_index)) && (i < SYSLOG_PRI_MAX_LENGTH); i++) {
+				buf_prefix[i] = LOG_BUF(cur_index + i);
+			}
+			buf_prefix[i] = '\0'; /* force '\0' as last string character */
+
 			/* strip log prefix */
-			cur_index += log_prefix(&LOG_BUF(cur_index), &msg_level, NULL);
+			cur_index += log_prefix((const char *)&buf_prefix, &msg_level, NULL);
 			start_print = cur_index;
 		}
 		while (cur_index != end) {
@@ -755,12 +819,14 @@ static void emit_log_char_to_rbuf(char c)
 		if (!log_buf_info || !res_log_buf)
 			return;  /* map failed */
 
-		if (strncmp("kdumplog", (const char *)(log_buf_info+5), 8) == 0) {
+		if (strncmp("kdumplog", (const char *)(log_buf_info+7), 8) == 0) {
 			if (((log_buf_info+0)->waddr >= KERNEL_LOG_BUF_LEN) || ((log_buf_info+0)->raddr >= KERNEL_LOG_BUF_LEN)
 				|| ((log_buf_info+1)->waddr >= MAIN_LOG_BUF_LEN) || ((log_buf_info+1)->raddr >= MAIN_LOG_BUF_LEN)
 				|| ((log_buf_info+2)->waddr >= EVENTS_LOG_BUF_LEN) || ((log_buf_info+2)->raddr >= EVENTS_LOG_BUF_LEN)
 				|| ((log_buf_info+3)->waddr >= RADIO_LOG_BUF_LEN) || ((log_buf_info+3)->raddr >= RADIO_LOG_BUF_LEN)
-				|| ((log_buf_info+4)->waddr >= SYSTEM_LOG_BUF_LEN) || ((log_buf_info+4)->raddr >= SYSTEM_LOG_BUF_LEN)) {
+				|| ((log_buf_info+4)->waddr >= SYSTEM_LOG_BUF_LEN) || ((log_buf_info+4)->raddr >= SYSTEM_LOG_BUF_LEN)
+				||((log_buf_info+5)->waddr >= EXCEPTION_LOG_BUF_LEN) || ((log_buf_info+5)->raddr >= EXCEPTION_LOG_BUF_LEN)
+				|| ((log_buf_info+6)->waddr >= POWER_LOG_BUF_LEN) || ((log_buf_info+6)->raddr >= POWER_LOG_BUF_LEN)   ) {
 					edb_putstr("emit_log error init point.\n");
 					need_init = 1;
 				}
@@ -772,11 +838,12 @@ static void emit_log_char_to_rbuf(char c)
 		need_init = 1;
 		if (need_init) {
 			/* normal boot */
-			for (i = 0; i < 5; i++) {
+			for (i = 0; i < 7; i++) {
 				(log_buf_info+i)->waddr = 0;
 				(log_buf_info+i)->raddr = 0;
 			}
-			strncpy((char *)(log_buf_info+5), kdumplog, sizeof(kdumplog));
+
+			strncpy((char *)(log_buf_info+7), kdumplog, sizeof(kdumplog));
 		}
 
 		phyaddr_mapped = 1;
@@ -1271,7 +1338,8 @@ int update_console_cmdline(char *name, int idx, char *name_new, int idx_new, cha
 	return -1;
 }
 
-int console_suspend_enabled = 1;
+/* EternityProject HACK: Disable console suspend */
+int console_suspend_enabled = 0;
 EXPORT_SYMBOL(console_suspend_enabled);
 
 static int __init console_suspend_disable(char *str)

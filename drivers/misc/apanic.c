@@ -593,7 +593,11 @@ DEFINE_SIMPLE_ATTRIBUTE(panic_dbg_fops, panic_dbg_get, panic_dbg_set, "%llu\n");
 int __init apanic_init(void)
 {
 	register_mtd_user(&mtd_panic_notifier);
-	atomic_notifier_chain_register(&panic_notifier_list, &panic_blk);
+
+#ifndef CONFIG_SRECORDER
+    atomic_notifier_chain_register(&panic_notifier_list, &panic_blk);
+#endif
+
 	debugfs_create_file("apanic", 0644, NULL, NULL, &panic_dbg_fops);
 	memset(&drv_ctx, 0, sizeof(drv_ctx));
 	drv_ctx.bounce = (void *) __get_free_page(GFP_KERNEL);

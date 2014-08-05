@@ -52,6 +52,7 @@
 
 #include "mach/platform.h"
 #include "mach/irqs.h"
+#include "mach/hisi_mem.h"
 
 /* our own stuff */
 #include "hx280enc.h"
@@ -127,6 +128,16 @@ static int hx280enc_mmap(struct file *filp, struct vm_area_struct *vma)
 	unsigned long start = vma->vm_start;
 	unsigned long size = vma->vm_end - vma->vm_start;
 	int retval = 0;
+
+	unsigned long pyhs_start = vma->vm_pgoff << PAGE_SHIFT;
+	unsigned long pyhs_end = pyhs_start + size;
+	if (!(pyhs_start >= hisi_reserved_codec_phymem//not codec memory
+			&& pyhs_end <= hisi_reserved_codec_phymem + HISI_MEM_CODEC_SIZE)
+		&& !(pyhs_start >= hx280enc_data.iobaseaddr//not io address
+			&& pyhs_end <= hx280enc_data.iobaseaddr + hx280enc_data.iosize)){
+		printk(KERN_ERR "%s(%d) failed map:0x%lx-0x%lx\n", __FUNCTION__, __LINE__, pyhs_start, pyhs_end);
+		return -EFAULT;
+	}
 
 	/* make buffers write-thru cacheable */
 

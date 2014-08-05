@@ -1940,8 +1940,9 @@ int edc_fb_resume(struct fb_info *info)
 	/* edc init */
 	pipe->set_EDC_CH_CTL_secu_line(edc_base, EDC_CH_SECU_LINE);
 	pipe->set_EDC_CH_CTL_bgr(edc_base, k3fd->panel_info.bgr_fmt);
-	set_EDC_INTE(edc_base, 0xFFFFFF3F);
-	set_EDC_INTS(edc_base, 0x0);
+	set_EDC_INTE(k3fd->edc_base, 0xFFFFFFFF);
+	set_EDC_INTS(k3fd->edc_base, 0x0);
+	set_EDC_INTE(k3fd->edc_base, 0xFFFFFF3F);
 	set_EDC_DISP_DPD_disp_dpd(edc_base, 0x0);
 	set_EDC_DISP_SIZE(edc_base, k3fd->panel_info.xres, k3fd->panel_info.yres);
 	set_EDC_DISP_CTL_pix_fmt(edc_base, k3fd->panel_info.bpp);
@@ -1990,7 +1991,7 @@ int edc_fb_resume(struct fb_info *info)
 
 	return 0;
 }
-
+extern bool sbl_low_power_mode;
 int sbl_bkl_set(struct k3_fb_data_type *k3fd, u32 value)
 {
 	u32 tmp = 0;
@@ -2002,7 +2003,10 @@ int sbl_bkl_set(struct k3_fb_data_type *k3fd, u32 value)
 
 	tmp = inp32(k3fd->edc_base + EDC_DISP_DPD_OFFSET);
 	if ((tmp & REG_SBL_EN) == REG_SBL_EN) {
-		k3fd->bl_level =  SBL_REDUCE_VALUE(value);
+		if(sbl_low_power_mode)
+			k3fd->bl_level =  SBL_REDUCE_VALUE(value);
+		else
+			k3fd->bl_level = value;
 		set_SBL_BKL_LEVEL_L_bkl_level_l(k3fd->edc_base, k3fd->bl_level);
 	}
 
@@ -2034,12 +2038,18 @@ int sbl_ctrl_set(struct k3_fb_data_type *k3fd)
 		}
 	} else {
 		if ((tmp & REG_SBL_EN) != REG_SBL_EN) {
-			bkl_value =  SBL_REDUCE_VALUE(k3fd->bl_level_sbl);
+			if(sbl_low_power_mode)
+				bkl_value =  SBL_REDUCE_VALUE(k3fd->bl_level_sbl);
+			else
+				bkl_value = k3fd->bl_level_sbl;
 			set_SBL_BKL_LEVEL_L_bkl_level_l(edc_base, bkl_value);
-			k3_fb_set_backlight(k3fd,  bkl_value);
+            if ((k3fd->panel_info.type != PANEL_MIPI_CMD)
+              || (k3fd->cmd_bl_can_set))
+			    k3_fb_set_backlight(k3fd, bkl_value);
 			set_EDC_DISP_DPD_sbl_en(edc_base, K3_ENABLE);
 			set_EDC_DISP_CTL_cfg_ok(edc_base, EDC_CFG_OK_YES);
 			
+			outp32(edc_base + MIPIDSI_GEN_HDR_OFFSET, 0x0cbb23);
 			if (pdata && pdata->set_cabc) {
 				pdata->set_cabc(k3fd->pdev, K3_DISABLE);
 			}
@@ -2047,7 +2057,43 @@ int sbl_ctrl_set(struct k3_fb_data_type *k3fd)
 	}
 	return 0;
 }
+static unsigned short apical_rgb_table[] = {
+	0x20, 0xff, 0x0f,
+	0x1f, 0xb3, 0x0f,
+	0x1e, 0x64, 0x0f,
+	0x1d, 0x13, 0x0f,
+	0x1c, 0xc0, 0x0e,
+	0x1b, 0x6b, 0x0e,
+	0x1a, 0x13, 0x0e,
+	0x19, 0xb9, 0x0d,
+	0x18, 0x5c, 0x0d,
+	0x17, 0xfd, 0x0c,
+	0x16, 0x9b, 0x0c,
+	0x15, 0x36, 0x0c,
+	0x14, 0xce, 0x0b,
+	0x13, 0x63, 0x0b,
+	0x12, 0xf4, 0x0a,
+	0x11, 0x82, 0x0a,
+	0x10, 0x0c, 0x0a,
+	0x0f, 0x93, 0x09,
+	0x0e, 0x15, 0x09,
+	0x0d, 0x93, 0x08,
+	0x0c, 0x0d, 0x08,
+	0x0b, 0x82, 0x07,
+	0x0a, 0xf3, 0x06,
+	0x09, 0x5e, 0x06,
+	0x08, 0xc3, 0x05,
+	0x07, 0x23, 0x05,
+	0x06, 0x7c, 0x04,
+	0x05, 0xcf, 0x03,
+	0x04, 0x1c, 0x03,
+	0x03, 0x61, 0x02,
+	0x02, 0x9e, 0x01,
+	0x01, 0xd3, 0x00,
+	0x00, 0x00, 0x00,
+};
 
+extern int apical_flags;
 int sbl_ctrl_resume(struct k3_fb_data_type *k3fd)
 {
 	u32 tmp = 0;
@@ -2057,6 +2103,8 @@ int sbl_ctrl_resume(struct k3_fb_data_type *k3fd)
 	u32 frame_height_l = 0;
 	u32 frame_height_h = 0;
 
+	unsigned int count = 0;
+	unsigned int table_size;
 	BUG_ON(k3fd == NULL);
 	edc_base = k3fd->edc_base;
 	
@@ -2079,11 +2127,19 @@ int sbl_ctrl_resume(struct k3_fb_data_type *k3fd)
 	set_reg(edc_base + SBL_IRIDIX_CTRL0_OFFSET, 0x07, 8, 0);
 	set_reg(edc_base + SBL_IRIDIX_CTRL1_OFFSET, 0x46, 8, 0);
 	set_reg(edc_base + SBL_VARIANCE_OFFSET, 0x41, 8, 0);
-
+#if 0
 	set_reg(edc_base + SBL_SLOPE_MAX_OFFSET, 0x30, 8, 0);
+#else
+	set_reg(edc_base + SBL_SLOPE_MAX_OFFSET, 0x3c, 8, 0);
+#endif
 	set_reg(edc_base + SBL_SLOPE_MIN_OFFSET, 0x80, 8, 0);
+#if 0
 	set_reg(edc_base + SBL_BLACK_LEVEL_LOFFSET, 0x0, 8, 0);
 	set_reg(edc_base + SBL_BLACK_LEVEL_HOFFSET, 0x0, 8, 0);
+#else
+	set_reg(edc_base + SBL_BLACK_LEVEL_LOFFSET, 0x0, 8, 0);
+	set_reg(edc_base + SBL_BLACK_LEVEL_HOFFSET, 0x0, 8, 0);
+#endif
 	set_reg(edc_base + SBL_WHITE_LEVEL_LOFFSET, 0xff, 8, 0);
 	set_reg(edc_base + SBL_WHITE_LEVEL_HOFFSET, 0x03, 8, 0);
 	set_reg(edc_base + SBL_LIMIT_AMP_OFFSET, 0x0, 8, 0);
@@ -2091,9 +2147,18 @@ int sbl_ctrl_resume(struct k3_fb_data_type *k3fd)
 	set_reg(edc_base + SBL_LOGO_LEFT_OFFSET, 0x0, 8, 0);
 	set_reg(edc_base + SBL_LOGO_RIGHT_OFFSET, 0x0, 8, 0);
 	set_reg(edc_base + SBL_DITHER_CTRL_OFFSET, 0x03, 8, 0);
+#if 0
 	set_reg(edc_base + SBL_STRENGTH_SEL_OFFSET, 0x0, 8, 0);
+#else
+	set_reg(edc_base + SBL_STRENGTH_SEL_OFFSET, 0x01, 8, 0);
+#endif
 	set_reg(edc_base + SBL_STRENGTH_LIMIT_OFFSET, k3fd->panel_info.sbl.str_limit, 8, 0);
-	set_reg(edc_base + SBL_STRENGTH_MANUAL_OFFSET, 0x0, 8, 0);
+	if(apical_flags == 0x80)
+		set_reg(edc_base + SBL_STRENGTH_MANUAL_OFFSET, 0x80, 8, 0);
+	else if(apical_flags == 0x20)
+		set_reg(edc_base + SBL_STRENGTH_MANUAL_OFFSET, 0x20, 8, 0);
+	else if(apical_flags == 0x0)
+		set_reg(edc_base + SBL_STRENGTH_MANUAL_OFFSET, 0x0, 8, 0);
 	set_reg(edc_base + SBL_OPTION_SEL_OFFSET, 0x02, 8, 0);
 
 	set_reg(edc_base + SBL_BKL_MAX_LOFFSET, k3fd->panel_info.sbl.bl_max, 8, 0);
@@ -2109,9 +2174,21 @@ int sbl_ctrl_resume(struct k3_fb_data_type *k3fd)
 	set_reg(edc_base + SBL_AMBIENT_LIGHT_HOFFSET, 0x2, 8, 0);
 	set_reg(edc_base + SBL_START_CALC_OFFSET, 0x01, 8, 0);
 
+    table_size = sizeof(apical_rgb_table)/sizeof(unsigned short);
+	while(count < table_size)
+	{
+		//printk("%s:apical_rgb_table: 0x%x, 0x%x, 0x%x\n", __func__, apical_rgb_table[count], apical_rgb_table[count+1], apical_rgb_table[count+2]);
+		set_reg(edc_base + SBL_OFFSET + 0x480, apical_rgb_table[count], 8, 0);
+		set_reg(edc_base + SBL_OFFSET + 0x484, apical_rgb_table[count+1], 8, 0);
+		set_reg(edc_base + SBL_OFFSET + 0x488, apical_rgb_table[count+2], 8, 0);
+		count += 3;
+	}
 	tmp = inp32(edc_base + EDC_DISP_DPD_OFFSET);
 	if ((K3_ENABLE == k3fd->sbl_enable) && ((tmp & REG_SBL_EN) != REG_SBL_EN)) {
-		k3fd->bl_level = SBL_REDUCE_VALUE(k3fd->bl_level_sbl);
+		if(sbl_low_power_mode)
+			k3fd->bl_level =  SBL_REDUCE_VALUE(k3fd->bl_level_sbl);
+		else
+			k3fd->bl_level = k3fd->bl_level_sbl;
 		set_SBL_BKL_LEVEL_L_bkl_level_l(edc_base, k3fd->bl_level);
 		set_EDC_DISP_DPD_sbl_en(edc_base, K3_ENABLE);
 		set_EDC_DISP_CTL_cfg_ok(edc_base, EDC_CFG_OK_YES);

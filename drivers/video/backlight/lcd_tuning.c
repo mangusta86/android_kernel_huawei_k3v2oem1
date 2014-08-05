@@ -33,15 +33,14 @@ static long lmdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		u32 dgamma;
 		u32 cabc;
 		/* END:   Added by huohua, 2012/02/14 */
-
-                /* BEGIN: Added by wugao 00190753 */
-                /* the color temperature vlaue */
-                u32 ctValue[9];
-				/* END:   Added by wugao 00190753 */
+		/* BEGIN: Added by wugao 00190753 */
+        /* the color temperature vlaue */
+        u32 ctValue[9];
+        /* END:   Added by wugao 00190753 */
 	}par;
 
 	ltd = &lmdev->ltd;
-	
+
 	if(!ltd->ops)
 		return -1;
 
@@ -56,7 +55,7 @@ static long lmdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 				r = copy_from_user((void *)&par, ptr, sizeof(par.dgamma));
 				if(r)
 					goto out;
-					
+
 				if(par.dgamma)
 				{
 					if(ltd->props.default_gamma == GAMMA25)
@@ -99,14 +98,13 @@ static long lmdev_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 		break;
 		/* END:   Added by huohua, 2012/02/14 */
 
-        /* BEGIN: Added by wugao 00190753 */
-        case LCD_TUNING_DCPR:
+		/* BEGIN: Added by wugao 00190753 */
+		case LCD_TUNING_DCPR:
 		{
-			pr_err("============%s: ioctl LCD_TUNING_DCPR =================\n", __func__);
-
 			if(ltd->ops->set_color_temperature)
 			{
 				r = copy_from_user((void *)&par, ptr, sizeof(par.ctValue));
+
 				if(r)
 				{
 					goto out;
@@ -127,7 +125,6 @@ out:
 	mutex_unlock(&lmdev->ops_lock);
 	return r;
 }
-
 
 static int lmdev_open(struct inode *inode, struct file *filp)
 {

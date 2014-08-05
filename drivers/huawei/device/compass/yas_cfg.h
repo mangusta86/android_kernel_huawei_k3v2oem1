@@ -144,11 +144,20 @@
  *--------------------------------------------------------------------------- */
 
 #undef YAS_MAGCALIB_INSTANTIATE
-#define YAS_DEFAULT_MAGCALIB_THRESHOLD		(0)
+#define YAS_DEFAULT_MAGCALIB_THRESHOLD		(2)
 #define YAS_DEFAULT_MAGCALIB_DISTORTION		(15)
 #define YAS_DEFAULT_MAGCALIB_SHAPE		(0)
 #define YAS_MAGCALIB_SHAPE_NUM			(2)
 #undef YAS_MAG_MANUAL_OFFSET
+/* ----------------------------------------------------------------------------
+ *				 Geomagnetic Easy_Calibration Configuration
+ *--------------------------------------------------------------------------- */
+
+#define YAS_MAGCALIB_EASY_INTENSITY			(30000) /* nT */
+#define YAS_MAGCALIB_EASY_DIRECTION			(0)		/* deg */
+#define YAS_MAGCALIB_EASY_INCLINATION		(-45)	/* deg */
+#define YAS_MAGCALIB_EASY_SAMPLENUM			(7)
+#define YAS_MAGCALIB_EASY_THRESHOLD			(8)
 
 /* ----------------------------------------------------------------------------
  *                      Geomagnetic Filter Configuration

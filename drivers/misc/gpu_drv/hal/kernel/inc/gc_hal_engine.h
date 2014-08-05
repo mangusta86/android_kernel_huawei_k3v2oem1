@@ -1389,6 +1389,19 @@ gcoTEXTURE_Destroy(
     IN gcoTEXTURE Texture
     );
 
+/* Replace a mipmap in gcoTEXTURE object. */
+gceSTATUS
+gcoTEXTURE_ReplaceMipMap(
+    IN gcoTEXTURE Texture,
+    IN gctUINT Level,
+    IN gctUINT Width,
+    IN gctUINT Height,
+    IN gceSURF_FORMAT Format,
+    IN gctUINT Depth,
+    IN gctUINT Faces,
+    IN gcePOOL Pool
+    );
+
 /* Upload data to an gcoTEXTURE object. */
 gceSTATUS
 gcoTEXTURE_Upload(
@@ -1473,6 +1486,12 @@ gcoTEXTURE_AddMipMapFromSurface(
     IN gcoTEXTURE Texture,
     IN gctINT     Level,
     IN gcoSURF    Surface
+    );
+
+gceSTATUS
+gcoTEXTURE_SetMaxLevel(
+    IN gcoTEXTURE Texture,
+    IN gctUINT Levels
     );
 
 gceSTATUS

@@ -360,17 +360,17 @@ void rst_enable_set(struct clk *clk);
 void rst_disable_set(struct clk *clk);
 int k3v2_clk_enable(struct clk *clk);
 void k3v2_clk_disable(struct clk *clk);
-int k3v2_clk_enable_cs(struct clk *clk);
-void k3v2_clk_disable_cs(struct clk *clk);
 int k3v2_clk_set_parent(struct clk *clk, struct clk *parent);
 int k3v2_clk_switch_pll(struct clk *clk, struct clk *parent);
 long k3v2_clk_round_rate(struct clk *clk, long rate);
 int k3v2_clk_set_rate(struct clk *clk, unsigned rate);
 extern struct clk_ops clock_ops;
-extern struct clk_ops clock_ops_cs;
 extern struct clk_ops clock_ops_src;
 
 extern struct clk_lookup k3v2_clk_lookups_cs[];
+#ifdef CONFIG_SUPPORT_B3750000_BITRATE
+extern struct clk_lookup k3v2_clk_lookups_cs_60M[];
+#endif
 extern struct clk_lookup k3v2_clk_lookups_es[];
 
 void k3v2_clk_init_from_table(struct k3v2_clk_init_table *table);

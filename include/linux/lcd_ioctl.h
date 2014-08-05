@@ -16,9 +16,7 @@
 #define LCD_TUNING_CABC LCD_IOR(31, unsigned int)
 /* END:   Added by huohua, 2012/02/14 */
 
-
 /* BEGIN: Added by wugao 00190753 */
 #define LCD_TUNING_DCPR	LCD_IOR(34, unsigned int)
 /* END:  Added by wugao 00190753 */
-
 #endif

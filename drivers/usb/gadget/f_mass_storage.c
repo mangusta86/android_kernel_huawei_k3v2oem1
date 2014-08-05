@@ -318,7 +318,9 @@ static unsigned long ulperftestflag;
 #include "storage_common.c"
 
 #define SC_REWIND_11                    0x11
-void usb_port_switch_request(void);
+#define INDEX_ENDUSER_SWITCH            1
+#define INDEX_FACTORY_REWORK            0
+void usb_port_switch_request(int usb_switch_index);
 
 /*-------------------------------------------------------------------------*/
 
@@ -520,6 +522,7 @@ static int fsg_set_halt(struct fsg_dev *fsg, struct usb_ep *ep)
 /* Caller must hold fsg->lock */
 static void wakeup_thread(struct fsg_common *common)
 {
+	smp_wmb();	/* ensure the write of bh->state is complete */
 	/* Tell the main thread that something has happened */
 	common->thread_wakeup_needed = 1;
 	if (common->thread_task)
@@ -737,6 +740,7 @@ static int sleep_thread(struct fsg_common *common)
 	}
 	__set_current_state(TASK_RUNNING);
 	common->thread_wakeup_needed = 0;
+	smp_rmb();	/* ensure the latest bh->state is visible */
 	return rc;
 }
 
@@ -2229,7 +2233,11 @@ static int do_scsi_command(struct fsg_common *common)
 			cmnd[0] = SC_REWIND_11;
 			cmnd[1] = 0x06;
 		        if(0 == memcmp(common->cmnd, cmnd, sizeof(cmnd))){
-		             usb_port_switch_request();
+		             usb_port_switch_request(INDEX_ENDUSER_SWITCH);//enduser pnp switch such as pc modem
+		        }
+			cmnd[9] = 0x11;
+			if(0 == memcmp(common->cmnd, cmnd, sizeof(cmnd))){
+		             usb_port_switch_request(INDEX_FACTORY_REWORK);//manufactory rework
 		        }
 	        }
 		break;
@@ -2251,7 +2259,7 @@ unknown_cmnd:
 		common->data_size_from_cmnd = 0;
 		sprintf(unknown, "Unknown x%02x", common->cmnd[0]);
 		reply = check_command(common, common->cmnd_size,
-				      DATA_DIR_UNKNOWN, 0xff, 0, unknown);
+				      DATA_DIR_UNKNOWN, ~0, 0, unknown);
 		if (reply == 0) {
 			common->curlun->sense_data = SS_INVALID_COMMAND;
 			reply = -EINVAL;

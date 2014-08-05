@@ -29,9 +29,6 @@ typedef struct gps_bcm_info {
 #ifndef CONFIG_MACH_K3V2OEM1
 	unsigned long       gpioid_power;
 #endif
-	/* Begin: Added for E911 */
-	unsigned long       gpioid_refclk;
-	/* End: Added for E911 */
 } GPS_BCM_INFO;
 
 
@@ -80,23 +77,6 @@ static int __devinit k3_gps_bcm_probe(struct platform_device *pdev)
 		goto err_free_gpio_en;
 	}
 	gpio_export(gps_bcm->gpioid_ret, false);
-
-	/* Begin: Add for agps e911, get fref_clk gpio */
-	res = platform_get_resource(pdev, IORESOURCE_IO, 2);
-	if (!res) {
-		dev_err(&pdev->dev, "Get fref_clk gpio resourse failed\n");
-		ret = -ENXIO;
-		goto err_free_gpio_en;
-	}
-	gps_bcm->gpioid_refclk = res->start;
-	ret = gpio_request(gps_bcm->gpioid_refclk, "gps_refclk");
-	if (ret < 0) {
-		dev_err(&pdev->dev,  "request fref_clk gpio failed, gpio=%lu, ret=%d\n", gps_bcm->gpioid_refclk, ret);
-		goto err_free_gpio_en;
-	}
-	dev_err(&pdev->dev,  "request fref_clk gpio ok, gpio=%lu", gps_bcm->gpioid_refclk);
-	gpio_export(gps_bcm->gpioid_refclk, false);
-	/* End: Add for agps e911 */
 
 #ifndef CONFIG_MACH_K3V2OEM1
 	/* Get power gpio (VDDIO 1.8V), Only for FPGA */
@@ -163,12 +143,6 @@ static int __devinit k3_gps_bcm_probe(struct platform_device *pdev)
 	gpio_set_value(gps_bcm->gpioid_ret, 1);
 	dev_dbg(&pdev->dev,  "High reset\n");
 
-	/* Begin: Add for E911 */
-	gpio_direction_output(gps_bcm->gpioid_refclk, 0);
-	gpio_set_value(gps_bcm->gpioid_refclk, 0);
-	dev_err(&pdev->dev,  "Low gpio_refclk \n");
-	/* End: Add for E911 */
-
 	return 0;
 
 #ifdef CONFIG_MACH_K3V2OEM1
@@ -177,7 +151,6 @@ err_free_clk:
 #endif
 
 err_free_gpio_ret:
-	gpio_free(gps_bcm->gpioid_refclk);/* Add for E911 */
 	gpio_free(gps_bcm->gpioid_ret);
 
 err_free_gpio_en:
@@ -217,7 +190,6 @@ static int __devexit k3_gps_bcm_remove(struct platform_device *pdev)
 
 	gpio_free(gps_bcm->gpioid_en);
 	gpio_free(gps_bcm->gpioid_ret);
-	gpio_free(gps_bcm->gpioid_refclk); /* Add for E911 */
 
 	kfree(gps_bcm);
 	gps_bcm = NULL;
@@ -244,7 +216,6 @@ static void K3_gps_bcm_shutdown(struct platform_device *pdev)
 
 	gpio_set_value(gps_bcm->gpioid_en, 0);
 	gpio_set_value(gps_bcm->gpioid_ret, 0);
-	gpio_set_value(gps_bcm->gpioid_refclk, 0);/* Add for E911 */
 
 #ifdef CONFIG_MACH_K3V2OEM1
 	if ((gps_bcm->piomux_block) && (gps_bcm->pblock_config)) {
@@ -315,3 +286,4 @@ module_exit(k3_gps_bcm_exit);
 MODULE_AUTHOR("DRIVER_AUTHOR");
 MODULE_DESCRIPTION("GPS Boardcom 47511 driver");
 MODULE_LICENSE("GPL");
+

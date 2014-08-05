@@ -50,8 +50,8 @@
 #include <linux/platform_device.h>
 #include <mach/hisi_mem.h>
 
-#define HIFB_DEF_WIDTH      (640)
-#define HIFB_DEF_HEIGHT     (960)
+#define HIFB_DEF_WIDTH      (720)
+#define HIFB_DEF_HEIGHT     (1280)
 #define HIFB_DEF_DEPTH      (32)
 
 #define HIFB_DEF_STRIDE     (HIFB_DEF_WIDTH*HIFB_DEF_DEPTH/8)
@@ -251,7 +251,7 @@ static int hi_framebuffer_probe(struct platform_device *pdev)
         goto ERR;
     }
 
-    printk("succeed in registering the fb%d: %s frame buffer device, info->screen_size=%d\n", info->node, info->fix.id, info->screen_size);
+    /*printk("succeed in registering the fb%d: %s frame buffer device, info->screen_size=%lu\n", info->node, info->fix.id, info->screen_size);*/
 
     return 0;
     

@@ -21,6 +21,7 @@
 #include <linux/wakelock.h>
 #include <linux/workqueue.h>
 #include <linux/pm_qos_params.h>
+#include <linux/delay.h>
 #include "power.h"
 
 enum {
@@ -45,15 +46,25 @@ enum {
 };
 static int state;
 
+static struct delayed_work delayed_work;
+
 #ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
 extern struct pm_qos_request_list g_specialpolicy;
 #endif
+
+static void delayed_work_handle(struct work_struct *work)
+{
+	#ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
+		pm_qos_update_request(&g_specialpolicy, PM_QOS_IPPS_POLICY_SPECIAL01);
+	#endif
+}
 
 void register_early_suspend(struct early_suspend *handler)
 {
 	struct list_head *pos;
 
 	mutex_lock(&early_suspend_lock);
+	INIT_DELAYED_WORK(&delayed_work,delayed_work_handle);
 	list_for_each(pos, &early_suspend_handlers) {
 		struct early_suspend *e;
 		e = list_entry(pos, struct early_suspend, link);
@@ -106,10 +117,7 @@ static void early_suspend(struct work_struct *work)
 			pos->suspend(pos);
 		}
 	}
-
-#ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
-	pm_qos_update_request(&g_specialpolicy, PM_QOS_IPPS_POLICY_SPECIAL01);
-#endif
+	schedule_delayed_work(&delayed_work, msecs_to_jiffies(1000));
 
 	mutex_unlock(&early_suspend_lock);
 
@@ -132,6 +140,7 @@ static void late_resume(struct work_struct *work)
 	int abort = 0;
 
 	mutex_lock(&early_suspend_lock);
+        cancel_delayed_work_sync(&delayed_work);
 	spin_lock_irqsave(&state_lock, irqflags);
 	if (state == SUSPENDED)
 		state &= ~SUSPENDED;

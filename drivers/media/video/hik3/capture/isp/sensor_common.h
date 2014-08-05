@@ -23,29 +23,24 @@
 
 #include <linux/videodev2.h>
 #include "../camera.h"
+#define MAX_LUX_TABLE_SIZE 257 //16*16+1
 
 #define LDO_VOLTAGE_15V  1500000
 #define LDO_VOLTAGE_18V  1800000
 #define LDO_VOLTAGE_28V  2850000
 
-#define CAMERA_MAX_FRAMERATE		30
-#define CAMERA_MIN_FRAMERATE		15
-
-#define CAMERA_MIN_CAP_FRAMERATE		8
-
 /* Default camera sensor definitions(use K3 ISP), maybe override by sensor*/
 #define CAMERA_MAX_ISO			1600
 #define CAMERA_MIN_ISO			100
-
 
 #define CAMERA_AUTO_FPS_MAX_GAIN	0x60
 #define CAMERA_AUTO_FPS_MIN_GAIN	0x28
 
 #define CAMERA_MAX_FRAMERATE		30
-#define CAMERA_MIN_FRAMERATE		15
+#define CAMERA_MIN_FRAMERATE		10
 #define CAMERA_MIN_CAP_FRAMERATE	8
 
-#define CAMERA_FLASH_TRIGGER_GAIN	0x80
+#define CAMERA_FLASH_TRIGGER_GAIN	0xff
 
 #define CAMERA_SHARPNESS_PREVIEW	0x30
 #define CAMERA_SHARPNESS_CAPTURE	0x0A
@@ -59,6 +54,16 @@
 #define CAMERA_EXPOSURE_MAX		2
 #define CAMERA_EXPOSURE_STEP	100
 
+#define CAMERA_AUTOFPS_GAIN_LOW2MID		0x28
+#define CAMERA_AUTOFPS_GAIN_MID2HIGH		0x28
+
+#define CAMERA_AUTOFPS_GAIN_HIGH2MID		0x60
+#define CAMERA_AUTOFPS_GAIN_MID2LOW		0x60
+
+#define CAMERA_MAX_FRAMERATE				30
+#define CAMERA_MIDDLE_FRAMERATE			10
+#define CAMERA_MIN_FRAMERATE				10
+
 typedef enum {
 	CAMERA_CONTRAST_L2 = 0,
 	CAMERA_CONTRAST_L1,
@@ -67,6 +72,11 @@ typedef enum {
 	CAMERA_CONTRAST_H2,
 	CAMERA_CONTRAST_MAX,
 } camera_contrast;
+
+typedef enum _binning_type{
+	BINNING_SUMMARY = 0,
+	BINNING_AVERAGE = 1,
+} binning_type;
 
 typedef enum {
 	CAMERA_SATURATION_L2 = 0,
@@ -80,6 +90,7 @@ typedef enum {
 typedef enum {
 	CAMERA_FPS_MAX = 0,
 	CAMERA_FPS_MIN,
+	CAMERA_FPS_MIDDLE,
 } camera_fps;
 
 typedef enum {
@@ -191,6 +202,17 @@ typedef enum {
 	CAMERA_SCENE_CANDLELIGHT,
 	CAMERA_SCENE_BARCODE,
 	CAMERA_SCENE_FLOWERS,
+	/* < lijiahuan 00175705 2012-9-11 add for General Scene Option begin */
+	CAMERA_SCENE_HWAUTO,
+	/* lijiahuan 00175705 2012-9-11 add for General Scene Option end > */
+	/* < lijiahuan 00175705 2013-06-01 add for hdr scene mode begin */
+	CAMERA_SCENE_HDR,
+	/* lijiahuan 00175705 2013-06-01 add for hdr scene mode end > */
+	/* < zhoutian 00195335 12-7-16 added for auto scene detect begin */
+	CAMERA_SCENE_DETECTED_NIGHT = 100, // need long exposure
+	CAMERA_SCENE_DETECTED_ACTION,      // stablization, 1/100 exposure
+	CAMERA_SCENE_DETECTED_AUTO,        // other
+	/* zhoutian 00195335 12-7-16 added for auto scene detect end > */
 } camera_scene;
 
 typedef enum {
@@ -246,6 +268,7 @@ typedef enum {
 	CAMERA_FOCUS_CONTINUOUS_VIDEO,
 	CAMERA_FOCUS_CONTINUOUS_PICTURE,
 	CAMERA_FOCUS_AUTO_VIDEO,
+	CAMERA_FOCUS_CAF_FORCE_AF,
 	CAMERA_FOCUS_MAX,
 } camera_focus;
 
@@ -291,15 +314,25 @@ typedef enum {
 } camera_shoot_mode;
 
 typedef enum {
-	CAMERA_FRAME_RATE_HIGH = 0,
-	CAMERA_FRAME_RATE_LOW,
-	CAMERA_EXPO_PRE_REDUCE,
+	CAMERA_FPS_STATE_HIGH = 0,
+	CAMERA_FPS_STATE_MIDDLE,
+	CAMERA_FPS_STATE_LOW,
+
+	CAMERA_EXPO_PRE_REDUCE1, /* before change fps from middle to high, maybe enter this state */
+	CAMERA_EXPO_PRE_REDUCE2, /* before change fps from low to middle, maybe enter this state */
 } camera_frame_rate_state;
 
 typedef enum {
 	CAMERA_FRAME_RATE_UP = 0,
 	CAMERA_FRAME_RATE_DOWN,
 } camera_frame_rate_dir;
+
+
+typedef enum {
+	VIDEO_FPS_FIXED = 0,
+	VIDEO_FPS_CHANGE,
+
+} video_fps;
 
 typedef struct _sensor_reg_t {
 	u32 subaddr;
@@ -328,6 +361,7 @@ struct i2c_t {
 };
 
 typedef enum {
+	VIEW_HDR_MOVIE = 0,
 	VIEW_FULL = 1,
 	VIEW_CROP,
 } camera_setting_view_type;
@@ -337,6 +371,65 @@ typedef enum {
 	RESOLUTION_4_3,
 } camera_resolution_type;
 
+typedef struct _lux_stat_matrix_tbl
+{
+    u32  size;
+    u32  matrix_table[MAX_LUX_TABLE_SIZE];
+}lux_stat_matrix_tbl;
+
+typedef struct _atr_ctrl_points
+{
+	u32 tc_out_noise;
+	u32 tc_out_mid;
+	u32 tc_out_sat;
+	u32 tc_noise_brate;
+	u32 tc_mid_brate;
+	u32 tc_sat_brate;
+	u32 ae_sat;
+	u32 wb_lmt;
+}atr_ctrl_points;
+//hdr info for hdr movie debug
+typedef struct _hdr_info
+{
+	u32		hdr_on;
+	u32		atr_on;
+	u32		gain;
+	u32		expo;
+	u32 		short_gain;
+	u32		short_expo;
+	u32     	ae_target;
+	u32		avgLux_ave;
+	u32		avgLux_weight;
+	u32		stats_max;
+	u32		stats_diff;
+	u32		atr_over_expo_on;
+	u32 	gainBeforeAjust;
+	u32 	wb_lmt;
+	u32		ae_sat;
+	u32		N_digital_h;
+	u32		N_digital_l;
+}hdr_info;
+typedef struct _digital_gain_st
+{
+	u8		digital_gain_h;
+	u8		digital_gain_l;
+}digital_gain_st;
+
+typedef struct _stats_hdr_frm
+{
+	u16		frm_min_h;
+	u16		frm_min_l;
+	u16		frm_ave_h;
+	u16		frm_ave_l;
+	u16		frm_max_h;
+	u16		frm_max_l;
+}stats_hdr_frm;
+
+typedef struct _preview_size
+{
+    int width;
+    int height;
+}preview_size;
 /* For sensor framesize definition */
 typedef struct _framesize_s {
 	u32 left;
@@ -395,6 +488,8 @@ typedef struct _axis_triple {
 typedef enum _FOCUS_ACTION {
 	FOCUS_STOP = 0,
 	FOCUS_START,
+	FOCUS_CAF_FORCE_AF,
+	FOCUS_AF_RESUME_CAF,
 } FOCUS_ACTION;
 
 /* For focus result */
@@ -413,6 +508,9 @@ typedef enum _FOCUS_RANGE{
 typedef enum _VCM_TYPE{
 	VCM_AD5823 = 0,
 	VCM_DW9714,
+	VCM_DW9714_SS,
+	VCM_DW9714_Sunny,
+	VCM_DW9714_Liteon,
 	VCM_OTHER,
 } VCM_TYPE;
 
@@ -421,6 +519,157 @@ typedef struct _focus_area_s {
 	u32 focus_rect_num;
 	camera_rect_s rect[MAX_FOCUS_RECT];
 } focus_area_s;
+/* < zhoutian 00195335 12-7-16 added for auto scene detect begin */
+typedef struct ae_coff{
+	u32 exposure_max;
+	u32 exposure_min;
+	u32 gain_max;
+	u32 gain_min;
+	u32 luma_target_high;
+	u32 luma_target_low;
+	u32 exposure;
+	u32 exposure_time;
+	u32 gain;
+	u32 iso;
+}ae_coff;
+typedef struct tag_hdr_para_reserved
+{
+	//version number of this data struct, now it must be 1.
+	int version;
+
+	//config file path, must be end with '/'
+	char config_file_path[256];
+
+	//hdr_mode: 0 - Auto, 1 - Manual HDR
+	int hdr_mode;
+
+	//exposure time: [0/1/2] indicate the bright, middle and dark exposure frame respectively, the reciprocal of it will be real exposure time(s).
+	int exposure_time[3];
+
+	//iso_speed: [0/1/2] indicate the bright, middle and dark exposure frame respectively.
+	int iso_speed[3];
+}hdr_para_reserved;
+
+typedef struct extra_coff{
+	u32 mean_y;
+	s32 motion_x;
+	s32 motion_y;
+	u32 focal_length;
+	u32 af_window_change;
+}extra_coff;
+
+typedef struct awb_coff{
+	u32 auto_blue_gain;
+	u32 auto_green1_gain;
+	u32 auto_green2_gain;
+	u32 auto_red_gain;
+	u32 blue_gain_ratio;
+	u32 green_gain_ratio;
+	u32 red_gain_ratio;
+}awb_coff;
+
+typedef struct awb_ct_coff{
+	u32 avg_all_en;
+	u32 awb_window;
+	u32 awb_b_block;
+	u32 awb_s;
+	u32 awb_ec;
+	u32 awb_fc;
+	u32 awb_x0;
+	u32 awb_y0;
+	u32 awb_kx;
+	u32 awb_ky;
+	u32 day_limit;
+	u32 a_limit;
+	u32 day_split;
+	u32 a_split;
+	u32 awb_top_limit;
+	u32 awb_bot_limit;
+}awb_ct_coff;
+
+typedef struct ccm_coff{
+	s32 ccm_center[3][3];
+	s32 ccm_left[3][3];
+	s32 ccm_right[3][3];
+}ccm_coff;
+
+typedef struct added_coff{
+	u8 denoise[32];
+	u8 tone[18];
+	u8 uv[32];
+	u8 uv_low[16];
+	u8 uv_high[16];
+	u8 awb_shift[10];
+	u8 highlight[13];
+	u8 dynamic_awb[21];
+}added_coff;
+
+typedef struct seq_coffs{
+    u32 length;
+    u32 *reg;
+    u32 *value;
+}seq_coffs;
+
+
+typedef enum{
+	ISP_FOCAL_LENGTH_MACRO = 1,
+	ISP_FOCAL_LENGTH_MIDDLE,
+	ISP_FOCAL_LENGTH_INFINITY,
+	ISP_FOCAL_LENGTH_FOCUSING,
+}camera_focal_length;
+
+typedef struct _hdr_ae_constant_param
+{
+	u16 hdr_ae_target;
+	u16 hdr_ae_ratio;
+	u16 sensor_min_gain;
+	u16 sensor_max_gain;
+	u16 max_analog_gain;
+	u16 default_shutter;
+	u16 default_gain;
+}hdr_ae_constant_param;
+
+typedef struct _hdr_ae_algo_result
+{
+	u16 N_shuter;
+	u16 N_gain;
+	u16 N_short_shuter;
+	u16 N_short_gain;
+	u16 N_gainBeforeAjust;
+	u16 N_wb_lmt;
+	u16 N_ae_sat;
+	u16 N_digital;
+}hdr_ae_algo_result;
+
+/* zhoutian 00195335 12-7-16 added for auto scene detect end > */
+
+/* < zhoutian 00195335 2013-02-07 added for hwscope begin */
+typedef enum {
+	HW_SCOPE_ON = 1,
+	HW_SCOPE_ON_WITH_CROP,
+	HW_SCOPE_GET_CROP_INFO,
+	HW_SCOPE_OFF
+}hwscope_mode;
+
+typedef struct hwscope_coff{
+	hwscope_mode mode;
+	int zoom;
+	int border;
+	int out_width;
+	int out_height;
+	int crop_x;
+	int crop_y;
+	int crop_width;
+	int crop_height;
+}hwscope_coff;
+/* zhoutian 00195335 2013-02-07 added for hwscope end > */
+
+/* < zhoutian 00195335 2013-03-02 added for SuperZoom-LowLight begin */
+typedef struct binning_size{
+	int width;
+	int height;
+}binning_size;
+/* zhoutian 00195335 2013-03-02 added for SuperZoom-LowLight end > */
 
 /* focus result structure */
 typedef struct _focus_result_s {
@@ -433,6 +682,11 @@ typedef struct _metering_area_s {
 	u32 metering_rect_num;
 	camera_rect_s rect[MAX_METERING_RECT];
 } metering_area_s;
+
+typedef struct _scene_type
+{
+	u32 face_detected;
+} scene_type;
 
 /* AF vcm information definition */
 typedef struct _vcm_info_s {
@@ -463,6 +717,7 @@ typedef struct _vcm_info_s {
 	u32 motorDelayTime;	/* delay time of each step in stride divide case */
 	u32 strideDivideOffset;
 
+	u32 startCurrentOffset;
 	FOCUS_RANGE moveRange;/*0:Auto; 1:Infinite; 2:Macro*/
 
 
@@ -505,6 +760,27 @@ typedef struct {
 	int (*set_anti_banding) (camera_anti_banding banding);
 	int (*get_anti_banding) (void);
 	int (*set_awb) (camera_white_balance awb_mode);
+	/* < zhoutian 00195335 12-7-16 added for auto scene detect begin */
+	int (*isp_get_extra_coff) (extra_coff *extra_data);
+	int (*isp_set_ae_coff) (ae_coff *ae_data);
+	int (*isp_get_ae_coff) (ae_coff *ae_data);
+	int (*isp_get_awb_coff) (awb_coff *awb_data);
+	int (*isp_set_awb_coff) (awb_coff *awb_data);
+	int (*isp_get_awb_ct_coff) (awb_ct_coff *awb_data);
+	int (*isp_set_awb_ct_coff) (awb_ct_coff *awb_ct_data);
+	int (*isp_get_ccm_coff) (ccm_coff *ccm_data);
+	int (*isp_set_ccm_coff) (ccm_coff *ccm_data);
+	int (*isp_set_added_coff) (added_coff *added_data);
+
+	int (*isp_set_focus_range) (camera_focus focus_range);
+	void (*isp_set_fps_range) (camera_frame_rate_mode mode);
+	int (*isp_set_max_exposure) (camera_max_exposrure mode);
+
+	int (*isp_get_coff_seq) (seq_coffs *seq_data);
+	int (*isp_set_coff_seq) (seq_coffs *seq_data);
+
+	int (*isp_set_max_expo_time) (int time);
+	/* zhoutian 00195335 12-7-16 added for auto scene detect end > */
 
 	int (*set_sharpness) (camera_sharpness sharpness);
 	int (*set_saturation) (camera_saturation saturation);
@@ -513,7 +789,17 @@ typedef struct {
 	int (*set_brightness) (camera_brightness brightness);
 	int (*set_effect) (camera_effects effect);
 	int (*isp_get_actual_iso) (void);
+	int (*isp_get_hdr_iso_exp)(hdr_para_reserved *iso_exp);
 	int (*isp_get_exposure_time) (void);
+
+	/* < zhoutian 00195335 2012-10-20 added for hwscope begin */
+	int (*isp_set_hwscope) (hwscope_coff *hwscope_data);
+	/* zhoutian 00195335 2012-10-20 added for hwscope end > */
+
+	/* < zhoutian 00195335 2013-03-02 added for SuperZoom-LowLight begin */
+	int (*isp_set_hw_lowlight) (int ctl);
+	int (*isp_get_binning_size) (binning_size *size);
+	/* zhoutian 00195335 2013-03-02 added for SuperZoom-LowLight end > */
 
 	int (*isp_get_focus_distance) (void);
 	void (*isp_set_fps_lock) (int);
@@ -526,6 +812,10 @@ typedef struct {
 	u32 (*isp_get_current_ccm_rgain)(void);
 	u32 (*isp_get_current_ccm_bgain)(void);
 
+	//hdr movie debug interface
+	int (*isp_get_sensor_lux_matrix)(lux_stat_matrix_tbl * );
+	int (*isp_get_sensor_hdr_points)(atr_ctrl_points *);
+	int (*isp_get_sensor_hdr_info)(hdr_info *);
 } isp_tune_ops;
 
 typedef enum {
@@ -577,16 +867,6 @@ typedef enum {
 	FLASH_MA_MAX = 0x20,
 } flash_value;
 
-
-typedef enum {
-	TOUCH_100MA = 0x12,
-	TOUCH_150MA = 0x1b,
-	TOUCH_200MA = 0x24,
-	TOUCH_250MA = 0x2d,
-	TOUCH_300MA = 0x36,
-	TOUCH_MA_MAX = 0x36,
-} touch_value;
-
 typedef enum {
 	FLASH_ON = 0,
 	FLASH_OFF,
@@ -628,6 +908,7 @@ typedef enum {
 	FLASH_PLATFORM_U9510 = 0,
 	FLASH_PLATFORM_9510E,
 	FLASH_PLATFORM_S10,
+//	FLASH_PLATFORM_D2,
 	FLASH_PLATFORM_U9508,
 	FLASH_PLATFORM_MAX,
 } flash_platform_t;
@@ -666,20 +947,41 @@ typedef enum {
 	OVERRIDE_ISO_HIGH = 0,
 	OVERRIDE_ISO_LOW,
 
-	OVERRIDE_AUTO_FPS_GAIN_HIGH,
-	OVERRIDE_AUTO_FPS_GAIN_LOW,
+	/* increase frame rate gain threshold */
+	OVERRIDE_AUTOFPS_GAIN_LOW2MID,
+	OVERRIDE_AUTOFPS_GAIN_MID2HIGH,
+
+	/* reduce frame rate gain threshold */
+	OVERRIDE_AUTOFPS_GAIN_HIGH2MID,
+	OVERRIDE_AUTOFPS_GAIN_MID2LOW,
 
 	OVERRIDE_FPS_MAX,
+	OVERRIDE_FPS_MIDDLE,
 	OVERRIDE_FPS_MIN,
 	OVERRIDE_CAP_FPS_MIN,
 
 	OVERRIDE_FLASH_TRIGGER_GAIN,
-	
+
 	OVERRIDE_SHARPNESS_PREVIEW,
 	OVERRIDE_SHARPNESS_CAPTURE,
 
 	OVERRIDE_TYPE_MAX,
 } camera_override_type_t;
+
+typedef enum{
+	AE_PREVIEW_GAIN_MAX,
+	AE_PREVIEW_GAIN_MIN,
+	AE_CAPTURE_GAIN_MAX,
+	AE_CAPTURE_GAIN_MIN,
+}camera_gain_range_type_t;
+
+typedef enum{
+	AF_MIN_HEIGHT_RATIO =0,
+	AF_MAX_FOCUS_STEP,
+	AF_GSENSOR_INTERVAL_THRESHOLD,
+	AF_WIDTH_PERCENT,
+	AF_HEIGHT_PERCENT,
+}camera_af_param_t;
 
 typedef struct _camera_sensor {
 	/* init and exit function */
@@ -697,6 +999,7 @@ typedef struct _camera_sensor {
 
 	int (*check_sensor) (void);
 	int (*init_reg) (void);
+	int (*init_isp_reg) (void);
 	int (*stream_on) (camera_state state);
 
 	/* get camera clock */
@@ -740,7 +1043,7 @@ typedef struct _camera_sensor {
 	int (*get_capability) (u32 id, u32 *value);
 
 	int skip_frames;	/* y36721 use it 2012-04-10 for SONY sensor. */
-
+	int skip_frames_first_enter;
 	/* interface_type : MIPI or DVP */
 	data_interface_t interface_type;
 	csi_lane_t mipi_lane_count;
@@ -767,6 +1070,9 @@ typedef struct _camera_sensor {
 	u32 (*sensor_gain_to_iso) (int gain);
 	u32 (*sensor_iso_to_gain) (int iso);
 	void (*get_ccm_pregain) (camera_state state, u32 frame_index, u8 *bgain, u8 *rgain);
+
+	void (*get_awb_offset) (camera_state state, u8 *rgain, u8 *ggain,u8 *bgain);
+
 	void(*get_flash_awb)(flash_platform_t type, awb_gain_t *flash_awb);
 
 	/*set ISP gain and exposure to sensor */
@@ -775,12 +1081,15 @@ typedef struct _camera_sensor {
 	void (*set_exposure) (u32 exposure);
 	u32 (*get_exposure) (void);
 
+	void (*set_awb_gain)(u16 b_gain, u16 gb_gain, u16 gr_gain, u16 r_gain);
+
 	/* changed by y00231328.some sensor such as S5K4E1, expo and gain should be set together in holdon mode */
 	void (*set_exposure_gain) (u32 exposure, u32 gain);
 
 	void (*set_vts) (u16 vts);
+	void (*set_vts_change)(u16 change);
 	u32 (*get_vts_reg_addr) (void);
-
+	u32 (*get_sensor_gain_range)(camera_gain_range_type_t param);
 	/* effect */
 	void (*set_effect) (camera_effects effect);
 	void (*set_awb) (camera_white_balance awb_mode);
@@ -798,10 +1107,13 @@ typedef struct _camera_sensor {
 
 	/*get sensor override parameters */
 	u32 (*get_override_param)(camera_override_type_t type);
-
+	void (*hynix_set_lsc_shading)(camera_iso iso);
+	sensor_reg_t* (*construct_vts_reg_buf) (u16 vts, u16 *psize);
+	int (*fill_denoise_buf)(u8 *ybuf, u16*uvbuf, u8 size, camera_state state, bool flash_on);
 	u32 fmt[STATE_MAX];
 	u32 preview_frmsize_index;
 	u32 capture_frmsize_index;
+	u32 current_frmsize_index;
 	framesize_s *frmsize_list;
 
 	/* following struct can decide a sensor's frame rate and some AF feature */
@@ -825,6 +1137,8 @@ typedef struct _camera_sensor {
 	u32 min_gain;
 	u32 max_gain;
 	u32 real_gain;
+	/*get af param which is associated with sensor*/
+	int (*get_af_param)(camera_af_param_t type);
 
 	/* af information */
 	/* if false, following vcm info is invalid */
@@ -840,12 +1154,66 @@ typedef struct _camera_sensor {
 	struct module *owner;
 	camera_info_t info;
 	u8 lane_clk;
+	// the parameter below for hdr movie function
+	lux_stat_matrix_tbl  	lux_matrix;
+	atr_ctrl_points 		hdr_points;
+	hdr_info 		 		hdrInfo;
+	void(*set_ATR_switch) (int on);
+	int (*get_hdr_lux_matrix) (sensor_reg_t *buf,lux_stat_matrix_tbl *lux_tbl );
+	void(*set_hdr_exposure_gain)(u32 expo_long,u16 gain_global,u32 expo_short,u16 short_gain);
+	void(*set_atr_ctrl_points)(atr_ctrl_points * in_atr_ctr_pints);
+	void(*get_atr_ctrl_points)(atr_ctrl_points * in_atr_ctr_pints);
+	int (*sensor_write_reg)(u16 reg, u8 val,u8 mask);
+	int (*support_hdr_movie)(void);
+	int (*get_hdr_movie_switch)(void);
+	void(*set_hdr_movie_switch)(int on);
+	void(*over_exposure_adjust)(int on,stats_hdr_frm * frm_stats);
+	void (*set_lmt_sat)(u32 lmt_value,u32 sat_value);
+	int (*get_hdr_movie_ae_param)(hdr_ae_constant_param * hdr_ae_param);
+	void(*set_digital_gain)(digital_gain_st * digital_gain);
+	void(*get_digital_gain)(digital_gain_st * digital_gain);
+	int (*get_sensor_preview_max_size)(preview_size * pre_size);
+	int (*set_dpc_funciton)(struct _sensor_reg_t *dpc_reg,u32 iso,u16 * size);
+	int (*set_isp_extra_param)(int mode);
+	int (*check_zoom_limit)(u32 *zoom);
+	sensor_reg_t *hdr_regs_y;
+	u16 ae_hdr_ratio ;
+	u16 sensor_max_gain;
+	u16 sensor_max_analog_gain;
+	u16 sensor_min_gain;
+	//for debug
+
+	u16 ae_arithmatic_switch_gain;
+	u16 stats_diff_threshold;
+	u16 stats_max_threshold;
+	u16 ae_target_low;
+	u16 ae_target_high;
+	u16 gain_switch;
+	u16 gain_interval;
+	u16 gain_switch2;
+	u16 gain_interval2;
+	int vts_change;
+	u16 vts_value;
+	u8 lcd_compensation_supported;
+
+	/* < zhoutian 00195335 2013-03-02 added for SuperZoom-LowLight begin */
+	int (*support_hw_lowlight)(void);
+	void (*switch_to_lowlight_isp_seq)(bool mode);
+
+	u8  support_binning_type;
+
+	u32 (*get_support_vts)(int new_fps,int old_fps,int old_vts);
+	/* zhoutian 00195335 2013-03-02 added for SuperZoom-LowLight end > */
+	void (*get_face_sharpness_param)(u8 *mbuf, bool mode, u8 size);
+	int (*try_current_hdr_framesizes)(struct v4l2_frmsize_discrete *fs);
+	int (*check_video_fps)();
 } camera_sensor;
 
 extern framesize_s camera_framesizes[CAMERA_RESOLUTION_MAX];
 extern vcm_info_s vcm_ad5823;
 extern vcm_info_s vcm_dw9714;
 extern u32 sensor_override_params[];
+extern vcm_info_s vcm_dw9714_ov8830;
 
 /* get camera control data struct */
 camera_sensor *get_camera_sensor_from_array(sensor_index_t sensor_index);

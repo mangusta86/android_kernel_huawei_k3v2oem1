@@ -31,6 +31,7 @@
 #include "sensor_common.h"
 #include "cam_util.h"
 
+#include "k3_ispv1_hdr_movie_ae.h"
 #define V4L2_PIX_FMT_INVALID  0
 
 /* yuv scale down ratio = N/0x10000 */
@@ -139,10 +140,11 @@ typedef struct _k3_isp_data {
 #ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
 	struct pm_qos_request_list qos_request;
 	struct pm_qos_request_list qos_request_gpu;
-	bool gpu_blocked;
 	struct pm_qos_request_list qos_request_cpu;
 #endif
 
+	struct delayed_work	turn_on_flash_work;
+	bool already_turn_on_flash;
 	/* picture attribute varibles */
 	pic_attr_t pic_attr[STATE_MAX];
 	int bracket_ev[MAX_BRACKET_COUNT];	/* [-4, 4] step is 0.5 */
@@ -158,10 +160,12 @@ typedef struct _k3_isp_data {
 	camera_focus focus;
 
 	camera_anti_shaking	anti_shaking_enable;
-	camera_metering	        metering;
-	metering_area_s         ae_area;
+	camera_metering		metering;
+	metering_area_s		ae_area;
 	camera_anti_banding	anti_banding;
 	camera_white_balance	awb_mode;
+
+	awb_mode_t                 awb_lock;
 	camera_iso		iso;
 	camera_sharpness	sharpness;
 	camera_saturation	saturation;
@@ -172,8 +176,9 @@ typedef struct _k3_isp_data {
 	camera_flash		flash_mode;
 	camera_flash_flow	flash_flow;
 	camera_flash_state	flash_state;
-	bool 				flash_on;
-	bool				assistant_af_flash;
+	bool 			flash_on;
+	bool			assistant_af_flash;
+	bool			af_need_flash;
 	camera_shoot_mode	shoot_mode;
 
 	camera_scene		scene;
@@ -183,6 +188,10 @@ typedef struct _k3_isp_data {
 
 	struct semaphore frame_sem;
 	/* AndroidK3 added by y36721 for focus 2011-10-28 end */
+    lux_stat_matrix_tbl lux_stat_matrix;
+	bool  hdr_switch_on;
+
+	scene_type sceneInfo;
 } k3_isp_data;
 
 typedef struct _k3_last_state {
@@ -240,7 +249,7 @@ typedef struct _isp_hw_controller {
 	isp_tune_ops *isp_tune_ops;
 
 	void (*isp_set_auto_flash) (int status, camera_flash flash_mode);
-	int (*isp_is_need_flash) (camera_sensor *sensor);
+	bool (*isp_is_need_flash) (camera_sensor *sensor);
 
 	void (*isp_set_aecagc_mode) (aecagc_mode_t mode);
 	/*h00206029_20120221*/

@@ -257,7 +257,6 @@ create_idmap:
 
 	/**r11 virtual addr of the enable_mmu**/
 	ADR     r11, mmu_enalbed
-	NOP
 
 	LDR	r6, =(hisi_v2p(ready_to_store))
 	LDR	pc, =(hisi_v2p(disable_mmu))
@@ -551,6 +550,59 @@ copy_securam_code:
 
 cpu_resume:
 
+	LDR	r0, =REG_BASE_DDRC_CFG
+
+	/**
+	check SCBAKDATA4[bit 0]:
+	0x1 means memory move successfully
+	0x0 means memory move failed
+	**/
+	LDR	r4, =REG_BASE_SCTRL
+	LDR	r1, [r4, #0x324]   @SCTRL SCBAKDATA4 register
+	TST	r1, #0x1
+	BEQ	cpu_resume_start
+
+	/*resume CS1_RANK1 refresh*/
+	LDR	r1, =0x001172
+	STR	r1, [r0, #0x24]
+	LDR	r1, =0x1
+	STR	r1, [r0, #0x28]
+check_resume_cmd_done_1:
+	LDR	r1, [r0, #0x28]
+	TST	r1, #0x1
+	BNE	check_resume_cmd_done_1
+
+	/*resume CS1_RANK0 refresh*/
+	LDR	r1, =0x0011B2
+	STR	r1, [r0, #0x24]
+	LDR	r1, =0x1
+	STR	r1, [r0, #0x28]
+check_resume_cmd_done_2:
+	LDR	r1, [r0, #0x28]
+	TST	r1, #0x1
+	BNE	check_resume_cmd_done_2
+
+	/*resume CS0_RANK1 refresh*/
+	LDR	r1, =0x0011D2
+	STR	r1, [r0, #0x24]
+	LDR	r1, =0x1
+	STR	r1, [r0, #0x28]
+check_resume_cmd_done_3:
+	LDR	r1, [r0, #0x28]
+	TST	r1, #0x1
+	BNE	check_resume_cmd_done_3
+
+	/*resume CS0_RANK0 refresh*/
+	LDR	r1, =0x0011E2
+	STR	r1, [r0, #0x24]
+	LDR	r1, =0x1
+	STR	r1, [r0, #0x28]
+check_resume_cmd_done_4:
+	LDR	r1, [r0, #0x28]
+	TST	r1, #0x1
+	BNE	check_resume_cmd_done_4
+
+cpu_resume_start:
 	/* write domain access to get the domain access right */
 	LDR	r0, =0xFFFFFFFF
 	MCR     p15, 0, r0, c3, c0, 0
@@ -840,7 +892,69 @@ SecuramBegin:
 	/**
 	config DDR enter self-refresh state
 	**/
-	LDR r0,	=DDR_CTRLOR_BASE
+	LDR	r0, =REG_BASE_DDRC_CFG
+
+	/**
+	check SCBAKDATA4[bit 0]:
+	0x1 means memory move successfully
+	0x0 means memory move failed
+	**/
+	LDR	r4, =REG_BASE_SCTRL
+	LDR	r2, [r4, #0x324]   @SCTRL SCBAKDATA4 register
+	TST	r2, #0x1
+	BEQ	DDR_Selfrefresh_start
+
+	AND	r2, r2, #0xff000000
+	LSR	r2, r2, #0x8
+
+	/*block CS1_RANK1 refresh*/
+	LDR	r1, =0x1172
+	ORR r1, r2
+	STR	r1, [r0, #0x24]
+	LDR	r1, =0x1
+	STR	r1, [r0, #0x28]
+check_block_cmd_done_1:
+	LDR	r1, [r0, #0x28]
+	TST	r1, #0x1
+	BNE	check_block_cmd_done_1
+
+	/*block CS1_RANK0 refresh*/
+	LDR	r1, =0x11B2
+	ORR r1, r2
+	STR	r1, [r0, #0x24]
+	LDR	r1, =0x1
+	STR	r1, [r0, #0x28]
+check_block_cmd_done_2:
+	LDR	r1, [r0, #0x28]
+	TST	r1, #0x1
+	BNE	check_block_cmd_done_2
+
+	LDR	r2, [r4, #0x324]   @SCTRL SCBAKDATA4 register
+	AND	r2, r2, #0x00ff0000
+
+	/*block CS0_RANK1 refresh*/
+	LDR	r1, =0x11D2
+	ORR r1, r2
+	STR	r1, [r0, #0x24]
+	LDR	r1, =0x1
+	STR	r1, [r0, #0x28]
+check_block_cmd_done_3:
+	LDR	r1, [r0, #0x28]
+	TST	r1, #0x1
+	BNE	check_block_cmd_done_3
+
+	/*block CS0_RANK0 refresh*/
+	LDR	r1, =0x11E2
+	ORR r1, r2
+	STR	r1, [r0, #0x24]
+	LDR	r1, =0x1
+	STR	r1, [r0, #0x28]
+check_block_cmd_done_4:
+	LDR	r1, [r0, #0x28]
+	TST	r1, #0x1
+	BNE	check_block_cmd_done_4
+
+DDR_Selfrefresh_start:
 	LDR r1,	=0x01
 	STR r1,	[r0,#0x4]
 

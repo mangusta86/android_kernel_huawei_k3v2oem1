@@ -43,27 +43,31 @@
 #include "k3_fb_def.h"
 #include "k3_fb_panel.h"
 #include "edc_overlay.h"
-#if defined(CONFIG_OVERLAY_COMPOSE) && defined(CONFIG_CPU_FREQ_GOV_K3HOTPLUG)
+#ifdef CONFIG_OVERLAY_COMPOSE
+#  ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
 #include <linux/pm_qos_params.h>
+#  endif
 #endif
 
 
 #define K3_FB_OVERLAY_USE_BUF 1
 
-/*G2D clk rate*/
+
+/* G2D clk rate */
 #define G2D_CLK_60MHz	(60 * 1000 * 1000)
 #define G2D_CLK_120MHz	(120 * 1000 * 1000)
 #define G2D_CLK_240MHz	(240 * 1000 * 1000)
 #define G2D_CLK_360MHz	(360 * 1000 * 1000)
 #define G2D_CLK_480MHz	(480 * 1000 * 1000)
 
-/* temprature for FRC */
+#ifdef CONFIG_LCD_TOSHIBA_MDY90
+/* temprature for FRC: using fake vsync */
 #define EVT_TEM_LEVEL_MAX	4
 
-#define EVT_TEM_NORM		40
-#define EVT_TEM_ABOVE_NORM	45
-#define EVT_TEM_HIGH		50
-#define EVT_TEM_THRD		57
+#define EVT_TEM_NORM		50
+#define EVT_TEM_ABOVE_NORM	55
+#define EVT_TEM_HIGH		60
+#define EVT_TEM_THRD		67
 
 #define FAKE_FPS_TEM_NORM_FPS		60
 #define FAKE_FPS_TEM_ABOVE_NORM_FPS	45
@@ -72,29 +76,87 @@
 
 #define FAKE_FPS_SPECIAL_GAME		45
 
-/* FRC */
+/* FRC: using hw vsync */
 #define K3_FB_FRC_NORMAL_FPS	60
-#define K3_FB_FRC_IDLE_FPS	30
-#define K3_FB_FRC_VIDEO_FPS	60
-#define K3_FB_FRC_WEBKIT_FPS	30
-#define K3_FB_FRC_BENCHMARK_FPS	67
-#define K3_FB_FRC_GAME_FPS	30
+#define K3_FB_FRC_IDLE_FPS		45
+#define K3_FB_FRC_VIDEO_FPS		45
+#define K3_FB_FRC_WEBKIT_FPS	45
+#define K3_FB_FRC_BENCHMARK_FPS	60
+#define K3_FB_FRC_GAME_FPS		45
+#define K3_FB_FRC_SPECIAL_GAME_FPS	60
+#define K3_FB_FRC_GAME_30_FPS           30
+
+/* SBL */
+#define SBL_BKL_STEP	5
+#define SBL_REDUCE_VALUE(x)	((x) * 80 / 100)
+#elif defined(CONFIG_LCD_CMI_OTM1280A)
+/* temprature for FRC: using fake vsync */
+#define EVT_TEM_LEVEL_MAX	4
+
+#define EVT_TEM_NORM		50
+#define EVT_TEM_ABOVE_NORM	55
+#define EVT_TEM_HIGH		60
+#define EVT_TEM_THRD		67
+
+#define FAKE_FPS_TEM_NORM_FPS		60
+#define FAKE_FPS_TEM_ABOVE_NORM_FPS	45
+#define FAKE_FPS_TEM_HIGH			36
+#define FAKE_FPS_TEM_THRD			30
+
+#define FAKE_FPS_SPECIAL_GAME		45
+
+/* FRC: using hw vsync */
+#define K3_FB_FRC_NORMAL_FPS	60
+#define K3_FB_FRC_IDLE_FPS	45
+#define K3_FB_FRC_VIDEO_FPS	45
+#define K3_FB_FRC_WEBKIT_FPS	45
+#define K3_FB_FRC_BENCHMARK_FPS	60
+#define K3_FB_FRC_GAME_FPS	45
 #define K3_FB_FRC_SPECIAL_GAME_FPS  60
 
-/* FRC for Command Panel */
-#define K3_FB_FRC_GAME_FPS_CMD	40
-
-/* FRC for Command Panel */
-#define K3_FB_FRC_GAME_FPS_CMD	40
-
-#define K3_FB_FRC_THRESHOLD	6
-
-/* ESD */
-#define K3_FB_ESD_THRESHOLD	45
+/* EternityProject: Add to fix build */
+#define K3_FB_FRC_GAME_30_FPS	30
 
 /* SBL */
 #define SBL_BKL_STEP	5
 #define SBL_REDUCE_VALUE(x)	((x) * 70 / 100)
+#else
+/* temprature for FRC: using fake vsync */
+#define EVT_TEM_LEVEL_MAX	4
+
+#define EVT_TEM_NORM		50
+#define EVT_TEM_ABOVE_NORM	55
+#define EVT_TEM_HIGH		60
+#define EVT_TEM_THRD		67
+
+#define FAKE_FPS_TEM_NORM_FPS		60
+#define FAKE_FPS_TEM_ABOVE_NORM_FPS	45
+#define FAKE_FPS_TEM_HIGH			36
+#define FAKE_FPS_TEM_THRD			30
+
+#define FAKE_FPS_SPECIAL_GAME		45
+
+/* FRC: using hw vsync */
+#define K3_FB_FRC_NORMAL_FPS	60
+#define K3_FB_FRC_IDLE_FPS		30
+#define K3_FB_FRC_VIDEO_FPS		60
+#define K3_FB_FRC_WEBKIT_FPS	45
+#define K3_FB_FRC_BENCHMARK_FPS	67
+#define K3_FB_FRC_GAME_FPS		45
+#define K3_FB_FRC_SPECIAL_GAME_FPS  60
+#define K3_FB_FRC_GAME_30_FPS           30
+
+
+/* SBL */
+#define SBL_BKL_STEP	5
+#define SBL_REDUCE_VALUE(x)     ((x) * 80 / 100)
+#endif
+
+/* FRC threshold */
+#define K3_FB_FRC_THRESHOLD	6
+
+/* ESD threshold */
+#define K3_FB_ESD_THRESHOLD	45
 
 /* display resolution limited */
 #define K3_FB_MIN_WIDTH	32
@@ -105,8 +167,6 @@
 /* frame buffer physical addr */
 #define K3_FB_PA	HISI_FRAME_BUFFER_BASE
 #define K3_NUM_FRAMEBUFFERS	4
-extern u32 k3fd_reg_base_edc0;
-extern u32 k3fd_reg_base_edc1;
 
 /* EDC */
 #define EDC_CH_SECU_LINE	11
@@ -115,18 +175,30 @@ extern u32 k3fd_reg_base_edc1;
 #define K3FB_DEFAULT_BGR_FORMAT	EDC_RGB
 
 /* for MIPI Command LCD */
-//#define CLK_SWITCH	1
+#define CLK_SWITCH	0
 
 /* for Vsync*/
-#define VSYNC_TIMEOUT_MSEC 50
+#define VSYNC_TIMEOUT_MSEC 100
 
-/* FB width must be 16 pixels aligned in Vivante GPU */
-#define USE_VIVANTE_GPU	1
+/*
+** stride 64 bytes odd align
+** vivante gpu: stride must be 16pixels align
+*/
+#define CONFIG_FB_STRIDE_64BYTES_ODD_ALIGN	1
 
 #if defined(CONFIG_OVERLAY_COMPOSE)
-//channel change flow
-//#define EDC_CH_CHG_SUPPORT
-#endif //CONFIG_OVERLAY_COMPOSE
+#define MAX_EDC_CHANNEL (3)
+
+enum {
+    OVC_NONE,
+    OVC_PARTIAL,
+    OVC_FULL,
+};
+
+/* channel change flow */
+/* #define EDC_CH_CHG_SUPPORT */
+#endif
+
 
 enum {
 	LCD_LANDSCAPE = 0,
@@ -170,6 +242,7 @@ enum {
 	K3_FB_FRC_WEBKIT_PLAYING =0x10,
 	K3_FB_FRC_SPECIAL_GAME_PLAYING = 0x20,
 	K3_FB_FRC_IDLE_PLAYING = 0x40,
+    K3_FB_FRC_GAME_30_PLAYING = 0x80,
 };
 
 
@@ -181,22 +254,13 @@ enum {
  * @thread:            uevent-generating thread
  */
 struct k3fb_vsync {
-	wait_queue_head_t       wait;
-	ktime_t                 timestamp;
-	bool                    active;
-	struct task_struct      *thread;
+	wait_queue_head_t wait;
+	ktime_t timestamp;
+	bool active;
+	int te_refcount;
+	spinlock_t irq_lock;
+	struct task_struct *thread;
 };
-
-
-#if defined(CONFIG_OVERLAY_COMPOSE)
-#define MAX_EDC_CHANNEL (3)
-
-enum {
-    OVC_NONE,
-    OVC_PARTIAL,
-    OVC_FULL,
-};
-#endif /* CONFIG_OVERLAY_COMPOSE */
 
 struct k3_fb_data_type {
 	u32 index;
@@ -207,6 +271,7 @@ struct k3_fb_data_type {
 	u32 fb_imgType;
 	u32 fb_bgrFmt;
 	u32 edc_base;
+	u32 pwm_base;
 	u32 edc_irq;
 	u32 ldi_irq;
 	s32 ldi_int_type;
@@ -226,9 +291,8 @@ struct k3_fb_data_type {
 	struct work_struct frame_end_work;
 	struct workqueue_struct *frame_end_wq;
 
-	u32 frame_count;
 	bool cmd_mode_refresh;
-	bool is_first_frame_end;
+	bool cmd_bl_can_set;
 
 	struct edc_overlay_ctrl ctrl;
 	struct platform_device *pdev;
@@ -241,6 +305,7 @@ struct k3_fb_data_type {
 	struct regulator *edc_vcc;
 
 	struct k3fb_vsync vsync_info;
+	bool use_fake_vsync;
 	struct hrtimer fake_vsync_hrtimer;
 
 	int ambient_temperature;
@@ -251,6 +316,10 @@ struct k3_fb_data_type {
 	struct work_struct sbl_work;
 	struct workqueue_struct *sbl_wq;
 
+	/* for temperature obtaining*/
+	struct work_struct temp_work;
+	struct workqueue_struct *temp_wq;
+
 	/* for frc */
 	s32 frc_state;
 	s32 frc_threshold_count;
@@ -259,6 +328,7 @@ struct k3_fb_data_type {
 	/* for esd */
 	unsigned long esd_timestamp;
 	s32 esd_frame_count;
+	bool esd_recover;
 
 	struct hrtimer esd_hrtimer;
 	bool esd_hrtimer_enable;
@@ -271,23 +341,23 @@ struct k3_fb_data_type {
 	/* type: full/partial/none */
 	u32 ovc_type;
 	u32 ovc_ch_count;
-	//ch chg state
-#if defined(EDC_CH_CHG_SUPPORT)
+	/* ch chg state */
+#  if defined(EDC_CH_CHG_SUPPORT)
 	bool ch_chg_flag;
 	bool ch_chg_power_off;
-#endif //EDC_CH_CHG_SUPPORT
-	//idle switch to g2d
+#  endif
+	/* idle switch to g2d */
 	bool ovc_idle_flag;
-	//ovc buffer sync: ch1,ch2,crs
+	/* ovc buffer sync: ch1,ch2,crs */
 	bool ovc_wait_state[MAX_EDC_CHANNEL];
 	bool ovc_wait_flag[MAX_EDC_CHANNEL];
 	u32 ovc_lock_addr[MAX_EDC_CHANNEL];
 	u32 ovc_lock_size[MAX_EDC_CHANNEL];
 	u32 ovc_ch_gonna_display_addr[MAX_EDC_CHANNEL];
 	u32 ovc_ch_display_addr[MAX_EDC_CHANNEL];
-	//overlay play cfg_ok once
+	/* overlay play cfg_ok once */
 	struct overlay_data ovc_req[MAX_EDC_CHANNEL];
-#if defined(CONFIG_CPU_FREQ_GOV_K3HOTPLUG)
+#  if defined(CONFIG_CPU_FREQ_GOV_K3HOTPLUG)
 	u32 ddr_min_freq;
 	u32 ddr_min_freq_saved;
 	u32 ddr_curr_freq;
@@ -295,8 +365,9 @@ struct k3_fb_data_type {
 	struct pm_qos_request_list ovc_ddrminprofile;
 	struct work_struct ovc_ddr_work;
 	struct workqueue_struct *ovc_ddr_wq;
+	u32 ovcIdleCount;
+#  endif
 #endif
-#endif /* CONFIG_OVERLAY_COMPOSE */
 
 };
 
@@ -305,11 +376,15 @@ struct k3_fb_data_type {
 ** FUNCTIONS PROTOTYPES
 */
 
-void k3_fb_clk_enable_cmd_mode(struct k3_fb_data_type *k3fd);
-void k3_fb_clk_disable_cmd_mode(struct k3_fb_data_type *k3fd);
+extern u32 k3fd_reg_base_edc0;
+extern u32 k3fd_reg_base_edc1;
+extern u32 k3fd_reg_base_pwm0;
+extern u32 k3fd_reg_base_pwm1;
 
 void k3_fb_set_backlight(struct k3_fb_data_type *k3fd, u32 bkl_lvl);
 struct platform_device *k3_fb_add_device(struct platform_device *pdev);
+void k3_fb_clk_enable_cmd_mode(struct k3_fb_data_type *k3fd);
+void k3_fb_clk_disable_cmd_mode(struct k3_fb_data_type *k3fd);
 
 int k3_fb1_blank(int blank_mode);
 int k3fb_buf_isfree(int phys);

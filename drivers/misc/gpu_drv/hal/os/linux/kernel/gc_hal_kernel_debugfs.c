@@ -334,6 +334,7 @@ _DebugFSPrint (
     len = vsnprintf ( buffer , sizeof (buffer ) , Message , *( va_list * ) & Arguments ) ;
     buffer[len] = '\0' ;
 
+    /* Add end-of-line if missing. */
     if ( buffer[len - 1] != '\n' )
     {
         buffer[len ++] = '\n' ;

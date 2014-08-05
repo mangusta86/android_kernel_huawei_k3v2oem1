@@ -58,7 +58,11 @@ static struct tty_buffer *tty_buffer_alloc(struct tty_struct *tty, size_t size)
 {
 	struct tty_buffer *p;
 
-	if (tty->buf.memory_used + size > 65536)
+#ifndef CONFIG_MAX_TTY_BUFFER
+#define CONFIG_MAX_TTY_BUFFER 64*1024
+#endif
+
+	if (tty->buf.memory_used + size > CONFIG_MAX_TTY_BUFFER)
 		return NULL;
 	p = kmalloc(sizeof(struct tty_buffer) + 2 * size, GFP_ATOMIC);
 	if (p == NULL)
@@ -71,6 +75,8 @@ static struct tty_buffer *tty_buffer_alloc(struct tty_struct *tty, size_t size)
 	p->char_buf_ptr = (char *)(p->data);
 	p->flag_buf_ptr = (unsigned char *)p->char_buf_ptr + size;
 	tty->buf.memory_used += size;
+	if ((CONFIG_MAX_TTY_BUFFER - tty->buf.memory_used) < (CONFIG_MAX_TTY_BUFFER/10))
+		printk(KERN_WARNING "left tty buffer is low size %d !!\n",(CONFIG_MAX_TTY_BUFFER - tty->buf.memory_used));
 	return p;
 }
 

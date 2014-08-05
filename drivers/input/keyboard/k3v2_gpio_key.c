@@ -40,6 +40,7 @@
 #include <mach/irqs.h>
 #include <mach/gpio.h>
 #include <mach/platform.h>
+#include <hsad/config_interface.h>
 
 #define TRUE				(1)
 #define FALSE				(0)
@@ -50,13 +51,19 @@
 
 static unsigned int g_keyup      = 1;
 static unsigned int g_keydown = 1;
+static unsigned int g_camerafocus=1;
+static unsigned int g_camera=1;
 
 struct k3v2_gpio_key {
 	struct input_dev *input_dev;
 	struct delayed_work gpio_keyup_work;
 	struct delayed_work gpio_keydown_work;
+	struct delayed_work gpio_camera_work;
+	struct delayed_work gpio_camerafocus_work;
 	int    			volume_up_irq;      /*volumn up key irq.*/
 	int    			volume_down_irq;    /*volumn down key irq.*/
+	int				camera_irq;/*camera key irq.*/
+	int				camera_focus_irq;/*camera_focus key irq.*/
 };
 
 static int k3v2_gpio_key_open(struct input_dev *dev)
@@ -131,6 +138,71 @@ static void k3v2_gpio_keydown_work(struct work_struct *work)
 	return;
 }
 
+static void k3v2_gpio_camerafocus_work(struct work_struct * work)
+{
+	struct k3v2_gpio_key *gpio_key = container_of(work,
+		struct k3v2_gpio_key, gpio_camerafocus_work.work);
+
+	unsigned int keycamerafocus_value = 0;
+	unsigned int report_action = GPIO_KEY_RELEASE;
+
+	keycamerafocus_value = gpio_get_value(GPIO_17_6);
+
+	if (g_camerafocus== keycamerafocus_value)
+		return;
+	else
+		g_camerafocus= keycamerafocus_value;
+
+	/*judge key is pressed or released.*/
+	if (keycamerafocus_value == GPIO_LOW_VOLTAGE)
+		report_action = GPIO_KEY_PRESS;
+	else if (keycamerafocus_value == GPIO_HIGH_VOLTAGE)
+		report_action = GPIO_KEY_RELEASE;
+	else {
+		printk(KERN_ERR "[gpiokey][%s]invalid gpio key_value.\n", __FUNCTION__);
+		return;
+	}
+
+	printk(KERN_DEBUG "[gpiokey]camera focus key %u action %u\n", KEY_CAMERA_FOCUS, report_action);
+	input_report_key(gpio_key->input_dev, KEY_CAMERA_FOCUS, report_action);
+	input_sync(gpio_key->input_dev);
+
+	return;
+}
+
+static void k3v2_gpio_camera_work(struct work_struct *work)
+{
+	struct k3v2_gpio_key *gpio_key = container_of(work,
+		struct k3v2_gpio_key, gpio_camera_work.work);
+
+	unsigned int keycamera_value = 0;
+	unsigned int report_action = GPIO_KEY_RELEASE;
+
+	keycamera_value = gpio_get_value(GPIO_17_7);
+
+	if (g_camera== keycamera_value)
+		return;
+	else
+		g_camera= keycamera_value;
+
+	/*judge key is pressed or released.*/
+	if (keycamera_value == GPIO_LOW_VOLTAGE)
+		report_action = GPIO_KEY_PRESS;
+	else if (keycamera_value == GPIO_HIGH_VOLTAGE)
+		report_action = GPIO_KEY_RELEASE;
+	else {
+		printk(KERN_ERR "[gpiokey][%s]invalid gpio key_value.\n", __FUNCTION__);
+		return;
+	}
+
+	printk(KERN_DEBUG "[gpiokey]camera key %u action %u\n", KEY_CAMERA, report_action);
+	input_report_key(gpio_key->input_dev, KEY_CAMERA, report_action);
+	input_sync(gpio_key->input_dev);
+
+	return;
+}
+
+
 static irqreturn_t k3v2_gpio_key_irq_handler(int irq, void *dev_id)
 {
 	struct k3v2_gpio_key *gpio_key = (struct k3v2_gpio_key *)dev_id;
@@ -143,7 +215,12 @@ static irqreturn_t k3v2_gpio_key_irq_handler(int irq, void *dev_id)
 	case IRQ_GPIO(GPIO_17_2):
 		schedule_delayed_work(&(gpio_key->gpio_keydown_work), 0);
 		break;
-
+	case IRQ_GPIO(GPIO_17_6):
+		schedule_delayed_work(&(gpio_key->gpio_camerafocus_work), 0);
+		break;
+	case IRQ_GPIO(GPIO_17_7):
+		schedule_delayed_work(&(gpio_key->gpio_camera_work), 0);
+		break;
 	default:
 		printk(KERN_ERR "[gpiokey][%s]invalid irq %d!\n", __FUNCTION__, irq);
 		break;
@@ -157,6 +234,8 @@ static int __devinit k3v2_gpio_key_probe(struct platform_device* pdev)
 	struct k3v2_gpio_key *gpio_key = NULL;
 	struct input_dev *input_dev = NULL;
 	int err =0;
+        unsigned int camera_focus_key;
+        camera_focus_key = get_camera_focus_key();
 
 	if (NULL == pdev) {
 		printk(KERN_ERR "[gpiokey]parameter error!\n");
@@ -186,6 +265,8 @@ static int __devinit k3v2_gpio_key_probe(struct platform_device* pdev)
 	set_bit(EV_SYN, input_dev->evbit);
 	set_bit(KEY_VOLUMEUP, input_dev->keybit);
 	set_bit(KEY_VOLUMEDOWN, input_dev->keybit);
+	set_bit(KEY_CAMERA_FOCUS, input_dev->keybit);
+	set_bit(KEY_CAMERA, input_dev->keybit);
 	input_dev->open = k3v2_gpio_key_open;
 	input_dev->close = k3v2_gpio_key_close;
 
@@ -194,6 +275,8 @@ static int __devinit k3v2_gpio_key_probe(struct platform_device* pdev)
 	/*initial work before we use it.*/
 	INIT_DELAYED_WORK(&(gpio_key->gpio_keyup_work), k3v2_gpio_keyup_work);
 	INIT_DELAYED_WORK(&(gpio_key->gpio_keydown_work), k3v2_gpio_keydown_work);
+	INIT_DELAYED_WORK(&(gpio_key->gpio_camerafocus_work), k3v2_gpio_camerafocus_work);
+	INIT_DELAYED_WORK(&(gpio_key->gpio_camera_work), k3v2_gpio_camera_work);
 
 	/*get volume-up-key irq.*/
 	gpio_key->volume_up_irq = platform_get_irq(pdev, 0);
@@ -231,6 +314,44 @@ static int __devinit k3v2_gpio_key_probe(struct platform_device* pdev)
 		goto err_request_irq;
 	}
 
+        if(camera_focus_key) {
+		/*get camera-focus-key irq.*/
+		gpio_key->camera_focus_irq = platform_get_irq(pdev, 2);
+		if (gpio_key->camera_focus_irq < 0) {
+			dev_err(&pdev->dev, "Failed to get gpio camera focus irq!\n");
+			err = gpio_key->camera_focus_irq;
+			goto err_get_irq;
+		}
+
+		/*
+		 * support failing irq that means camera-focus-key is pressed,
+		 * and rising irq which means camera-focus-key is released.
+		 */
+		err = request_irq(gpio_key->camera_focus_irq, k3v2_gpio_key_irq_handler, IRQF_NO_SUSPEND | IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING, pdev->name, gpio_key);
+		if (err) {
+			dev_err(&pdev->dev, "Failed to request camera focus interupt handler!\n");
+			goto err_request_irq;
+		}
+
+		/*get camera-key irq.*/
+		gpio_key->camera_irq = platform_get_irq(pdev, 3);
+		if (gpio_key->camera_irq < 0) {
+			dev_err(&pdev->dev, "Failed to get gpio camera irq!\n");
+			err = gpio_key->camera_irq;
+			goto err_get_irq;
+		}
+
+		/*
+		 * support failing irq that means camera-key is pressed,
+		 * and rising irq which means camera-key is released.
+		 */
+		err = request_irq(gpio_key->camera_irq, k3v2_gpio_key_irq_handler, IRQF_NO_SUSPEND | IRQF_TRIGGER_FALLING | IRQF_TRIGGER_RISING, pdev->name, gpio_key);
+		if (err) {
+			dev_err(&pdev->dev, "Failed to request camera interupt handler!\n");
+			goto err_request_irq;
+		}
+        }
+
 	err = input_register_device(gpio_key->input_dev);
 	if (err) {
 		dev_err(&pdev->dev, "Failed to register input device!\n");
@@ -247,6 +368,8 @@ static int __devinit k3v2_gpio_key_probe(struct platform_device* pdev)
 err_register_device:
 	free_irq(gpio_key->volume_up_irq, gpio_key);
 	free_irq(gpio_key->volume_down_irq, gpio_key);
+	free_irq(gpio_key->camera_focus_irq, gpio_key);
+	free_irq(gpio_key->camera_irq, gpio_key);
 err_request_irq:
 err_get_irq:
 	input_free_device(input_dev);
@@ -268,9 +391,13 @@ static int __devexit k3v2_gpio_key_remove(struct platform_device* pdev)
 
 	free_irq(gpio_key->volume_up_irq, gpio_key);
 	free_irq(gpio_key->volume_down_irq, gpio_key);
+	free_irq(gpio_key->camera_focus_irq, gpio_key);
+	free_irq(gpio_key->camera_irq, gpio_key);
 
 	cancel_delayed_work(&(gpio_key->gpio_keyup_work));
 	cancel_delayed_work(&(gpio_key->gpio_keydown_work));
+	cancel_delayed_work(&(gpio_key->gpio_camerafocus_work));
+	cancel_delayed_work(&(gpio_key->gpio_camera_work));
 
 	input_unregister_device(gpio_key->input_dev);
 	platform_set_drvdata(pdev, NULL);

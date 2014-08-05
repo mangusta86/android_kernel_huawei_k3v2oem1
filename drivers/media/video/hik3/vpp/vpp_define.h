@@ -174,56 +174,66 @@ typedef enum HAL_ACMBLK_ID_E_
 
 typedef struct HAL_FIR_COEF_ADDR_S_
 {
-    unsigned int coef_addr_tap_l8c4_1;   //18*8+18*4
-    unsigned int coef_addr_tap_l8c4_equal1;
-    unsigned int coef_addr_tap_l8c4_075 ;
-    unsigned int coef_addr_tap_l8c4_05  ;
-    unsigned int coef_addr_tap_l8c4_033 ;
-    unsigned int coef_addr_tap_l8c4_025 ;
-    unsigned int coef_addr_tap_l8c4_0;
+	unsigned int coef_addr_tap_l8c4_1;   //18*8+18*4
+	unsigned int coef_addr_tap_l8c4_equal1;
+	unsigned int coef_addr_tap_l8c4_075 ;
+	unsigned int coef_addr_tap_l8c4_05  ;
+	unsigned int coef_addr_tap_l8c4_033 ;
+	unsigned int coef_addr_tap_l8c4_025 ;
+	unsigned int coef_addr_tap_l8c4_0;
 
-    unsigned int coef_addr_tap_l6c4_1;
-    unsigned int coef_addr_tap_l6c4_equal1;
-    unsigned int coef_addr_tap_l6c4_075;
-    unsigned int coef_addr_tap_l6c4_05;
-    unsigned int coef_addr_tap_l6c4_033;
-    unsigned int coef_addr_tap_l6c4_025;
-    unsigned int coef_addr_tap_l6c4_0;
+	unsigned int coef_addr_tap_l6c4_1;
+	unsigned int coef_addr_tap_l6c4_equal1;
+	unsigned int coef_addr_tap_l6c4_075;
+	unsigned int coef_addr_tap_l6c4_05;
+	unsigned int coef_addr_tap_l6c4_033;
+	unsigned int coef_addr_tap_l6c4_025;
+	unsigned int coef_addr_tap_l6c4_0;
 
-    unsigned int coef_addr_tap_l4c4_1;
-    unsigned int coef_addr_tap_l4c4_equal1 ;
-    unsigned int coef_addr_tap_l4c4_075;
-    unsigned int coef_addr_tap_l4c4_05;
-    unsigned int coef_addr_tap_l4c4_033;
-    unsigned int coef_addr_tap_l4c4_025;
-    unsigned int coef_addr_tap_l4c4_0;
+	unsigned int coef_addr_tap_l4c4_1;
+	unsigned int coef_addr_tap_l4c4_equal1 ;
+	unsigned int coef_addr_tap_l4c4_075;
+	unsigned int coef_addr_tap_l4c4_05;
+	unsigned int coef_addr_tap_l4c4_033;
+	unsigned int coef_addr_tap_l4c4_025;
+	unsigned int coef_addr_tap_l4c4_0;
 
-    unsigned int coef_addr_tap_l4c2_1;
-    unsigned int coef_addr_tap_l4c2_equal1;
-    unsigned int coef_addr_tap_l4c2_075;
-    unsigned int coef_addr_tap_l4c2_05;
-    unsigned int coef_addr_tap_l4c2_033;
-    unsigned int coef_addr_tap_l4c2_025;
-    unsigned int coef_addr_tap_l4c2_0;
-
-    unsigned int coef_addr_vc2tap_1   ;
-    unsigned int coef_addr_vc2tap_equal1 ;
-    unsigned int coef_addr_vc2tap_075 ;
-    unsigned int coef_addr_vc2tap_05  ;
-    unsigned int coef_addr_vc2tap_033 ;
-    unsigned int coef_addr_vc2tap_025 ;
-    unsigned int coef_addr_vc2tap_0   ;
+	unsigned int coef_addr_tap_l4c2_1;
+	unsigned int coef_addr_tap_l4c2_equal1;
+	unsigned int coef_addr_tap_l4c2_075;
+	unsigned int coef_addr_tap_l4c2_05;
+	unsigned int coef_addr_tap_l4c2_033;
+	unsigned int coef_addr_tap_l4c2_025;
+	unsigned int coef_addr_tap_l4c2_0;
+	
+	unsigned int coef_addr_vc2tap_1   ;
+	unsigned int coef_addr_vc2tap_equal1 ;
+	unsigned int coef_addr_vc2tap_075 ;
+	unsigned int coef_addr_vc2tap_05  ;
+	unsigned int coef_addr_vc2tap_033 ;
+	unsigned int coef_addr_vc2tap_025 ;
+	unsigned int coef_addr_vc2tap_0   ;
 } HAL_FIR_COEF_ADDR_S;
 
+//modified for zme coef config by l50053, begin
 typedef enum VPP_ZOOM_TAP_E_
 {
-    VOU_ZOOM_TAP_8LH = 0,
-    VOU_ZOOM_TAP_6LV ,
-    VOU_ZOOM_TAP_4CH ,
-    VOU_ZOOM_TAP_4CV ,
-    VOU_ZOOM_TAP_2CV ,
-    VOU_ZOOM_TAP_BUTT
+    VPP_ZOOM_TAP_8LH = 0,
+    VPP_ZOOM_TAP_6LV ,
+    VPP_ZOOM_TAP_4CH ,
+    VPP_ZOOM_TAP_4CV ,
+    VPP_ZOOM_TAP_2CV ,
+    VPP_ZOOM_TAP_BUTT
 } VPP_ZOOM_TAP_E;
+
+typedef enum VPP_ALG_FLT_TAP_E_
+{
+	TAP8 = 0,  //8tap
+	TAP6,      // 6tap
+	TAP4,      //  4tap
+	TAP2       //  2tap
+}VPP_ALG_FLT_TAP_E;
+//modified for zme coef config by l50053, end
 
 //==============================================================================
 /*矩形大小坐标信息*/
@@ -442,10 +452,20 @@ typedef struct  VPP_VPP_S_
 //VPP ZME系数
 typedef struct VPP_ZOOM_COEF_ADDR_S_
 {
-    unsigned int       *pStartPhyAddr;
+    unsigned int       StartPhyAddr; //modified for zme coef config by l50053
     unsigned int       *pStartVirAddr;
+    unsigned int       CoefSize;     //add for zme coef config by l50053
     HAL_FIR_COEF_ADDR_S stCoefAddr;
 }VPP_ZOOM_COEF_ADDR_S;
+
+//S00198515 add for DIE 20120823 [start]
+typedef struct VPP_DIE_ADDR_S_
+{
+    unsigned int       *die_BusAddr;
+    unsigned int       *die_VirtAddr;
+    unsigned int       die_size;
+}VPP_DIE_ADDR_S;
+//S00198515 add for DIE 20120823 [end]
 
 typedef struct VPP_ZOOM_COEF_S_
 {
@@ -469,6 +489,37 @@ typedef enum VPP_ZOOM_COEF_E_
     VPP_ZOOM_COEF_0,
     VPP_ZOOM_COEF_BUTT
 } VPP_ZOOM_COEF_E;
+
+//add for zme coef config by l50053, begin
+typedef struct VPP_SCALER_INFO_
+{       
+    bool lum_vfir_en   ; //vertical scaler of lum enable      
+    bool lum_hfir_en   ; //horizontal scaler of lum enable    
+    bool chm_vfir_en   ; //vertical scaler of chroma enable   
+    bool chm_hfir_en   ; //horizontal scaler of chroma enable 
+    bool lum_vfir_mode ; //vertical scaler mode of lum: 0-copy mode; 1-filter mode     
+    bool lum_hfir_mode ; //horizontal scaler mode of lum: 0-copy mode; 1-filter mode   
+    bool chm_vfir_mode ; //vertical scaler mode of chroma: 0-copy mode; 1-filter mode  
+    bool chm_hfir_mode ; //horizontal scaler  modeof chroma: 0-copy mode; 1-filter mode
+    bool lum_vmed_en   ; //median filter enable for lum vertical scaler     
+    bool lum_hmed_en   ; //median filter enable for lum horizontal scaler   
+    bool chm_vmed_en   ; //median filter enable for chroma vertical scaler  
+    bool chm_hmed_en   ; //median filter enable for chroma horizontal scaler
+    bool hfir_order    ; //0-horizontal filter before vertical filter; 1-horizontal filter after vertical filter
+                           
+    int  lum_vfir_tap  ; //filter tap of lum vertical scaler   
+    int  chm_vfir_tap  ; //filter tap of chroma vertical scaler
+    int  lum_hfir_ratio; //horizontal ratio of lum scaler
+    int  lum_vfir_ratio; //vertical ratio of lum scaler  
+    int  lum_hor_offset; //horizontal offset for lum   
+    int  chm_hor_offset; //horizontal offset for chroma
+    int  lum_ver_offset; //vertical offset for lum          
+    int  chm_ver_offset; //vertical offset for chroma       
+
+    unsigned int coef_addr_h;
+    unsigned int coef_addr_v;
+} VPP_SCALER_INFO; 
+//add for zme coef config by l50053, end
 
 #endif
 

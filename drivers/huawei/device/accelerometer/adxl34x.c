@@ -30,6 +30,9 @@ Problem NO.         Name        Time         Reason
 #include <mach/gpio.h>
 #include <asm/io.h>
 #include <linux/mux.h>
+#ifdef CONFIG_HUAWEI_HW_DEV_DCT
+#include <linux/hw_dev_dec.h>
+#endif
 
 #define GPIO_BOLCK_NAME "block_gsensor"
 
@@ -1095,7 +1098,10 @@ static int __devinit adxl34x_i2c_probe(struct i2c_client *client,
 	ac->early_suspend.resume = adxl34x_late_resume;
 	register_early_suspend(&ac->early_suspend);
 #endif
-
+#ifdef CONFIG_HUAWEI_HW_DEV_DCT
+        /* detect current device successful, set the flag as present */
+        set_hw_dev_flag(DEV_I2C_G_SENSOR);
+#endif
 	return 0;
 
 init_error:

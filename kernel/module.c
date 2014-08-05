@@ -58,6 +58,9 @@
 #include <linux/jump_label.h>
 #include <linux/pfn.h>
 #include <linux/bsearch.h>
+#ifdef CONFIG_CCSECURITY
+#include <linux/ccsecurity.h>
+#endif
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/module.h>
@@ -780,6 +783,10 @@ SYSCALL_DEFINE2(delete_module, const char __user *, name_user,
 
 	if (!capable(CAP_SYS_MODULE) || modules_disabled)
 		return -EPERM;
+#ifdef CONFIG_CCSECURITY
+	if (!ccs_capable(CCS_USE_KERNEL_MODULE))
+		return -EPERM;
+#endif
 
 	if (strncpy_from_user(name, name_user, MODULE_NAME_LEN-1) < 0)
 		return -EFAULT;
@@ -2290,8 +2297,7 @@ static int copy_and_check(struct load_info *info,
 		return -ENOEXEC;
 
 	/* Suck in entire file: we'll want most of it. */
-	/* vmalloc barfs on "unusual" numbers.  Check here */
-	if (len > 64 * 1024 * 1024 || (hdr = vmalloc(len)) == NULL)
+	if ((hdr = vmalloc(len)) == NULL)
 		return -ENOMEM;
 
 	if (copy_from_user(hdr, umod, len) != 0) {
@@ -2424,9 +2430,10 @@ static int check_modinfo(struct module *mod, struct load_info *info)
 {
 	const char *modmagic = get_modinfo(info, "vermagic");
 	int err;
-
+	
+	//z00186406 add to disable version magic check begin
 	/* This is allowed: modprobe --force will invalidate it. */
-	if (!modmagic) {
+	/*if (!modmagic) {
 		err = try_to_force_load(mod, "bad vermagic");
 		if (err)
 			return err;
@@ -2441,7 +2448,8 @@ static int check_modinfo(struct module *mod, struct load_info *info)
 		printk(KERN_WARNING "%s: module is from the staging directory,"
 		       " the quality is unknown, you have been warned.\n",
 		       mod->name);
-	}
+	}*/
+	//z00186406 add to disable version magic end
 
 	/* Set up license info based on the info section */
 	set_license(mod, get_modinfo(info, "license"));
@@ -2604,6 +2612,10 @@ static int check_module_license_and_versions(struct module *mod)
 
 	/* driverloader was caught wrongly pretending to be under GPL */
 	if (strcmp(mod->name, "driverloader") == 0)
+		add_taint_module(mod, TAINT_PROPRIETARY_MODULE);
+
+	/* lve claims to be GPL but upstream won't provide source */
+	if (strcmp(mod->name, "lve") == 0)
 		add_taint_module(mod, TAINT_PROPRIETARY_MODULE);
 
 #ifdef CONFIG_MODVERSIONS
@@ -2889,6 +2901,10 @@ SYSCALL_DEFINE3(init_module, void __user *, umod,
 	/* Must have permission */
 	if (!capable(CAP_SYS_MODULE) || modules_disabled)
 		return -EPERM;
+#ifdef CONFIG_CCSECURITY
+	if (!ccs_capable(CCS_USE_KERNEL_MODULE))
+		return -EPERM;
+#endif
 
 	/* Do all the hard work */
 	mod = load_module(umod, len, uargs);

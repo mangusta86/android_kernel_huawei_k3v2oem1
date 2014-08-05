@@ -26,4 +26,10 @@ config PROXIMITY_LIGHT_DEBUG
 		messages to the system log.  Select this if you are having a
 		problem with proximity or light and want to see more of what is going on.
 
+config HUAWEI_FEATURE_CM3320
+	tristate "cm3320"
+	default y
+	help
+	  If you say yes here you get support for light sensor cm3320.
+	
 endif

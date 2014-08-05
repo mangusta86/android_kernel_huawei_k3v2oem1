@@ -16,6 +16,12 @@
 #include <linux/usb.h>
 #include <linux/usb/serial.h>
 
+/*< DTS00176579033101 begin: modified for usb tty devices number change 2012-03-31 >*/
+extern struct usb_serial_port *port_keeping_table[SERIAL_TTY_MINORS];
+extern int serial_reopen(struct tty_struct *tty, struct usb_serial_port *port);
+extern struct mutex sr_mutex;
+/*< DTS00176579033101 begin: modified for usb tty devices number change 2012-03-31 >*/
+
 static int usb_serial_device_match(struct device *dev,
 						struct device_driver *drv)
 {
@@ -78,10 +84,36 @@ static int usb_serial_device_probe(struct device *dev)
 	}
 
 	minor = port->number;
+/*< DTS00176579033101 begin: modified for usb tty devices number change 2012-03-31 >*/
+	mutex_lock(&sr_mutex);
+	if (!port_keeping_table[minor]) {
 	tty_register_device(usb_serial_tty_driver, minor, dev);
-	dev_info(&port->serial->dev->dev,
-		 "%s converter now attached to ttyUSB%d\n",
-		 driver->description, minor);
+		dev_info(&port->serial->dev->dev,
+			 "%s converter now attached to ttyUSB%d\n",
+			 driver->description, minor);
+	} else {
+		struct usb_serial_port * old_port = port_keeping_table[minor];
+		struct tty_struct *old_tty = old_port->port.tty;
+		int old_counter = 0;	// ref counter for the old tty port
+		int counter = 0;		// ref counter for the new tty port
+		
+		/* bind the old tty keep to the new tty port */
+		serial_reopen(old_tty, port);
+		
+		port->port.count = old_port->port.count;
+		old_tty->driver_data = port;
+		old_counter = atomic_read(&((old_port->serial->kref).refcount));
+		counter = atomic_read(&((port->serial->kref).refcount));
+		atomic_set(&((port->serial->kref).refcount),old_counter);
+		atomic_set(&((old_port->serial->kref).refcount),counter);
+		
+		/* release the old serial and tty port */
+		old_port->serial->minor = SERIAL_TTY_NO_MINOR;
+		usb_serial_put(old_port->serial);
+		port_keeping_table[minor] = NULL;
+	}
+	mutex_unlock(&sr_mutex);
+/*< DTS00176579033101 end: modified for usb tty devices number change 2012-03-31 >*/
 
 exit:
 	return retval;
@@ -108,9 +140,18 @@ static int usb_serial_device_remove(struct device *dev)
 		retval = driver->port_remove(port);
 
 	minor = port->number;
-	tty_unregister_device(usb_serial_tty_driver, minor);
-	dev_info(dev, "%s converter now disconnected from ttyUSB%d\n",
-		 driver->description, minor);
+/*< DTS00176579033101 begin: modified for usb tty devices number change 2012-03-31 >*/
+	mutex_lock(&sr_mutex);
+	if (port->port.count == 0) {
+		tty_unregister_device(usb_serial_tty_driver, minor);
+		dev_info(dev, "%s converter now disconnected from ttyUSB%d\n",
+			 driver->description, minor);
+	} else {
+		/* serial port in using, so put into keeping table */
+		port_keeping_table[minor] = port;
+	}
+	mutex_unlock(&sr_mutex);
+/*< DTS00176579033101 end: modified for usb tty devices number change 2012-03-31 >*/
 
 	return retval;
 }

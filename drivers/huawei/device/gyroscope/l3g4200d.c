@@ -43,11 +43,18 @@
 #include <linux/interrupt.h>
 #include <linux/slab.h>
 #include <linux/hrtimer.h>
-
+#include	<linux/earlysuspend.h>
 #include "l3g4200d.h"
 #include <linux/board_sensors.h>
-
+#ifdef CONFIG_HUAWEI_HW_DEV_DCT
+#include <linux/hw_dev_dec.h>
+#endif
+#ifndef DEBUG
+#define DEBUG
+#endif
 static struct workqueue_struct *gyro_wq;
+static struct l3g4200d_data *gyro_temp; 
+
 static const struct output_rate odr_table[] = {
 	{	2,		GYRO_ODR800 | BW10},
 	{	3,		GYRO_ODR400 | BW01},
@@ -181,36 +188,25 @@ static int l3g4200d_selftest(struct l3g4200d_data *gyro, u8 enable)
     /*st code logic error*/
 	if (enable > 0) {
 		bit_values = L3G4200D_SELFTEST_EN_POS;
-		mutex_lock(&gyro->lock);
-		err = l3g4200d_register_update(gyro, buf, reg_address,
-			mask, bit_values);
-		if (err < 0) {
-			dev_err(&gyro->client->dev, "%s : failed to update:0x%02x\n",
-				 __func__, bit_values);
-			mutex_unlock(&gyro->lock);
-			return err;
-		}
-		gyro->selftest_enabled = enable;
-		mutex_unlock(&gyro->lock);
-		gyro->resume_state[GYRO_RES_CTRL_REG4] = ((mask & bit_values) |
-				(~mask & gyro->resume_state[GYRO_RES_CTRL_REG4]));
-	} else {
+	}else {
 		bit_values = L3G4200D_SELFTEST_DIS;
-		mutex_lock(&gyro->lock);
-		err = l3g4200d_register_update(gyro, buf, reg_address,
-			mask, bit_values);
-		if (err < 0) {
-			dev_err(&gyro->client->dev, "%s : failed to update:0x%02x\n",
-						 __func__, bit_values);
-			mutex_unlock(&gyro->lock);
-			return err;
-		}
-		gyro->selftest_enabled = enable;
-		mutex_unlock(&gyro->lock);
-		gyro->resume_state[GYRO_RES_CTRL_REG4] = ((mask & bit_values) |
-				(~mask & gyro->resume_state[GYRO_RES_CTRL_REG4]));
 	}
 
+	mutex_lock(&gyro->lock);
+	err = l3g4200d_register_update(gyro, buf, reg_address,
+		mask, bit_values);
+	if (err < 0) {
+		dev_err(&gyro->client->dev, "%s : failed to update:0x%02x\n",
+			      __func__, bit_values);
+		mutex_unlock(&gyro->lock);
+		return err;
+	}
+	gyro->selftest_enabled = enable;
+	mutex_unlock(&gyro->lock);
+	//gyro->resume_state[GYRO_RES_CTRL_REG4] = ((mask & bit_values) |
+	//		(~mask & gyro->resume_state[GYRO_RES_CTRL_REG4]));
+
+/*
 	if (atomic_read(&gyro->enabled)) {
 		mutex_lock(&gyro->lock);
 		err = l3g4200d_register_update(gyro, buf, reg_address,
@@ -227,7 +223,7 @@ static int l3g4200d_selftest(struct l3g4200d_data *gyro, u8 enable)
 		gyro->resume_state[GYRO_RES_CTRL_REG4] = ((mask & bit_values) |
 			(~mask & gyro->resume_state[GYRO_RES_CTRL_REG4]));
 	}
-
+*/
 	return err;
 }
 
@@ -291,6 +287,7 @@ static int l3g4200d_get_data(struct l3g4200d_data *gyro,
 
 	dev_dbg(&gyro->client->dev, "gyro_out: y = %d x = %d z= %d\n",
 		data->y, data->x, data->z);
+
 	return err;
 }
 
@@ -383,7 +380,7 @@ static int l3g4200d_enable(struct l3g4200d_data *dev_data)
 		}
 
 		msleep(400);
-        hrtimer_start(&dev_data->timer, ktime_set(0, 10000000), HRTIMER_MODE_REL);
+		hrtimer_start(&dev_data->timer, ktime_set(0, 10000000), HRTIMER_MODE_REL);
 
 	}
 	printk("[%s] -\n", __func__);
@@ -394,9 +391,8 @@ static int l3g4200d_disable(struct l3g4200d_data *dev_data)
 {
 	printk("[%s] +\n", __func__);
 	if (atomic_cmpxchg(&dev_data->enabled, 1, 0)) {
-
-	 hrtimer_cancel(&dev_data->timer);
-        cancel_work_sync(&dev_data->work);
+		hrtimer_cancel(&dev_data->timer);
+		cancel_work_sync(&dev_data->work);
 		l3g4200d_device_power_off(dev_data);
 	}
 	printk("[%s] -\n", __func__);
@@ -573,16 +569,115 @@ static ssize_t attr_set_selftest(struct device *dev,
 
 }
 
+ int set_selftest(int value)
+{
+	int err, result;
+	int data;
+	struct l3g4200d_triple data_out;
+
+         u8 old_ctrl_reg_state[5];
+	if(gyro_temp == NULL ||gyro_temp->pdata == NULL) return DISABLE_SELFTEST;
+	if (ENABLE_SELFTEST == value) {
+		old_ctrl_reg_state[0] = gyro_temp->resume_state[GYRO_RES_CTRL_REG1] ;
+		old_ctrl_reg_state[1] = gyro_temp->resume_state[GYRO_RES_CTRL_REG2] ;
+		old_ctrl_reg_state[2] = gyro_temp->resume_state[GYRO_RES_CTRL_REG3] ;
+		old_ctrl_reg_state[3] = gyro_temp->resume_state[GYRO_RES_CTRL_REG4] ;
+		old_ctrl_reg_state[4] = gyro_temp->resume_state[GYRO_RES_CTRL_REG5] ;
+
+		gyro_temp->resume_state[GYRO_RES_CTRL_REG1] = 0x6F;
+		gyro_temp->resume_state[GYRO_RES_CTRL_REG2] = 0x00;
+		gyro_temp->resume_state[GYRO_RES_CTRL_REG3] = 0x00;
+		gyro_temp->resume_state[GYRO_RES_CTRL_REG4] = 0xA0;
+		gyro_temp->resume_state[GYRO_RES_CTRL_REG5] = 0x02;
+
+		err = l3g4200d_device_power_on(gyro_temp);
+	          if(err){
+	                     dev_err(&gyro_temp->client->dev, "gyroscope power on failed err= %d\n", err);
+				result = ERR_SELFTEST;
+				goto TEST_RESULT;
+	          }
+		l3g4200d_selftest(gyro_temp, 1);
+		msleep(800);
+
+		mutex_lock(&gyro_temp->lock);
+		err = l3g4200d_get_data(gyro_temp, &data_out);
+		mutex_unlock(&gyro_temp->lock);
+		if (err < 0) {
+			dev_err(&gyro_temp->client->dev, "%s get_gyroscope_data failed err= %d\n",
+						L3G4200D_GYR_DEV_NAME, err);
+			result = ERR_SELFTEST;
+			goto TEST_RESULT;
+		}
+
+		/*self_test value*/
+		data = abs(data_out.x);
+		if ((data > MAX_VAL) || (data < MIN_VAL)) {
+			dev_err(&gyro_temp->client->dev, "selftest_gyro-------MAX-MIN--X-==%d\n", data);
+			result = ERR_SELFTEST;
+			goto TEST_RESULT;
+		}
+		data = abs(data_out.y);
+		if ((data > MAX_VAL) || (data < MIN_VAL)) {
+			dev_err(&gyro_temp->client->dev, "selftest_gyro-------MAX-MIN--Y-==%d\n", data);
+			result = ERR_SELFTEST;
+			goto TEST_RESULT;
+		}
+		data = abs(data_out.z);
+		if ((data > MAX_VAL) || (data < MIN_VAL)) {
+			dev_err(&gyro_temp->client->dev, "selftest_gyro-------MAX-MIN--Z-==%d\n", data);
+			result = ERR_SELFTEST;
+			goto TEST_RESULT;
+		}
+		result = TRUE_SELFTEST;
+TEST_RESULT:
+		if(result == TRUE_SELFTEST){
+			dev_info(&gyro_temp->client->dev, "gyro self test ok---------\n");
+			err = set_gyro_selfTest_result(GYRO, "1");
+			if (err) {
+				dev_err(&gyro_temp->client->dev, " gyro set self test result  fail\n");
+			}
+		}else {
+			err = set_gyro_selfTest_result(GYRO, "0");
+			if (err) {
+				dev_err(&gyro_temp->client->dev, "gyro set self test result	fail\n");
+			}
+			dev_err(&gyro_temp->client->dev, "gyro self test fail\n");
+		}
+		msleep(50);
+
+		gyro_temp->resume_state[GYRO_RES_CTRL_REG1] = old_ctrl_reg_state[0];
+		gyro_temp->resume_state[GYRO_RES_CTRL_REG2] = old_ctrl_reg_state[1];
+		gyro_temp->resume_state[GYRO_RES_CTRL_REG3] = old_ctrl_reg_state[2];
+		gyro_temp->resume_state[GYRO_RES_CTRL_REG4] = old_ctrl_reg_state[3];
+		gyro_temp->resume_state[GYRO_RES_CTRL_REG5] = old_ctrl_reg_state[4];
+
+		err = l3g4200d_hw_init(gyro_temp);
+		if (err < 0) {
+			dev_err(&gyro_temp->client->dev, "gyro set self test reg resume fail\n");
+		}
+		if (0==atomic_read(&gyro_temp->enabled)){
+			gyro_temp->hw_initialized = 0;
+		}
+
+		dev_info(&gyro_temp->client->dev, "selftest_gyro-------out\n");
+		return DISABLE_SELFTEST;
+	}
+
+}
+
+
 static ssize_t l3g4200d_self_test(struct l3g4200d_data *gyro)
 {
        int err, result;
 	int data;
 	struct l3g4200d_triple data_out;
+
        gyro->resume_state[GYRO_RES_CTRL_REG1] = 0x6F;
 	gyro->resume_state[GYRO_RES_CTRL_REG2] = 0x00;
 	gyro->resume_state[GYRO_RES_CTRL_REG3] = 0x00;
 	gyro->resume_state[GYRO_RES_CTRL_REG4] = 0xA0;
 	gyro->resume_state[GYRO_RES_CTRL_REG5] = 0x02;
+
 	err = l3g4200d_device_power_on(gyro);
           if(err){
                      dev_err(&gyro->client->dev, "gyroscope power on failed err= %d\n", err);
@@ -591,6 +686,7 @@ static ssize_t l3g4200d_self_test(struct l3g4200d_data *gyro)
           }
 	l3g4200d_selftest(gyro, 1);
 	msleep(800);
+
 	mutex_lock(&gyro->lock);
 	err = l3g4200d_get_data(gyro, &data_out);
 	mutex_unlock(&gyro->lock);
@@ -600,6 +696,8 @@ static ssize_t l3g4200d_self_test(struct l3g4200d_data *gyro)
 		result = ERR_SELFTEST;
 		goto TEST_RESULT;
 	}
+
+	/*self_test value*/
 	data = abs(data_out.x);
 	if ((data > MAX_VAL) || (data < MIN_VAL)) {
 		dev_err(&gyro->client->dev, "selftest_gyro-------MAX-MIN--X-==%d\n", data);
@@ -637,6 +735,7 @@ TEST_RESULT:
 	l3g4200d_device_power_off(gyro);
 	return 0;
 }
+
 #ifdef DEBUG
 static ssize_t attr_reg_set(struct device *dev, struct device_attribute *attr,
 				const char *buf, size_t size)
@@ -760,8 +859,8 @@ static void l3g4200d_input_work_func(struct work_struct *work)
 	struct l3g4200d_data *gyro;
 	struct l3g4200d_triple data_out;
 	int err;
-    gyro = container_of((struct work_struct *)work,
-                 struct l3g4200d_data, work);
+	gyro = container_of((struct work_struct *)work,
+				struct l3g4200d_data, work);
 
 	mutex_lock(&gyro->lock);
 	err = l3g4200d_get_data(gyro, &data_out);
@@ -770,18 +869,19 @@ static void l3g4200d_input_work_func(struct work_struct *work)
 	else
 		l3g4200d_report_values(gyro, &data_out);
 
-    /*schedule_delayed_work(&gyro->input_work, msecs_to_jiffies(
+	/*schedule_delayed_work(&gyro->input_work, msecs_to_jiffies(
             gyro->pdata->poll_interval));*/
-    mutex_unlock(&gyro->lock);
+
+	mutex_unlock(&gyro->lock);
 
 }
 static enum hrtimer_restart gry_timer_func(struct hrtimer *timer)
 {
-    //struct lis3dh_acc_data *acc = container_of(timer, struct lis3dh_acc_data, timer);
-    struct l3g4200d_data *gyro = container_of(timer, struct l3g4200d_data, timer);
-    queue_work(gyro_wq, &gyro->work);
-    hrtimer_start(&gyro->timer, ktime_set(0, 10000000), HRTIMER_MODE_REL);
-    return HRTIMER_NORESTART;
+	//struct lis3dh_acc_data *acc = container_of(timer, struct lis3dh_acc_data, timer);
+	struct l3g4200d_data *gyro = container_of(timer, struct l3g4200d_data, timer);
+	queue_work(gyro_wq, &gyro->work);
+	hrtimer_start(&gyro->timer, ktime_set(0, 10000000), HRTIMER_MODE_REL);
+	return HRTIMER_NORESTART;
 }
 #if 0
 int l3g4200d_input_open(struct input_dev *input)
@@ -842,8 +942,8 @@ static int l3g4200d_input_init(struct l3g4200d_data *gyro)
 
 	dev_dbg(&gyro->client->dev, "l3g4200d_input_init---START---");
 
-    //INIT_DELAYED_WORK(&gyro->input_work,l3g4200d_input_work_func);
-    INIT_WORK(&gyro->work, l3g4200d_input_work_func);
+	//INIT_DELAYED_WORK(&gyro->input_work,l3g4200d_input_work_func);
+	INIT_WORK(&gyro->work, l3g4200d_input_work_func);
 	gyro->input_dev = input_allocate_device();
 	if (!gyro->input_dev) {
 		err = -ENOMEM;
@@ -877,11 +977,11 @@ static int l3g4200d_input_init(struct l3g4200d_data *gyro)
 	}
 	hrtimer_init(&gyro->timer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
 
-    gyro->timer.function = gry_timer_func;
+	gyro->timer.function = gry_timer_func;
 
-    gyro_wq = create_singlethread_workqueue("gyro_wq");
+	gyro_wq = create_singlethread_workqueue("gyro_wq");
 
-    if (!gyro_wq)
+	if (!gyro_wq)
 		return -ENOMEM;
 #ifdef CONFIG_HUAWEI_SENSORS_INPUT_INFO
 	err = set_sensor_input(GYRO, gyro->input_dev->dev.kobj.name);
@@ -902,6 +1002,38 @@ err0:
 	return err;
 }
 
+#ifdef CONFIG_HAS_EARLYSUSPEND
+static int l3g4200d_early_suspend(struct early_suspend *h)
+{
+	struct l3g4200d_data *gyro = container_of(h, struct l3g4200d_data, early_suspend);
+	struct i2c_client *client = gyro->client;
+	dev_dbg(&client->dev, "l3g4200d_suspend\n");
+
+	/* TO DO */
+	gyro->on_before_suspend = atomic_read(&gyro->enabled);
+
+	l3g4200d_disable(gyro);
+	//printk("[%s] --------------\n", __func__);
+	return 0;
+
+}
+
+static int l3g4200d_later_resume(struct early_suspend *h)
+{
+	struct l3g4200d_data *gyro = container_of(h, struct l3g4200d_data, early_suspend);
+	struct i2c_client *client = gyro->client;
+	dev_dbg(&client->dev, "l3g4200d_resume\n");
+
+	/* TO DO */
+	if (gyro->on_before_suspend)
+		if (l3g4200d_enable(gyro)) {
+			dev_err(&client->dev, "%s: l3g4200d_enable failed\n",
+				__func__);
+		}
+	//printk("[%s] ----------------\n", __func__);
+	return 0;
+}
+#endif 
 
 static void l3g4200d_input_cleanup(struct l3g4200d_data *gyro)
 {
@@ -938,7 +1070,7 @@ static int l3g4200d_probe(struct i2c_client *client,
 		err = -ENOMEM;
 		goto err0;
 	}
-
+	gyro_temp = gyro;
 	mutex_init(&gyro->lock);
 	mutex_lock(&gyro->lock);
 	gyro->client = client;
@@ -1034,13 +1166,23 @@ static int l3g4200d_probe(struct i2c_client *client,
 
 	/* As default, do not report information */
 	atomic_set(&gyro->enabled, 0);
-
+#ifdef CONFIG_HAS_EARLYSUSPEND
+	gyro->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
+	gyro->early_suspend.suspend = l3g4200d_early_suspend;
+	gyro->early_suspend.resume = l3g4200d_later_resume;
+	register_early_suspend(&gyro->early_suspend);
+#endif
 	mutex_unlock(&gyro->lock);
 
 	dev_dbg(&client->dev, "%s probed: device created successfully\n",
 							L3G4200D_GYR_DEV_NAME);
 	printk("[%s] -\n", __func__);
-       l3g4200d_self_test(gyro);
+#ifdef CONFIG_HUAWEI_HW_DEV_DCT
+    /* detect current device successful, set the flag as present */
+        set_hw_dev_flag(DEV_I2C_GYROSCOPE);
+#endif
+
+         //l3g4200d_self_test(gyro);
 	return 0;
 
 err4:
@@ -1059,6 +1201,7 @@ err1:
 	mutex_unlock(&gyro->lock);
 	kfree(gyro);
 	gyro = NULL;
+	gyro_temp = NULL;
 err0:
 	dev_err(&client->dev, "%s: Driver Initialization failed\n",
 							L3G4200D_GYR_DEV_NAME);
@@ -1077,9 +1220,9 @@ static int l3g4200d_remove(struct i2c_client *client)
 
 	if (gyro->pdata->exit)
 		gyro->pdata->exit();
-    hrtimer_cancel(&gyro->timer);
-    if(gyro_wq)
-        destroy_workqueue(gyro_wq);
+	hrtimer_cancel(&gyro->timer);
+	if(gyro_wq)
+		destroy_workqueue(gyro_wq);
 	kfree(gyro->pdata);
 	gyro->pdata = NULL;
 	kfree(gyro);
@@ -1089,43 +1232,6 @@ static int l3g4200d_remove(struct i2c_client *client)
 	printk("[%s] -\n", __func__);
 	return 0;
 }
-
-
-#ifdef CONFIG_PM
-static int l3g4200d_suspend(struct i2c_client *client, pm_message_t mesg)
-{
-	struct l3g4200d_data *gyro = i2c_get_clientdata(client);
-	printk("[%s] +\n", __func__);
-	dev_dbg(&client->dev, "l3g4200d_suspend\n");
-
-	/* TO DO */
-	gyro->on_before_suspend = atomic_read(&gyro->enabled);
-
-	l3g4200d_disable(gyro);
-	printk("[%s] -\n", __func__);
-	return 0;
-
-}
-
-static int l3g4200d_resume(struct i2c_client *client)
-{
-	struct l3g4200d_data *gyro = i2c_get_clientdata(client);
-	printk("[%s] +\n", __func__);
-	dev_dbg(&client->dev, "l3g4200d_resume\n");
-
-	/* TO DO */
-	if (gyro->on_before_suspend)
-		if (l3g4200d_enable(gyro)) {
-			dev_err(&client->dev, "%s: l3g4200d_enable failed\n",
-				__func__);
-		}
-	printk("[%s] -\n", __func__);
-	return 0;
-}
-#else
-#define l3g4200d_suspend	NULL
-#define l3g4200d_resume		NULL
-#endif /* CONFIG_PM */
 
 static void l3g4200d_shutdown(struct i2c_client *client)
 {
@@ -1157,8 +1263,6 @@ static struct i2c_driver l3g4200d_driver = {
 	.probe = l3g4200d_probe,
 	.remove = __devexit_p(l3g4200d_remove),
 	.shutdown = l3g4200d_shutdown,
-	.suspend = l3g4200d_suspend,
-	.resume = l3g4200d_resume,
 	.id_table = l3g4200d_id,
 };
 

@@ -672,6 +672,7 @@ static int hdmi_pw_power_on_full(void)
 
     deep_color vsdb_format = {0};
     hdmi_cm cm = {INVALID_VALUE};
+    audio_format aformat = {0};
 
     IN_FUNCTION;
 
@@ -687,10 +688,8 @@ static int hdmi_pw_power_on_full(void)
 
         if (!hdmi.edid_set) {
 #if USE_HDCP
-#if HDCP_FOR_CERTIFICATION
             logi("disable hdcp befor read edid.\n");
             hdcp_wait_anth_stop();
-#endif 
 #endif
             ret = hdmi_read_edid();
             if (ret) {                
@@ -827,12 +826,9 @@ static void hdmi_pw_power_on_min(void)
 {
     IN_FUNCTION;
 #if USE_HDCP
-#if HDCP_FOR_CERTIFICATION
     logi("disable hdcp when power min.\n");
     hdcp_wait_anth_stop();
 #endif
-#endif
-
 #ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
     if (hdmi.has_request_ddr) {
         hdmi.has_request_ddr = false;
@@ -972,7 +968,7 @@ static int hdmi_pw_set_power(hdmi_power_state v_power, bool suspend, bool audio_
 
     if (hdmi.power_state != power_need) {
         if (HDMI_POWER_FULL == power_need) {
-            logd("power full.\n");
+            logi("power full.\n");
             ret = hdmi_pw_power_on_full();
 #if USE_HDCP    
             hdcp_set_start(true);
@@ -981,13 +977,13 @@ static int hdmi_pw_set_power(hdmi_power_state v_power, bool suspend, bool audio_
             hdmi_cec_start_use_thread();
 #endif
         } else if (HDMI_POWER_MIN == power_need) {
-            logd("power min.\n");
+            logi("power min.\n");
             hdmi_pw_power_on_min();
 #if defined(CONFIG_HDMI_CEC_ENABLE)
             hdmi_cec_start_use_thread(); // for tv sleep
 #endif
         } else {
-            logd("power off.\n");
+            logi("power off.\n");
             if(HDMI_DISPLAY_ACTIVE == hdmi.state){
 #if defined(CONFIG_HDMI_CEC_ENABLE)
                 hdmi_cec_stop();
@@ -1414,7 +1410,7 @@ static ssize_t hdmi_get_timing_list(char *buf, bool mhl_check)
     /*get all support timing code*/
     has_image_format = edid_get_image_format(edid, img_format);
 
-    logd(" video format number: %d.\n", img_format->number);
+    logi("video format number: %d.\n", img_format->number);
 
     for (i = 0 ; i < img_format->number; i++) {
         /* now we only support p mode. */
@@ -1614,7 +1610,9 @@ static ssize_t hdmi_control_timing_store(struct device *dev,
     char *pstrchr = NULL;
 
     IN_FUNCTION;
-    
+
+    logi("Input param : %s.\n", buf);
+
     if ((!*buf)) {
         loge("Input param is error: %s.\n", buf);
         OUT_FUNCTION;
@@ -2187,7 +2185,7 @@ static ssize_t hdmi_control_audiosupport_show(struct device *dev,
     image_format img_format = {0};
     int i = 0;
     int audio_support = hdmi.cfg.hdmi_dvi;
-    audio_format aud_format = {0};
+    audio_format aud_format = {NULL};
 #if ENABLE_EDID_FAULT_TOLERANCE
     if (false == edid_is_valid_edid((u8*)edid)) {
         loge("edid isn't readed, and set to support audio.\n");
@@ -2836,8 +2834,9 @@ int k3_hdmi_probe(struct platform_device *pdev)
 #if ENABLE_AUTO_ROTATE_LANDSCAPE
     /* register hdmi switch*/
     hdmi.hpd_switch.name = "hdmi";
-
+    
     ret = switch_dev_register(&hdmi.hpd_switch);
+
     if(ret < 0)
     {
         loge("switch device register error %d\n",ret);

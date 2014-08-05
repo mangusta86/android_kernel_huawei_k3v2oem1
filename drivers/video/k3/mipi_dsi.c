@@ -234,16 +234,18 @@ static void mipi_init(struct k3_fb_data_type *k3fd)
 	struct mipi_dsi_phy_ctrl phy_ctrl = {0};
 	u32 tmp = 0;
 	bool is_ready = false;
+	struct k3_panel_info *pinfo = NULL;
 
 	BUG_ON(k3fd == NULL);
 
+	pinfo = &(k3fd->panel_info);
 	edc_base = k3fd->edc_base;
-	get_dsi_phy_ctrl(k3fd->panel_info.mipi.dsi_bit_clk, &phy_ctrl);
+	get_dsi_phy_ctrl(pinfo->mipi.dsi_bit_clk, &phy_ctrl);
 
 	/* config TE */
-	if (k3fd->panel_info.type == PANEL_MIPI_CMD) {
+	if (pinfo->type == PANEL_MIPI_CMD) {
 		set_reg(edc_base + MIPIDSI_CMD_MOD_CTRL_OFFSET, 0x1, 32, 0);
-		set_reg(edc_base + MIPIDSI_TE_CTRL_OFFSET, 0x4001, 32, 0);
+		set_reg(edc_base + MIPIDSI_TE_CTRL_OFFSET, 0x4021, 32, 0);
 		set_reg(edc_base + MIPIDSI_TE_HS_NUM_OFFSET, 0x0, 32, 0);
 		set_reg(edc_base + MIPIDSI_TE_HS_WD_OFFSET, 0x8002, 32, 0);
 		set_reg(edc_base + MIPIDSI_TE_VS_WD_OFFSET, 0x1001, 32, 0);
@@ -255,20 +257,20 @@ static void mipi_init(struct k3_fb_data_type *k3fd)
 	** Configure Register PHY_IF_CFG with the correct number of lanes
 	** to be used by the controller.
 	*/
-	set_MIPIDSI_PHY_IF_CFG_n_lanes(edc_base, k3fd->panel_info.mipi.lane_nums);
+	set_MIPIDSI_PHY_IF_CFG_n_lanes(edc_base, pinfo->mipi.lane_nums);
 
 	/*
 	** 2. Configure the DPI Interface:
 	** This defines how the DPI interface interacts with the controller.
 	*/
-	set_MIPIDSI_DPI_CFG_dpi_vid(edc_base, k3fd->panel_info.mipi.vc);
-	set_MIPIDSI_DPI_CFG_dpi_color_coding(edc_base, k3fd->panel_info.mipi.color_mode);
-	set_MIPIDSI_DPI_CFG_hsync_active_low(edc_base, k3fd->panel_info.ldi.hsync_plr);
-	set_MIPIDSI_DPI_CFG_vsync_active_low(edc_base, k3fd->panel_info.ldi.vsync_plr);
-	set_MIPIDSI_DPI_CFG_dataen_active_low(edc_base, k3fd->panel_info.ldi.data_en_plr);
+	set_MIPIDSI_DPI_CFG_dpi_vid(edc_base, pinfo->mipi.vc);
+	set_MIPIDSI_DPI_CFG_dpi_color_coding(edc_base, pinfo->mipi.color_mode);
+	set_MIPIDSI_DPI_CFG_hsync_active_low(edc_base, pinfo->ldi.hsync_plr);
+	set_MIPIDSI_DPI_CFG_vsync_active_low(edc_base, pinfo->ldi.vsync_plr);
+	set_MIPIDSI_DPI_CFG_dataen_active_low(edc_base, pinfo->ldi.data_en_plr);
 	set_MIPIDSI_DPI_CFG_shutd_active_low(edc_base, 0);
 	set_MIPIDSI_DPI_CFG_colorm_active_low(edc_base, 0);
-	if (k3fd->panel_info.bpp == EDC_OUT_RGB_666) {
+	if (pinfo->bpp == EDC_OUT_RGB_666) {
 		set_MIPIDSI_DPI_CFG_en18_loosely(edc_base, 1);
 	}
 
@@ -287,7 +289,7 @@ static void mipi_init(struct k3_fb_data_type *k3fd)
 	set_MIPIDSI_VID_MODE_CFG_frame_bta_ack(edc_base, 0);
 	set_MIPIDSI_VID_MODE_CFG_vid_mode_type(edc_base, phy_ctrl.burst_mode);
 
-	set_MIPIDSI_VID_PKT_CFG_vid_pkt_size(edc_base, k3fd->panel_info.xres);
+	set_MIPIDSI_VID_PKT_CFG_vid_pkt_size(edc_base, pinfo->xres);
 
 	/* for dsi read */
 	set_MIPIDSI_PCKHDL_CFG_en_bta(edc_base, 1);
@@ -299,11 +301,11 @@ static void mipi_init(struct k3_fb_data_type *k3fd)
 	** Hbp_time = HBP*(PCLK period/Clk Lane Byte Period);
 	** Hline_time = (HSA+HBP+HACT+HFP)*(PCLK period/Clk Lane Byte Period);
 	*/
-	pixel_clk = k3fd->panel_info.clk_rate / 1000000;
-	hsa_time = k3fd->panel_info.ldi.h_pulse_width * phy_ctrl.lane_byte_clk / pixel_clk;
-	hbp_time = k3fd->panel_info.ldi.h_back_porch * phy_ctrl.lane_byte_clk / pixel_clk;
-	hline_time = (k3fd->panel_info.ldi.h_pulse_width + k3fd->panel_info.ldi.h_back_porch +
-		k3fd->panel_info.xres + k3fd->panel_info.ldi.h_front_porch) *
+	pixel_clk = pinfo->clk_rate / 1000000;
+	hsa_time = pinfo->ldi.h_pulse_width * phy_ctrl.lane_byte_clk / pixel_clk;
+	hbp_time = pinfo->ldi.h_back_porch * phy_ctrl.lane_byte_clk / pixel_clk;
+	hline_time = (pinfo->ldi.h_pulse_width + pinfo->ldi.h_back_porch +
+		pinfo->xres + pinfo->ldi.h_front_porch) *
 		phy_ctrl.lane_byte_clk / pixel_clk;
 	set_MIPIDSI_TMR_LINE_CFG_hsa_time(edc_base, hsa_time);
 	set_MIPIDSI_TMR_LINE_CFG_hbp_time(edc_base, hbp_time);
@@ -312,12 +314,12 @@ static void mipi_init(struct k3_fb_data_type *k3fd)
 	/*
 	** 5. Define the Vertical line configuration:
 	*/
-	if (k3fd->panel_info.ldi.v_pulse_width > 15)
-		k3fd->panel_info.ldi.v_pulse_width = 15;
-	set_MIPIDSI_VTIMING_CFG_vsa_lines(edc_base, k3fd->panel_info.ldi.v_pulse_width);
-	set_MIPIDSI_VTIMING_CFG_vbp_lines(edc_base, k3fd->panel_info.ldi.v_back_porch);
-	set_MIPIDSI_VTIMING_CFG_vfp_lines(edc_base, k3fd->panel_info.ldi.v_front_porch);
-	set_MIPIDSI_VTIMING_CFG_v_active_lines(edc_base, k3fd->panel_info.yres);
+	if (pinfo->ldi.v_pulse_width > 15)
+		pinfo->ldi.v_pulse_width = 15;
+	set_MIPIDSI_VTIMING_CFG_vsa_lines(edc_base, pinfo->ldi.v_pulse_width);
+	set_MIPIDSI_VTIMING_CFG_vbp_lines(edc_base, pinfo->ldi.v_back_porch);
+	set_MIPIDSI_VTIMING_CFG_vfp_lines(edc_base, pinfo->ldi.v_front_porch);
+	set_MIPIDSI_VTIMING_CFG_v_active_lines(edc_base, pinfo->yres);
 
 	/* Configure core's phy parameters */
 	set_MIPIDSI_PHY_TMR_CFG_bta_time(edc_base, 4095);
@@ -332,7 +334,7 @@ static void mipi_init(struct k3_fb_data_type *k3fd)
 	** 3. Configure the TX_ESC clock frequency to a frequency lower than 20 MHz
 	** that is the maximum allowed frequency for D-PHY ESCAPE mode.
 	*/
-	if (k3fd->panel_info.type == PANEL_MIPI_CMD) {
+	if (pinfo->type == PANEL_MIPI_CMD) {
 		set_MIPIDSI_CLKMGR_CFG(edc_base, 5);
 	} else {
 		set_MIPIDSI_CLKMGR_CFG(edc_base, phy_ctrl.clk_division);
@@ -418,8 +420,8 @@ static void mipi_init(struct k3_fb_data_type *k3fd)
 	set_MIPIDSI_PHY_RSTZ(edc_base, 0x00000007);
 
 	/* Enable EDPI, ALLOWED_CMD_SIZE = 720*/
-	if (k3fd->panel_info.type == PANEL_MIPI_CMD) {
-		set_MIPIDSI_EDPI_CFG_edpi_allowed_cmd_size(edc_base, k3fd->panel_info.xres);
+	if (pinfo->type == PANEL_MIPI_CMD) {
+		set_MIPIDSI_EDPI_CFG_edpi_allowed_cmd_size(edc_base, pinfo->xres);
 		set_MIPIDSI_EDPI_CFG_edpi_en(edc_base, K3_ENABLE);
 	}
 
@@ -486,6 +488,7 @@ static int mipi_dsi_on(struct platform_device *pdev)
 	/* disable generate High Speed clock */
 	set_reg(edc_base + MIPIDSI_PHY_IF_CTRL_OFFSET, 0x0, 1, 0);
 
+	/* MIPI LP Command mode */
 	ret = panel_next_on(pdev);
 
 	/* To ensure that LCD init commands were sent correctly. */
@@ -517,6 +520,13 @@ static int mipi_dsi_on(struct platform_device *pdev)
 		/* Eable EOTp after switching to HS*/
 		set_MIPIDSI_PCKHDL_CFG_en_eotp_tx(edc_base, 0x00000001);
 	}
+
+	/* MIPI HS Video/Command mode */
+	ret = panel_next_on(pdev);
+
+#ifdef CONFIG_LCD_TOSHIBA_MDY90
+	msleep(70);
+#endif
 
 	return ret;
 }
@@ -594,6 +604,7 @@ static int mipi_dsi_set_timing(struct platform_device *pdev)
 {
 	int ret = 0;
 	struct k3_fb_data_type *k3fd = NULL;
+	struct k3_panel_info *pinfo = NULL;
 	u32 edc_base = 0;
 	u32 hline_time = 0;
 	u32 hsa_time = 0;
@@ -606,27 +617,28 @@ static int mipi_dsi_set_timing(struct platform_device *pdev)
 	k3fd = (struct k3_fb_data_type *)platform_get_drvdata(pdev);
 	BUG_ON(k3fd == NULL);
 
+	pinfo = &(k3fd->panel_info);
 	edc_base = k3fd->edc_base;
-	get_dsi_phy_ctrl(k3fd->panel_info.mipi.dsi_bit_clk, &phy_ctrl);
+	get_dsi_phy_ctrl(pinfo->mipi.dsi_bit_clk, &phy_ctrl);
 
-	set_MIPIDSI_VID_PKT_CFG_vid_pkt_size(edc_base, k3fd->panel_info.xres);
+	set_MIPIDSI_VID_PKT_CFG_vid_pkt_size(edc_base, pinfo->xres);
 
-	pixel_clk = k3fd->panel_info.clk_rate / 1000000;
-	hsa_time = k3fd->panel_info.ldi.h_pulse_width * phy_ctrl.lane_byte_clk / pixel_clk;
-	hbp_time = k3fd->panel_info.ldi.h_back_porch * phy_ctrl.lane_byte_clk / pixel_clk;
-	hline_time = (k3fd->panel_info.ldi.h_pulse_width + k3fd->panel_info.ldi.h_back_porch +
-		k3fd->panel_info.xres + k3fd->panel_info.ldi.h_front_porch) *
+	pixel_clk = pinfo->clk_rate / 1000000;
+	hsa_time = pinfo->ldi.h_pulse_width * phy_ctrl.lane_byte_clk / pixel_clk;
+	hbp_time = pinfo->ldi.h_back_porch * phy_ctrl.lane_byte_clk / pixel_clk;
+	hline_time = (pinfo->ldi.h_pulse_width + pinfo->ldi.h_back_porch +
+		pinfo->xres + pinfo->ldi.h_front_porch) *
 		phy_ctrl.lane_byte_clk / pixel_clk;
 	set_MIPIDSI_TMR_LINE_CFG_hsa_time(edc_base, hsa_time);
 	set_MIPIDSI_TMR_LINE_CFG_hbp_time(edc_base, hbp_time);
 	set_MIPIDSI_TMR_LINE_CFG_hline_time(edc_base, hline_time);
 
-	if (k3fd->panel_info.ldi.v_pulse_width > 15)
-		k3fd->panel_info.ldi.v_pulse_width = 15;
-	set_MIPIDSI_VTIMING_CFG_vsa_lines(edc_base, k3fd->panel_info.ldi.v_pulse_width);
-	set_MIPIDSI_VTIMING_CFG_vbp_lines(edc_base, k3fd->panel_info.ldi.v_back_porch);
-	set_MIPIDSI_VTIMING_CFG_vfp_lines(edc_base, k3fd->panel_info.ldi.v_front_porch);
-	set_MIPIDSI_VTIMING_CFG_v_active_lines(edc_base, k3fd->panel_info.yres);
+	if (pinfo->ldi.v_pulse_width > 15)
+		pinfo->ldi.v_pulse_width = 15;
+	set_MIPIDSI_VTIMING_CFG_vsa_lines(edc_base, pinfo->ldi.v_pulse_width);
+	set_MIPIDSI_VTIMING_CFG_vbp_lines(edc_base, pinfo->ldi.v_back_porch);
+	set_MIPIDSI_VTIMING_CFG_vfp_lines(edc_base, pinfo->ldi.v_front_porch);
+	set_MIPIDSI_VTIMING_CFG_v_active_lines(edc_base, pinfo->yres);
 
 	ret = panel_next_set_timing(pdev);
 
@@ -636,6 +648,7 @@ static int mipi_dsi_set_timing(struct platform_device *pdev)
 static int mipi_dsi_set_frc(struct platform_device *pdev, int target_fps)
 {
 	struct k3_fb_data_type *k3fd = NULL;
+	struct k3_panel_info *pinfo = NULL;
 	u32 hline_time = 0;
 	u32 pixel_clk = 0;
 	u32 vertical_timing = 0;
@@ -647,26 +660,28 @@ static int mipi_dsi_set_frc(struct platform_device *pdev, int target_fps)
 	k3fd = (struct k3_fb_data_type *)platform_get_drvdata(pdev);
 	BUG_ON(k3fd == NULL);
 
+	pinfo = &(k3fd->panel_info);
+
 	/* calculate new HFP based on target_fps */
-	vertical_timing = k3fd->panel_info.yres + k3fd->panel_info.ldi.v_back_porch
-		+ k3fd->panel_info.ldi.v_front_porch + k3fd->panel_info.ldi.v_pulse_width;
-	horizontal_timing = k3fd->panel_info.clk_rate / (vertical_timing * target_fps);
+	vertical_timing = pinfo->yres + pinfo->ldi.v_back_porch
+		+ pinfo->ldi.v_front_porch + pinfo->ldi.v_pulse_width;
+	horizontal_timing = pinfo->clk_rate / (vertical_timing * target_fps);
 
 	/* new HFP*/
 	/*
 	k3fd->panel_info.ldi.h_front_porch = horizontal_timing - k3fd->panel_info.xres
 		-k3fd->panel_info.ldi.h_back_porch - k3fd->panel_info.ldi.h_pulse_width;
 	*/
-	h_front_porch = horizontal_timing - k3fd->panel_info.xres
-		-k3fd->panel_info.ldi.h_back_porch - k3fd->panel_info.ldi.h_pulse_width;
+	h_front_porch = horizontal_timing - pinfo->xres
+		-pinfo->ldi.h_back_porch - pinfo->ldi.h_pulse_width;
 
-	pixel_clk = k3fd->panel_info.clk_rate / 1000000;
+	pixel_clk = pinfo->clk_rate / 1000000;
 	/* update hline_time */
-	hline_time = (k3fd->panel_info.ldi.h_pulse_width + k3fd->panel_info.ldi.h_back_porch +
-		k3fd->panel_info.xres + h_front_porch) * 
-		(k3fd->panel_info.mipi.dsi_bit_clk / 4) / pixel_clk;
+	hline_time = (pinfo->ldi.h_pulse_width + pinfo->ldi.h_back_porch +
+		pinfo->xres + h_front_porch) * 
+		(pinfo->mipi.dsi_bit_clk / 4) / pixel_clk;
 
-	k3fd->panel_info.frame_rate = target_fps;
+	pinfo->frame_rate = target_fps;
 
 	/* reset dsi core */
 	set_MIPIDSI_PWR_UP(k3fd->edc_base, 0);
@@ -714,9 +729,7 @@ static int mipi_dsi_probe(struct platform_device *pdev)
 	ret = clk_set_rate(k3fd->mipi_dphy_clk, DEFAULT_MIPI_CLK_RATE);
 	if (ret != 0) {
 		k3fb_loge("failed to set mipi dphy clk rate, error=%d!\n", DEFAULT_MIPI_CLK_RATE);
-	#ifndef CONFIG_MACH_TC45MSU3
-		return ret;
-	#endif
+		/*return ret;*/
 	}
 #endif
 

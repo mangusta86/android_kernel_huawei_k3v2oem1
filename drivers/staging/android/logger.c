@@ -37,6 +37,8 @@
 #include <mach/hisi_mem.h>
 #endif
 
+#include <linux/mtd/nve_interface.h>
+
 typedef enum android_LogPriority {
 	ANDROID_LOG_UNKNOWN = 0,
 	ANDROID_LOG_DEFAULT,    /* only for SetMinPriority() */
@@ -51,7 +53,16 @@ typedef enum android_LogPriority {
 
 
 #define ANDROID_LOG_LEVEL               (ANDROID_LOG_INFO)
+//huangwen 2012-09-05 begin
+static int powerlogoff = 1;
+//huangwen 2012-09-05 end
 
+#define MAX_TAG_LEN  100
+static int minor_of_events = 0;
+static int minor_of_main = 0;
+static int minor_of_power = 0;
+static int logctl_nv = 0;
+#define RETRY_COUNT 3
 
 #ifndef CONFIG_K3_LOG
 /*
@@ -197,9 +208,10 @@ static ssize_t logger_read(struct file *file, char __user *buf,
 
 start:
 	while (1) {
+		mutex_lock(&log->mutex);
+
 		prepare_to_wait(&log->wq, &wait, TASK_INTERRUPTIBLE);
 
-		mutex_lock(&log->mutex);
 		ret = (log->w_off == reader->r_off);
 		mutex_unlock(&log->mutex);
 		if (!ret)
@@ -349,6 +361,82 @@ static ssize_t do_write_log_from_user(struct logger_log *log,
 	return count;
 }
 
+
+
+static void get_log_entry(const struct iovec *iov, unsigned long nr_segs, char *priority, char *tag, int taglen)
+{
+    int minlen = 0;
+    int index = 0;
+
+    if ((NULL == iov) || (NULL == priority) || (NULL == tag))
+    {
+        return;
+    }
+
+    while (nr_segs-- > 0)
+    {
+        if (NULL == iov->iov_base)
+        {
+            return;
+        }
+
+        if (0 == index)
+        {
+            if (1 != iov->iov_len)
+            {
+                *priority = 0;
+            }
+            else
+            {
+                if (copy_from_user(priority, iov->iov_base, iov->iov_len))
+                {
+                    printk("copy_from_user error, can't get the log priority\n");
+                    return;
+                }
+            }
+        }
+        else if (1 == index)
+        {
+            minlen = iov->iov_len > taglen ? taglen : iov->iov_len;
+            if (copy_from_user(tag, iov->iov_base, minlen))
+            {
+                printk("copy_from_user error, can't get the log tag\n");
+                return;
+            }
+        }
+        else
+        {
+            break;
+        }
+
+        index++;
+        iov++;
+    }
+
+    return;
+}
+
+//read logctl state value from nv
+static int read_logctl_state_from_nv()
+{
+	int ret;
+	struct nve_info_user user_info;
+
+	user_info.nv_operation = 1;
+	user_info.nv_number = 301;
+	user_info.valid_size = 1;
+	strcpy(user_info.nv_name, "LOGCTL");
+	if (ret = nve_direct_access(&user_info))
+	{
+		printk(KERN_ERR "nve_direct_access read error(%d)\n", ret);
+		return -1;
+	}
+
+	ret = (int)user_info.nv_data[0];
+
+	return ret;
+}
+
 /*
  * logger_aio_write - our write method, implementing support for write(),
  * writev(), and aio_write(). Writes are our fast path, and we try to optimize
@@ -362,6 +450,36 @@ ssize_t logger_aio_write(struct kiocb *iocb, const struct iovec *iov,
 	struct logger_entry header;
 	struct timespec now;
 	ssize_t ret = 0;
+        static int retry = 0;
+
+        char priority = 0;
+        char tag[MAX_TAG_LEN] = {0};
+        get_log_entry(iov, nr_segs, &priority, tag, sizeof(tag));
+        tag[sizeof(tag) - 1] = 0;
+
+        if(retry < RETRY_COUNT)
+        {
+              logctl_nv = read_logctl_state_from_nv();
+              printk("%s, logctl_nv=%d\n", __FUNCTION__, logctl_nv);
+              if(logctl_nv >= 0)
+              {
+                   retry = RETRY_COUNT;
+              }
+              else
+                   retry++;
+        }
+
+        /* if log device is events or main which its priority is more than ANDROID_LOG_INFO, we also pass it */
+        if (logctl_nv == 1 || minor_of_events == log->misc.minor
+            || ((minor_of_main == log->misc.minor) && (priority >= ANDROID_LOG_INFO))
+            ||minor_of_power == log->misc.minor)
+        {
+            /* log it */
+        }
+        else
+        {
+            return -1;
+        }
 
 	now = current_kernel_time();
 
@@ -602,16 +720,22 @@ DEFINE_LOGGER_DEVICE(log_main, LOGGER_LOG_MAIN, MAIN_LOG_BUF_LEN)
 DEFINE_LOGGER_DEVICE(log_events, LOGGER_LOG_EVENTS, EVENTS_LOG_BUF_LEN)
 DEFINE_LOGGER_DEVICE(log_radio, LOGGER_LOG_RADIO, RADIO_LOG_BUF_LEN)
 DEFINE_LOGGER_DEVICE(log_system, LOGGER_LOG_SYSTEM, SYSTEM_LOG_BUF_LEN)
+DEFINE_LOGGER_DEVICE(log_exception, LOGGER_LOG_EXCEPTION, EXCEPTION_LOG_BUF_LEN)
+DEFINE_LOGGER_DEVICE(log_power, LOGGER_LOG_POWER, POWER_LOG_BUF_LEN)
 
 EXPORT_SYMBOL(log_main);
 EXPORT_SYMBOL(log_events);
 EXPORT_SYMBOL(log_radio);
 EXPORT_SYMBOL(log_system);
+EXPORT_SYMBOL(log_exception);
+EXPORT_SYMBOL(log_power);//begin:modified by dangjian
 #else
 DEFINE_LOGGER_DEVICE(log_main, LOGGER_LOG_MAIN, 256*1024)
 DEFINE_LOGGER_DEVICE(log_events, LOGGER_LOG_EVENTS, 256*1024)
 DEFINE_LOGGER_DEVICE(log_radio, LOGGER_LOG_RADIO, 256*1024)
 DEFINE_LOGGER_DEVICE(log_system, LOGGER_LOG_SYSTEM, 256*1024)
+DEFINE_LOGGER_DEVICE(log_exception, LOGGER_LOG_EXCEPTION, 16*1024)
+DEFINE_LOGGER_DEVICE(log_power, LOGGER_LOG_POWER, 256*1024)
 #endif
 
 static struct logger_log *get_log_from_minor(int minor)
@@ -624,6 +748,12 @@ static struct logger_log *get_log_from_minor(int minor)
 		return &log_radio;
 	if (log_system.misc.minor == minor)
 		return &log_system;
+	if (log_exception.misc.minor == minor)
+		return &log_exception;
+		
+    if (log_power.misc.minor == minor)
+        return &log_power;
+
 	return NULL;
 }
 
@@ -636,8 +766,6 @@ extern unsigned int get_logctl_value(void);
 static int __init init_log(struct logger_log *log)
 {
 	int ret;
-        if(get_logctl_value() != LOG_CTL_ON)
-		return 0;
 
 	ret = misc_register(&log->misc);
 	if (unlikely(ret)) {
@@ -672,6 +800,15 @@ static int __init logger_init(void)
 	if (unlikely(ret))
 		goto out;
 
+    ret = init_log(&log_exception);
+    if (unlikely(ret))
+        goto out;
+
+    minor_of_events = log_events.misc.minor;
+    minor_of_main = log_main.misc.minor;
+    printk("%s, minor_of_events=%d\n", __FUNCTION__, minor_of_events);
+    printk("%s, minor_of_main=%d\n", __FUNCTION__, minor_of_main);
+
 #ifdef CONFIG_K3_LOG
 	log_main.log_buf_info = (volatile log_buffer_head *)log_buf_info + 1;
 	log_main.rbuf = (volatile unsigned char *)ioremap_nocache(K3_MAIN_LOG_BASE, MAIN_LOG_BUF_LEN);
@@ -681,17 +818,39 @@ static int __init logger_init(void)
 	log_radio.rbuf = (volatile unsigned char *)ioremap_nocache(K3_RADIO_LOG_BASE, RADIO_LOG_BUF_LEN);
 	log_system.log_buf_info = (volatile log_buffer_head *)log_buf_info + 4;
 	log_system.rbuf = (volatile unsigned char *)ioremap_nocache(K3_SYSTEM_LOG_BASE, SYSTEM_LOG_BUF_LEN);
+	log_exception.log_buf_info = (volatile log_buffer_head *)log_buf_info + 5;
+	log_exception.rbuf = (volatile unsigned char *)ioremap_nocache(K3_EXCEPTION_LOG_BASE, EXCEPTION_LOG_BUF_LEN);
 
 	if (!log_main.log_buf_info || !log_main.rbuf || !log_events.log_buf_info
 		|| !log_events.rbuf || !log_radio.log_buf_info || !log_radio.rbuf
-		|| !log_system.log_buf_info || !log_system.rbuf) {
+		|| !log_system.log_buf_info || !log_system.rbuf
+		|| !log_exception.log_buf_info || !log_exception.rbuf ) {
 		/* init error, the system may be crashed, no need to unmap. */
 		ret = -EFAULT;
 	}
 #endif
 
 out:
-	return ret;
+    //huangwen 2012-09-05 begin
+    powerlogoff = 0;
+    ret = init_log(&log_power);
+    minor_of_power = log_power.misc.minor;
+    printk("%s, minor_of_power=%d\n", __FUNCTION__, minor_of_power);
+    powerlogoff = 1;
+    if (unlikely(ret)) {
+        //do nothing
+    } else {
+#ifdef CONFIG_K3_LOG
+        log_power.log_buf_info = (volatile log_buffer_head *)log_buf_info + 6;
+        log_power.rbuf = (volatile unsigned char *)ioremap_nocache(K3_POWER_LOG_BASE, POWER_LOG_BUF_LEN);
+        if (!log_power.log_buf_info || !log_power.rbuf) {
+            /* init error, the system may be crashed, no need to unmap. */
+            ret = -EFAULT;
+        }
+#endif
+    }
+    //huangwen 2012-09-05 end
+    return ret;
 }
 device_initcall(logger_init);
 
@@ -757,6 +916,11 @@ static int add_prefix_to_rbuf(struct logger_log *log, struct iovec **iov,
 			if(len && copy_from_user((void *)(prefix_buf + prefix_len), (void *)(*iov)->iov_base, len)){
 				return -EFAULT;
 			}
+
+		prefix_len += len;
+
+		len = (unsigned int)snprintf(prefix_buf + prefix_len, sizeof(prefix_buf)-prefix_len,
+								"(%5d): ", head.pid);
 
 			prefix_len += len;
 			(*iov)++;

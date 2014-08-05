@@ -54,6 +54,7 @@ obj-$(CONFIG_MWAVE)		+= mwave/
 obj-$(CONFIG_AGP)		+= agp/
 obj-$(CONFIG_PCMCIA)		+= pcmcia/
 obj-$(CONFIG_IPMI_HANDLER)	+= ipmi/
+obj-$(CONFIG_PPPOESTA)          += pppoesta/
 
 obj-$(CONFIG_HANGCHECK_TIMER)	+= hangcheck-timer.o
 obj-$(CONFIG_TCG_TPM)		+= tpm/
@@ -64,10 +65,8 @@ obj-$(CONFIG_RAMOOPS)		+= ramoops.o
 
 obj-$(CONFIG_JS_RTC)		+= js-rtc.o
 js-rtc-y = rtc.o
-
-obj-$(CONFIG_HUAWEI_FEATURE_LOW_MEMORY_KILLER_STUB)	+= lowmemorykiller_stub.o
+obj-$(CONFIG_HUAWEI_FEATURE_LOW_MEMORY_KILLER_STUB)     += lowmemorykiller_stub.o
 
 #seceng driver begin. add by z00212134
 obj-$(CONFIG_SECENGDEV)          += secengdev/
 #seceng driver end. add by z00212134
-

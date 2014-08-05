@@ -34,6 +34,63 @@ static struct regulator *s_vdec_vcc = NULL;
 //VPP主设备open次数
 static unsigned int s_vpp_count = 0;
 
+static int power_on()
+{
+    int ret = 0;
+
+    BUG_ON(NULL == s_vdec_vcc);
+    BUG_ON(NULL == s_clk);
+
+    ret = regulator_enable(s_vdec_vcc);
+    if (ret)
+    {
+        loge("failed to enable vdec-vcc regulator.\n");
+        return -1;
+    }
+    logi(" regulator is enable \n");
+
+    ret = clk_set_rate(s_clk, 140000000);
+    if (ret)
+    {
+        loge("clk_set_rate failed ret = %#x\n",ret);
+        regulator_disable(s_vdec_vcc);
+        return -1;
+    }
+    logi(" clock set rate success \n");
+
+    ret = clk_enable(s_clk);
+    if (ret)
+    {
+        loge("clk_enable failed ret = %#x\n",ret);
+        regulator_disable(s_vdec_vcc);
+        return -1;
+    }
+    logi(" clock is enable \n");
+
+    inter_init_layer(HAL_LAYER_VIDEO1);
+    inter_open(HAL_LAYER_VIDEO1);
+    hal_set_int_enable(HAL_INTMSK_VTEINT);
+
+    return 0;
+}
+static void power_off()
+{
+    BUG_ON(NULL == s_vdec_vcc);
+    BUG_ON(NULL == s_clk);
+
+    inter_close(HAL_LAYER_VIDEO1);
+    inter_deinit_layer(HAL_LAYER_VIDEO1);
+    hal_set_int_disable(HAL_INTMSK_VTEINT);
+
+    clk_disable(s_clk);
+    logi(" clock is disable \n");
+
+    regulator_disable(s_vdec_vcc);
+    logi(" regulator is disable \n");
+
+    return;
+}
+
 /*the func regist to irq*/
 static irqreturn_t vpp_isr ( int irq, void *dev_id )
 {
@@ -161,43 +218,12 @@ static int vpp_open(struct file *file)
         return 0;
     }
 
-    if (0 != regulator_enable(s_vdec_vcc)) {
-        loge("failed to enable vdec-vcc regulator.\n");
-        return -1;
-    } 
-
-    if (NULL != s_clk)
-     {
-        ret = clk_enable(s_clk);
-        if (ret)
-        {
-            loge("clk_enable failed ret = %#x\n",ret);
-        }
-        else
-        {
-            logi(" clock is enable \n");
-            ret = clk_set_rate(s_clk, 140000000);
-            if (ret) {
-                loge("clk_set_rate failed ret = %#x\n",ret);
-            } else {
-                logi(" clock set rate success \n");
-            }
-        }
-    }
-    else
-    {
-        loge("%s,the s_clk is null\n",__FUNCTION__);
-    }
-    
-    ret = inter_init();  
+    ret = inter_init();
     if(K3_SUCCESS != ret)
     {
         loge("vpp init failed ret = %#x\n",ret);
         return -EFAULT;
     }
-
-    inter_open(HAL_LAYER_VIDEO1);
-    hal_set_int_enable(HAL_INTMSK_VTEINT);
 
     s_vpp_count++;
     
@@ -215,26 +241,8 @@ static int vpp_close(struct file *file)
         logi("don't need to close device, the open count is %d\n", s_vpp_count);
         return 0;
     }
-    
-    inter_close(HAL_LAYER_VIDEO1);
-    
-    inter_deinit();
 
-    if ( NULL != s_clk) 
-    {
-        clk_disable(s_clk);
-        logi(" clock is disable \n");
-    }
-    else
-    {
-        loge("the s_clk is null\n");
-    }
-    
-    /*disable vdec regulator*/
-    if( NULL !=  s_vdec_vcc)
-    {
-        regulator_disable(s_vdec_vcc);
-    }
+    inter_deinit();
 
     return 0;
 }
@@ -274,7 +282,12 @@ static long vpp_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
         loge("vpp err: %d\n",err);
         return -EFAULT;
     }
-
+    err = power_on();
+    if(err)
+    {
+        loge("vpp power on failed.\n");
+        return -EFAULT;
+    }
     switch (cmd)
     {        
         case VPP_STARTCONFIG:
@@ -306,6 +319,7 @@ static long vpp_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
                 else
                 {
                     loge("wait event time out\n");
+			        log_reg_value();
                     err = -ETIME;
                 }
             }
@@ -324,7 +338,8 @@ static long vpp_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
             break;
         }
     }
-    
+    power_off();
+
     return err;
 }
 

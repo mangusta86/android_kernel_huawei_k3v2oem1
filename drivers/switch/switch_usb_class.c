@@ -108,13 +108,13 @@ int switch_usb_set_state(struct switch_usb_dev *sdev, int state)
             wake_unlock(&usbsw_wakelock);
             msleep(100);
         }
-        if (E_BOARD_TYPE_U9508 == board_type){
+//        if (E_BOARD_TYPE_U9508 == board_type){
         ret = gpio_direction_output(pdata->usw_ctrl_gpio, GPIO_HI);
         if (ret < 0) {
             dev_err(sdev->dev, "%s: gpio_direction_output %d return"
                 "err: %d.\n", __func__, pdata->usw_ctrl_gpio, ret);
             goto err_request_usw_ctrl_gpio_input;
-        }
+//        }
 
         ret = gpio_direction_output(pdata->usw_en_gpio, GPIO_HI);
         if (ret < 0) {
@@ -142,37 +142,37 @@ int switch_usb_set_state(struct switch_usb_dev *sdev, int state)
         case USB_TO_AP:
             dev_info(sdev->dev, "%s: USB_TO_AP\n", __func__);
             msleep(1000);
-            if (E_BOARD_TYPE_U9508 == board_type){
+//            if (E_BOARD_TYPE_U9508 == board_type){
                 gpio_set_value(pdata->usw_ctrl_gpio, GPIO_LOW);
                 gpio_set_value(pdata->usw_en_gpio, GPIO_LOW);
-            }else{
-                gpio_set_value(pdata->usw_ctrl_gpio, GPIO_HI);
-                gpio_set_value(pdata->usw_en_gpio, GPIO_LOW);
-            }
+//            }else{
+//                gpio_set_value(pdata->usw_ctrl_gpio, GPIO_HI);
+//                gpio_set_value(pdata->usw_en_gpio, GPIO_LOW);
+//            }
 
             break;
         case USB_TO_MODEM:
             dev_info(sdev->dev, "%s: USB_TO_MODEM\n", __func__);
             msleep(1000);
 
-            if (E_BOARD_TYPE_U9508 == board_type){
+//            if (E_BOARD_TYPE_U9508 == board_type){
                 gpio_set_value(pdata->usw_ctrl_gpio, GPIO_HI);
                 gpio_set_value(pdata->usw_en_gpio, GPIO_LOW);
-            }else{
-                gpio_set_value(pdata->usw_ctrl_gpio, GPIO_LOW);
-                gpio_set_value(pdata->usw_en_gpio, GPIO_HI);
-            }
+//            }else{
+//                gpio_set_value(pdata->usw_ctrl_gpio, GPIO_LOW);
+//                gpio_set_value(pdata->usw_en_gpio, GPIO_HI);
+//            }
             enable_irq(switch_data->irq);
             break;
         case USB_OFF:
             dev_info(sdev->dev, "%s: USB_OFF\n", __func__);
-            if (E_BOARD_TYPE_U9508 == board_type){
+//            if (E_BOARD_TYPE_U9508 == board_type){
                 gpio_set_value(pdata->usw_en_gpio, GPIO_HI);
                 gpio_set_value(pdata->usw_ctrl_gpio, GPIO_LOW);
-            }else{
-                gpio_set_value(pdata->usw_en_gpio, GPIO_LOW);
-                gpio_set_value(pdata->usw_ctrl_gpio, GPIO_LOW);
-            }
+//            }else{
+//                gpio_set_value(pdata->usw_en_gpio, GPIO_LOW);
+//                gpio_set_value(pdata->usw_ctrl_gpio, GPIO_LOW);
+//            }
             break;
         default:
             dev_info(sdev->dev, "%s: state[%d] is overrun",

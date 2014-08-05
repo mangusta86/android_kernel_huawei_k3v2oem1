@@ -41,10 +41,9 @@
 #include "mipi_dsi.h"
 
 
-#define PWM_LEVEL 100
-
-
-/*----------------Power ON Sequence(power on to Normal mode)----------------------*/
+/*******************************************************************************
+** Power ON Sequence(sleep mode to Normal mode)
+*/
 /*
 ** Initial condition (RESET="L")
 **
@@ -272,6 +271,7 @@ static char powerOnData34[] = {
 	0x01,
 };
 
+#if 0
 /* RDDCOLMODE
   * 0x55:16bits 0x66:18bits 0x77:24bits */
 static char color_mode_16bits[] = {
@@ -283,6 +283,7 @@ static char color_mode_18bits[] = {
 	0x0C,
 	0x66,
 };
+#endif
 
 static char powerOnData35[] = {
 	0x0C,
@@ -300,9 +301,9 @@ static char display_on[] = {
 	0x29,
 };
 
-
-/*-------------------Power OFF Sequence(Normal to power off)----------------------*/
-
+/*******************************************************************************
+** Power OFF Sequence(Normal to power off)
+*/
 /* Display Off */
 static char display_off[] = {
 	0x28,
@@ -322,8 +323,7 @@ static char enter_sleep[] = {
 ** VCI OFF Logic Voltage
 */
 
-
-static struct dsi_cmd_desc sharp_video_on_cmds[] = {
+static struct dsi_cmd_desc sharp_display_on_cmds[] = {
 	{DTYPE_GEN_WRITE1, 0, 120, WAIT_TYPE_MS,
 		sizeof(exit_sleep), exit_sleep},
 
@@ -411,18 +411,232 @@ static struct dsi_cmd_desc sharp_display_off_cmds[] = {
 		sizeof(enter_sleep), enter_sleep}
 };
 
+/*******************************************************************************
+** LCD VCC
+*/
+#define VCC_LCDIO_NAME		"lcdio-vcc"
+#define VCC_LCDANALOG_NAME	"lcdanalog-vcc"
+
+static struct regulator *vcc_lcdio;
+static struct regulator *vcc_lcdanalog;
+
+static struct vcc_desc sharp_lcd_vcc_init_cmds[] = {
+	/* vcc get */
+	{DTYPE_VCC_GET, VCC_LCDIO_NAME, &vcc_lcdio, 0, 0},
+	{DTYPE_VCC_GET, VCC_LCDANALOG_NAME, &vcc_lcdanalog, 0, 0},
+
+	/* vcc set voltage */
+	{DTYPE_VCC_SET_VOLTAGE, VCC_LCDIO_NAME, &vcc_lcdio, 1800000, 1800000},
+};
+
+static struct vcc_desc sharp_lcd_vcc_finit_cmds[] = {
+	/* vcc put */
+	{DTYPE_VCC_PUT, VCC_LCDIO_NAME, &vcc_lcdio, 0, 0},
+	{DTYPE_VCC_PUT, VCC_LCDANALOG_NAME, &vcc_lcdanalog, 0, 0},
+};
+
+static struct vcc_desc sharp_lcd_vcc_enable_cmds[] = {
+	/* vcc enable */
+	{DTYPE_VCC_ENABLE, VCC_LCDIO_NAME, &vcc_lcdio, 0, 0},
+	{DTYPE_VCC_ENABLE, VCC_LCDANALOG_NAME, &vcc_lcdanalog, 0, 0},
+};
+
+static struct vcc_desc sharp_lcd_vcc_disable_cmds[] = {
+	/* vcc disable */
+	{DTYPE_VCC_DISABLE, VCC_LCDANALOG_NAME, &vcc_lcdanalog, 0, 0},
+	{DTYPE_VCC_DISABLE, VCC_LCDIO_NAME, &vcc_lcdio, 0, 0},
+};
+
+/*******************************************************************************
+** LCD IOMUX
+*/
+#define IOMUX_LCD_NAME	"block_lcd"
+
+static struct iomux_block **lcd_block;
+static struct block_config **lcd_block_config;
+
+static struct iomux_desc sharp_lcd_iomux_init_cmds[] = {
+	{DTYPE_IOMUX_GET, IOMUX_LCD_NAME,
+		(struct iomux_block **)&lcd_block, (struct block_config **)&lcd_block_config, 0},
+};
+
+static struct iomux_desc sharp_lcd_iomux_normal_cmds[] = {
+	{DTYPE_IOMUX_SET, IOMUX_LCD_NAME,
+		(struct iomux_block **)&lcd_block, (struct block_config **)&lcd_block_config, NORMAL},
+};
+
+static struct iomux_desc sharp_lcd_iomux_lowpower_cmds[] = {
+	{DTYPE_IOMUX_SET, IOMUX_LCD_NAME,
+		(struct iomux_block **)&lcd_block, (struct block_config **)&lcd_block_config, LOWPOWER},
+};
+
+/*******************************************************************************
+** LCD GPIO
+*/
+#define GPIO_LCD_POWER_NAME	"gpio_lcd_power"
+#define GPIO_LCD_RESET_NAME	"gpio_lcd_reset"
+#define GPIO_LCD_ID0_NAME	"gpio_lcd_id0"
+#define GPIO_LCD_ID1_NAME	"gpio_lcd_id1"
+
+#define GPIO_LCD_POWER	GPIO_21_3
+#define GPIO_LCD_RESET	GPIO_0_3
+#define GPIO_LCD_ID0	GPIO_16_7
+#define GPIO_LCD_ID1	GPIO_17_0
+
+static struct gpio_desc sharp_lcd_gpio_request_cmds[] = {
+	/* power */
+	{DTYPE_GPIO_REQUEST, WAIT_TYPE_MS, 0,
+		GPIO_LCD_POWER_NAME, GPIO_LCD_POWER, 0},
+	/* reset */
+	{DTYPE_GPIO_REQUEST, WAIT_TYPE_MS, 0,
+		GPIO_LCD_RESET_NAME, GPIO_LCD_RESET, 0},
+	/* id0 */
+	{DTYPE_GPIO_REQUEST, WAIT_TYPE_MS, 0,
+		GPIO_LCD_ID0_NAME, GPIO_LCD_ID0, 0},
+	/* id1 */
+	{DTYPE_GPIO_REQUEST, WAIT_TYPE_MS, 0,
+		GPIO_LCD_ID1_NAME, GPIO_LCD_ID1, 0},
+};
+
+static struct gpio_desc sharp_lcd_gpio_free_cmds[] = {
+	/* reset */
+	{DTYPE_GPIO_FREE, WAIT_TYPE_MS, 0,
+		GPIO_LCD_RESET_NAME, GPIO_LCD_RESET, 0},
+	/* power */
+	{DTYPE_GPIO_FREE, WAIT_TYPE_MS, 0,
+		GPIO_LCD_POWER_NAME, GPIO_LCD_POWER, 0},
+	/* id0 */
+	{DTYPE_GPIO_FREE, WAIT_TYPE_MS, 0,
+		GPIO_LCD_ID0_NAME, GPIO_LCD_ID0, 0},
+	/* id1 */
+	{DTYPE_GPIO_FREE, WAIT_TYPE_MS, 0,
+		GPIO_LCD_ID1_NAME, GPIO_LCD_ID1, 0},
+};
+
+static struct gpio_desc sharp_lcd_gpio_normal_cmds[] = {
+	/* id0 */
+	{DTYPE_GPIO_INPUT, WAIT_TYPE_MS, 1,
+		GPIO_LCD_ID0_NAME, GPIO_LCD_ID0, 0},
+	/* id1 */
+	{DTYPE_GPIO_INPUT, WAIT_TYPE_MS, 1,
+		GPIO_LCD_ID1_NAME, GPIO_LCD_ID1, 0},
+	/* reset */
+	{DTYPE_GPIO_OUTPUT, WAIT_TYPE_MS, 1,
+		GPIO_LCD_RESET_NAME, GPIO_LCD_RESET, 1},
+	/* power */
+	{DTYPE_GPIO_OUTPUT, WAIT_TYPE_MS, 1,
+		GPIO_LCD_POWER_NAME, GPIO_LCD_POWER, 1},
+	/* reset */
+	{DTYPE_GPIO_OUTPUT, WAIT_TYPE_MS, 1,
+		GPIO_LCD_RESET_NAME, GPIO_LCD_RESET, 0},
+	{DTYPE_GPIO_OUTPUT, WAIT_TYPE_MS, 1,
+		GPIO_LCD_RESET_NAME, GPIO_LCD_RESET, 1},
+};
+
+static struct gpio_desc sharp_lcd_gpio_lowpower_cmds[] = {
+	/* id0 */
+	{DTYPE_GPIO_INPUT, WAIT_TYPE_MS, 1,
+		GPIO_LCD_ID0_NAME, GPIO_LCD_ID0, 0},
+	/* id1 */
+	{DTYPE_GPIO_INPUT, WAIT_TYPE_MS, 1,
+		GPIO_LCD_ID1_NAME, GPIO_LCD_ID1, 0},
+	/* power */
+	{DTYPE_GPIO_OUTPUT, WAIT_TYPE_MS, 1,
+		GPIO_LCD_POWER_NAME, GPIO_LCD_POWER, 0},
+	/* reset */
+	{DTYPE_GPIO_OUTPUT, WAIT_TYPE_MS, 1,
+		GPIO_LCD_RESET_NAME, GPIO_LCD_RESET, 0},
+};
+
+/*******************************************************************************
+** PWM IOMUX
+*/
+#define IOMUX_PWM_NAME	"block_lcd"
+
+static struct iomux_block **pwm_block;
+static struct block_config **pwm_block_config;
+
+static struct iomux_desc sharp_pwm_iomux_init_cmds[] = {
+	{DTYPE_IOMUX_GET, IOMUX_PWM_NAME,
+		(struct iomux_block **)&pwm_block, (struct block_config **)&pwm_block_config, 0},
+};
+
+static struct iomux_desc sharp_pwm_iomux_normal_cmds[] = {
+	{DTYPE_IOMUX_SET, IOMUX_PWM_NAME,
+		(struct iomux_block **)&pwm_block, (struct block_config **)&pwm_block_config, NORMAL},
+};
+
+static struct iomux_desc sharp_pwm_iomux_lowpower_cmds[] = {
+	{DTYPE_IOMUX_SET, IOMUX_PWM_NAME,
+		(struct iomux_block **)&pwm_block, (struct block_config **)&pwm_block_config, LOWPOWER},
+};
+
+/*******************************************************************************
+** PWM GPIO
+*/
+#define GPIO_LCD_PWM0_NAME	"gpio_pwm0"
+#define GPIO_LCD_PWM1_NAME	"gpio_pwm1"
+
+#define GPIO_PWM0	GPIO_18_5
+#define GPIO_PWM1	GPIO_18_6
+
+static struct gpio_desc sharp_pwm_gpio_request_cmds[] = {
+	/* pwm0 */
+	{DTYPE_GPIO_REQUEST, WAIT_TYPE_MS, 0,
+		GPIO_LCD_PWM0_NAME, GPIO_PWM0, 0},
+	/* pwm1 */
+	{DTYPE_GPIO_REQUEST, WAIT_TYPE_MS, 0,
+		GPIO_LCD_PWM1_NAME, GPIO_PWM1, 0},
+};
+
+static struct gpio_desc sharp_pwm_gpio_free_cmds[] = {
+	/* pwm0 */
+	{DTYPE_GPIO_FREE, WAIT_TYPE_MS, 0,
+		GPIO_LCD_PWM0_NAME, GPIO_PWM0, 0},
+	/* pwm1 */
+	{DTYPE_GPIO_FREE, WAIT_TYPE_MS, 0,
+		GPIO_LCD_PWM1_NAME, GPIO_PWM1, 0},
+};
+
+static struct gpio_desc sharp_pwm_gpio_normal_cmds[] = {
+	/* pwm1 */
+	{DTYPE_GPIO_INPUT, WAIT_TYPE_MS, 1,
+		GPIO_LCD_PWM1_NAME, GPIO_PWM1, 0},
+};
+
+static struct gpio_desc sharp_pwm_gpio_lowpower_cmds[] = {
+	/* pwm0 */
+	{DTYPE_GPIO_OUTPUT, WAIT_TYPE_MS, 1,
+		GPIO_LCD_PWM0_NAME, GPIO_PWM0, 0},
+	/* pwm1 */
+	{DTYPE_GPIO_INPUT, WAIT_TYPE_MS, 1,
+		GPIO_LCD_PWM1_NAME, GPIO_PWM1, 0},
+};
+
+static volatile bool g_display_on;
 static struct k3_fb_panel_data sharp_panel_data;
 
+
+/*******************************************************************************
+**
+*/
 static int sharp_pwm_on(struct k3_fb_data_type *k3fd)
 {
 	BUG_ON(k3fd == NULL);
 
+	/* pwm iomux normal */
+	iomux_cmds_tx(sharp_pwm_iomux_normal_cmds, \
+		ARRAY_SIZE(sharp_pwm_iomux_normal_cmds));
+
+	/* pwm gpio request */
+	gpio_cmds_tx(sharp_pwm_gpio_request_cmds, \
+		ARRAY_SIZE(sharp_pwm_gpio_request_cmds));
+	/* pwm gpio free */
+	gpio_cmds_tx(sharp_pwm_gpio_normal_cmds, \
+		ARRAY_SIZE(sharp_pwm_gpio_normal_cmds));
+
 	/* backlight on */
-	PWM_IOMUX_SET(&(k3fd->panel_info), NORMAL);
-	PWM_GPIO_REQUEST(&(k3fd->panel_info));
-	gpio_direction_input(k3fd->panel_info.gpio_pwm1);
-	mdelay(1);
-	pwm_set_backlight(k3fd->bl_level, &(k3fd->panel_info));
+	pwm_set_backlight(k3fd, &g_display_on);
 
 	return 0;
 }
@@ -432,13 +646,18 @@ static int sharp_pwm_off(struct k3_fb_data_type *k3fd)
 	BUG_ON(k3fd == NULL);
 
 	/* backlight off */
-	pwm_set_backlight(0, &(k3fd->panel_info));
-	gpio_direction_output(k3fd->panel_info.gpio_pwm0, 0);
-	mdelay(1);
-	gpio_direction_input(k3fd->panel_info.gpio_pwm1);
-	mdelay(1);
-	PWM_GPIO_FREE(&(k3fd->panel_info));
-	PWM_IOMUX_SET(&(k3fd->panel_info), LOWPOWER);
+	pwm_set_backlight(k3fd, &g_display_on);
+
+	/* pwm gpio lowpower */
+	gpio_cmds_tx(sharp_pwm_gpio_lowpower_cmds, \
+		ARRAY_SIZE(sharp_pwm_gpio_lowpower_cmds));
+	/* pwm gpio free */
+	gpio_cmds_tx(sharp_pwm_gpio_free_cmds, \
+		ARRAY_SIZE(sharp_pwm_gpio_free_cmds));
+
+	/* pwm iomux lowpower */
+	iomux_cmds_tx(sharp_pwm_iomux_lowpower_cmds, \
+		ARRAY_SIZE(sharp_pwm_iomux_lowpower_cmds));
 
 	return 0;
 }
@@ -452,24 +671,20 @@ static void sharp_disp_on(struct k3_fb_data_type *k3fd)
 	edc_base = k3fd->edc_base;
 	pinfo = &(k3fd->panel_info);
 
-	LCD_VCC_ENABLE(pinfo);
-	LCD_IOMUX_SET(pinfo, NORMAL);
-	LCD_GPIO_REQUEST(pinfo);
-	gpio_direction_input(pinfo->gpio_lcd_id0);
-	mdelay(1);
-	gpio_direction_input(pinfo->gpio_lcd_id1);
-	mdelay(1);
-	gpio_direction_output(pinfo->gpio_reset, 1);
-	mdelay(1);
-	gpio_direction_output(pinfo->gpio_power, 1);
-	mdelay(1);
-	gpio_direction_output(pinfo->gpio_reset, 0);
-	mdelay(1);
-	gpio_direction_output(pinfo->gpio_reset, 1);
-	mdelay(1);
+	/* lcd iomux normal */
+	iomux_cmds_tx(sharp_lcd_iomux_normal_cmds, \
+		ARRAY_SIZE(sharp_lcd_iomux_normal_cmds));
 
-	mipi_dsi_cmds_tx(sharp_video_on_cmds,
-		ARRAY_SIZE(sharp_video_on_cmds), edc_base);
+	/* lcd gpio request */
+	gpio_cmds_tx(sharp_lcd_gpio_request_cmds, \
+		ARRAY_SIZE(sharp_lcd_gpio_request_cmds));
+	/* lcd gpio normal */
+	gpio_cmds_tx(sharp_lcd_gpio_normal_cmds, \
+		ARRAY_SIZE(sharp_lcd_gpio_normal_cmds));
+
+	/* lcd display on sequence */
+	mipi_dsi_cmds_tx(sharp_display_on_cmds, \
+		ARRAY_SIZE(sharp_display_on_cmds), edc_base);
 }
 
 static void sharp_disp_off(struct k3_fb_data_type *k3fd)
@@ -481,40 +696,60 @@ static void sharp_disp_off(struct k3_fb_data_type *k3fd)
 	edc_base = k3fd->edc_base;
 	pinfo = &(k3fd->panel_info);
 
-	mipi_dsi_cmds_tx(sharp_display_off_cmds,
+	/* lcd display off sequence */
+	mipi_dsi_cmds_tx(sharp_display_off_cmds, \
 		ARRAY_SIZE(sharp_display_off_cmds), edc_base);
 
-	gpio_direction_input(pinfo->gpio_lcd_id0);
-	mdelay(1);
-	gpio_direction_input(pinfo->gpio_lcd_id1);
-	mdelay(1);
-	gpio_direction_output(pinfo->gpio_reset, 0);
-	mdelay(1);
-	gpio_direction_output(pinfo->gpio_power, 0);
-	mdelay(1);
-	LCD_GPIO_FREE(pinfo);
-	LCD_IOMUX_SET(pinfo, LOWPOWER);
-	LCD_VCC_DISABLE(pinfo);
+	/* lcd gpio lowpower */
+	gpio_cmds_tx(sharp_lcd_gpio_lowpower_cmds, \
+		ARRAY_SIZE(sharp_lcd_gpio_lowpower_cmds));
+	/* lcd gpio free */
+	gpio_cmds_tx(sharp_lcd_gpio_free_cmds, \
+		ARRAY_SIZE(sharp_lcd_gpio_free_cmds));
+
+	/* lcd iomux lowpower */
+	iomux_cmds_tx(sharp_lcd_iomux_lowpower_cmds, \
+		ARRAY_SIZE(sharp_lcd_iomux_lowpower_cmds));
+
+	/* lcd vcc disable */
+	vcc_cmds_tx(NULL, sharp_lcd_vcc_disable_cmds, \
+		ARRAY_SIZE(sharp_lcd_vcc_disable_cmds));
 }
 
 static int mipi_sharp_panel_on(struct platform_device *pdev)
 {
 	struct k3_fb_data_type *k3fd = NULL;
+	struct k3_panel_info *pinfo = NULL;
 
 	BUG_ON(pdev == NULL);
 
 	k3fd = (struct k3_fb_data_type *)platform_get_drvdata(pdev);
 	BUG_ON(k3fd == NULL);
 
-	if (!k3fd->panel_info.display_on) {
-		/* lcd display on */
-		sharp_disp_on(k3fd);
-		k3fd->panel_info.display_on = true;
+	pinfo = &(k3fd->panel_info);
+	if (pinfo->lcd_init_step == LCD_INIT_POWER_ON) {
+		/* lcd vcc enable */
+		vcc_cmds_tx(NULL, sharp_lcd_vcc_enable_cmds, \
+			ARRAY_SIZE(sharp_lcd_vcc_enable_cmds));
+
+		pinfo->lcd_init_step = 	LCD_INIT_MIPI_LP_SEND_SEQUENCE;
+	} else if (pinfo->lcd_init_step == LCD_INIT_MIPI_LP_SEND_SEQUENCE) {
+		if (!g_display_on) {
+			/* lcd display on */
+			sharp_disp_on(k3fd);
+		}
+		pinfo->lcd_init_step = LCD_INIT_MIPI_HS_SEND_SEQUENCE;
+	} else if (pinfo->lcd_init_step == LCD_INIT_MIPI_HS_SEND_SEQUENCE) {
 		if (k3fd->panel_info.bl_set_type & BL_SET_BY_PWM) {
 			/* backlight on */
 			sharp_pwm_on(k3fd);
 		}
+
+		g_display_on = true;
+	} else {
+		k3fb_loge("failed to init lcd!\n");
 	}
+
 	return 0;
 }
 
@@ -527,8 +762,8 @@ static int mipi_sharp_panel_off(struct platform_device *pdev)
 	k3fd = (struct k3_fb_data_type *)platform_get_drvdata(pdev);
 	BUG_ON(k3fd == NULL);
 
-	if (k3fd->panel_info.display_on) {
-		k3fd->panel_info.display_on = false;
+	if (g_display_on) {
+		g_display_on = false;
 		if (k3fd->panel_info.bl_set_type & BL_SET_BY_PWM) {
 			/* backlight off */
 			sharp_pwm_off(k3fd);
@@ -548,18 +783,21 @@ static int mipi_sharp_panel_remove(struct platform_device *pdev)
 	k3fd = (struct k3_fb_data_type *)platform_get_drvdata(pdev);
 	BUG_ON(k3fd == NULL);
 
-	k3fb_logi("index=%d, enter!\n", k3fd->index);
+	k3fb_logd("index=%d, enter!\n", k3fd->index);
 
 	if (k3fd->panel_info.bl_set_type & BL_SET_BY_PWM) {
-		PWM_CLK_PUT(&(k3fd->panel_info));
+		/* pwm clock */
+		pwm_clk_put(&(k3fd->panel_info));
 	}
-	LCD_VCC_PUT(&(k3fd->panel_info));
 
-	k3fb_logi("index=%d, exit!\n", k3fd->index);
+	/* lcd vcc  finit */
+	vcc_cmds_tx(pdev, sharp_lcd_vcc_finit_cmds, \
+		ARRAY_SIZE(sharp_lcd_vcc_finit_cmds));
+
+	k3fb_logd("index=%d, exit!\n", k3fd->index);
 
 	return 0;
 }
-
 
 static int mipi_sharp_panel_set_backlight(struct platform_device *pdev)
 {
@@ -570,11 +808,7 @@ static int mipi_sharp_panel_set_backlight(struct platform_device *pdev)
 	k3fd = (struct k3_fb_data_type *)platform_get_drvdata(pdev);
 	BUG_ON(k3fd == NULL);
 
-	if (k3fd->panel_info.bl_set_type & BL_SET_BY_PWM) {
-		return pwm_set_backlight(k3fd->bl_level, &(k3fd->panel_info));
-	} else {
-		return 0;
-	}
+	return pwm_set_backlight(k3fd, &g_display_on);
 }
 
 static int mipi_sharp_panel_set_fastboot(struct platform_device *pdev)
@@ -586,16 +820,29 @@ static int mipi_sharp_panel_set_fastboot(struct platform_device *pdev)
 	k3fd = (struct k3_fb_data_type *)platform_get_drvdata(pdev);
 	BUG_ON(k3fd == NULL);
 
-	LCD_VCC_ENABLE(&(k3fd->panel_info));
-	LCD_IOMUX_SET(&(k3fd->panel_info), NORMAL);
-	LCD_GPIO_REQUEST(&(k3fd->panel_info));
+	/* lcd vcc enable */
+	vcc_cmds_tx(pdev, sharp_lcd_vcc_enable_cmds, \
+		ARRAY_SIZE(sharp_lcd_vcc_enable_cmds));
+
+	/* lcd iomux normal */
+	iomux_cmds_tx(sharp_lcd_iomux_normal_cmds, \
+		ARRAY_SIZE(sharp_lcd_iomux_normal_cmds));
+
+	/* lcd gpio request */
+	gpio_cmds_tx(sharp_lcd_gpio_request_cmds, \
+		ARRAY_SIZE(sharp_lcd_gpio_request_cmds));
 
 	if (k3fd->panel_info.bl_set_type & BL_SET_BY_PWM) {
-		PWM_IOMUX_SET(&(k3fd->panel_info), NORMAL);
-		PWM_GPIO_REQUEST(&(k3fd->panel_info));
+		/* pwm iomux normal */
+		iomux_cmds_tx(sharp_pwm_iomux_normal_cmds, \
+			ARRAY_SIZE(sharp_pwm_iomux_normal_cmds));
+
+		/* pwm gpio request */
+		gpio_cmds_tx(sharp_pwm_gpio_request_cmds, \
+			ARRAY_SIZE(sharp_pwm_gpio_request_cmds));
 	}
 
-	k3fd->panel_info.display_on = true;
+	g_display_on = true;
 
 	return 0;
 }
@@ -610,14 +857,18 @@ static struct k3_fb_panel_data sharp_panel_data = {
 	.set_fastboot = mipi_sharp_panel_set_fastboot,
 };
 
+
+/*******************************************************************************
+**
+*/
 static int __devinit sharp_probe(struct platform_device *pdev)
 {
 	struct k3_panel_info *pinfo = NULL;
-	struct resource *res = NULL;
+
+	g_display_on = false;
 
 	pinfo = sharp_panel_data.panel_info;
 	/* init lcd panel info */
-	pinfo->display_on = false;
 	pinfo->xres = 640;
 	pinfo->yres = 960;
 	pinfo->width = 55;
@@ -628,11 +879,11 @@ static int __devinit sharp_probe(struct platform_device *pdev)
 	pinfo->s3d_frm = EDC_FRM_FMT_2D;
 	pinfo->bgr_fmt = EDC_RGB;
 	pinfo->bl_set_type = BL_SET_BY_PWM;
-	pinfo->bl_max = PWM_LEVEL;
 	pinfo->bl_min = 1;
+	pinfo->bl_max = 100;
 
 	pinfo->frc_enable = 0;
-	pinfo->esd_enable = 1;
+	pinfo->esd_enable = 0;
 	pinfo->sbl_enable = 1;
 
 	pinfo->sbl.bl_max = 0xff;
@@ -661,21 +912,24 @@ static int __devinit sharp_probe(struct platform_device *pdev)
 	pinfo->mipi.vc = 0;
 	pinfo->mipi.dsi_bit_clk = 300;
 
-	/* lcd vcc */
-	LCD_VCC_GET(pdev, pinfo);
-	LCDIO_SET_VOLTAGE(pinfo, 1800000, 1800000);
-	/* lcd iomux */
-	LCD_IOMUX_GET(pinfo);
-	/* lcd resource */
-	LCD_RESOURCE(pdev, pinfo, res);
+	/* lcd vcc init */
+	vcc_cmds_tx(pdev, sharp_lcd_vcc_init_cmds, \
+		ARRAY_SIZE(sharp_lcd_vcc_init_cmds));
+
+	/* lcd iomux init */
+	iomux_cmds_tx(sharp_lcd_iomux_init_cmds, \
+		ARRAY_SIZE(sharp_lcd_iomux_init_cmds));
 
 	if (pinfo->bl_set_type & BL_SET_BY_PWM) {
-		/* pwm clock*/
-		PWM_CLK_GET(pinfo);
-		/* pwm iomux */
-		PWM_IOMUX_GET(pinfo);
-		/* pwm resource */
-		PWM_RESOUTCE(pdev, pinfo, res);
+		pinfo->pwm.name = CLK_PWM0_NAME,
+		pinfo->pwm.clk_rate = DEFAULT_PWM_CLK_RATE,
+
+		/* pwm clock */
+		pwm_clk_get(pinfo);
+
+		/* pwm iomux init */
+		iomux_cmds_tx(sharp_pwm_iomux_init_cmds, \
+			ARRAY_SIZE(sharp_pwm_iomux_init_cmds));
 	}
 
 	/* alloc panel device data */

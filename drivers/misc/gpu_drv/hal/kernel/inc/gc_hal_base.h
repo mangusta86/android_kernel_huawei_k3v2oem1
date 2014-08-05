@@ -1924,6 +1924,13 @@ gcoSURF_SetOffset(
     );
 
 gceSTATUS
+gcoSURF_GetOffset(
+    IN gcoSURF Surface,
+    IN gctUINT *Offset
+    );
+
+
+gceSTATUS
 gcoSURF_NODE_Cache(
     IN gcsSURF_NODE_PTR Node,
     IN gctPOINTER Logical,

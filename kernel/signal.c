@@ -437,6 +437,9 @@ flush_signal_handlers(struct task_struct *t, int force_default)
 		if (force_default || ka->sa.sa_handler != SIG_IGN)
 			ka->sa.sa_handler = SIG_DFL;
 		ka->sa.sa_flags = 0;
+		#ifdef SA_RESTORER
+		    ka->sa.sa_restorer = NULL;
+		#endif
 		sigemptyset(&ka->sa.sa_mask);
 		ka++;
 	}
@@ -631,23 +634,17 @@ int dequeue_signal(struct task_struct *tsk, sigset_t *mask, siginfo_t *info)
  * No need to set need_resched since signal event passing
  * goes through ->blocked
  */
-void signal_wake_up(struct task_struct *t, int resume)
+void signal_wake_up_state(struct task_struct *t, unsigned int state)
 {
-	unsigned int mask;
-
 	set_tsk_thread_flag(t, TIF_SIGPENDING);
-
 	/*
-	 * For SIGKILL, we want to wake it up in the stopped/traced/killable
+	 * TASK_WAKEKILL also means wake it up in the stopped/traced/killable
 	 * case. We don't check t->state here because there is a race with it
 	 * executing another processor and just now entering stopped state.
 	 * By using wake_up_state, we ensure the process will wake up and
 	 * handle its death signal.
 	 */
-	mask = TASK_INTERRUPTIBLE;
-	if (resume)
-		mask |= TASK_WAKEKILL;
-	if (!wake_up_state(t, mask))
+	if (!wake_up_state(t, state | TASK_INTERRUPTIBLE))
 		kick_process(t);
 }
 
@@ -1675,6 +1672,10 @@ static inline int may_ptrace_stop(void)
 	 * If SIGKILL was already sent before the caller unlocked
 	 * ->siglock we must see ->core_state != NULL. Otherwise it
 	 * is safe to enter schedule().
+	 *
+	 * This is almost outdated, a task with the pending SIGKILL can't
+	 * block in TASK_TRACED. But PTRACE_EVENT_EXIT can be reported
+	 * after SIGKILL was already dequeued.
 	 */
 	if (unlikely(current->mm->core_state) &&
 	    unlikely(current->mm == current->parent->mm))
@@ -1806,6 +1807,7 @@ static void ptrace_stop(int exit_code, int why, int clear_code, siginfo_t *info)
 		if (gstop_done)
 			do_notify_parent_cldstop(current, false, why);
 
+		/* tasklist protects us from ptrace_freeze_traced() */
 		__set_current_state(TASK_RUNNING);
 		if (clear_code)
 			current->exit_code = 0;
@@ -1894,21 +1896,19 @@ static int do_signal_stop(int signr)
 		 */
 		if (!(sig->flags & SIGNAL_STOP_STOPPED))
 			sig->group_exit_code = signr;
-		else
-			WARN_ON_ONCE(!task_ptrace(current));
 
 		current->group_stop &= ~GROUP_STOP_SIGMASK;
 		current->group_stop |= signr | gstop;
 		sig->group_stop_count = 1;
 		for (t = next_thread(current); t != current;
 		     t = next_thread(t)) {
-			t->group_stop &= ~GROUP_STOP_SIGMASK;
 			/*
 			 * Setting state to TASK_STOPPED for a group
 			 * stop is always done with the siglock held,
 			 * so this check has no races.
 			 */
 			if (!(t->flags & PF_EXITING) && !task_is_stopped(t)) {
+				t->group_stop &= ~GROUP_STOP_SIGMASK;
 				t->group_stop |= signr | gstop;
 				sig->group_stop_count++;
 				signal_wake_up(t, 0);
@@ -2622,6 +2622,10 @@ SYSCALL_DEFINE4(rt_sigtimedwait, const sigset_t __user *, uthese,
 SYSCALL_DEFINE2(kill, pid_t, pid, int, sig)
 {
 	struct siginfo info;
+#ifdef CONFIG_CCSECURITY
+	if (ccs_kill_permission(pid, sig))
+		return -EPERM;
+#endif
 
 	info.si_signo = sig;
 	info.si_errno = 0;
@@ -2664,7 +2668,7 @@ do_send_specific(pid_t tgid, pid_t pid, int sig, struct siginfo *info)
 
 static int do_tkill(pid_t tgid, pid_t pid, int sig)
 {
-	struct siginfo info;
+	struct siginfo info = {};
 
 	info.si_signo = sig;
 	info.si_errno = 0;
@@ -2690,6 +2694,10 @@ SYSCALL_DEFINE3(tgkill, pid_t, tgid, pid_t, pid, int, sig)
 	/* This is only valid for single tasks */
 	if (pid <= 0 || tgid <= 0)
 		return -EINVAL;
+#ifdef CONFIG_CCSECURITY
+	if (ccs_tgkill_permission(tgid, pid, sig))
+		return -EPERM;
+#endif
 
 	return do_tkill(tgid, pid, sig);
 }
@@ -2706,6 +2714,10 @@ SYSCALL_DEFINE2(tkill, pid_t, pid, int, sig)
 	/* This is only valid for single tasks */
 	if (pid <= 0)
 		return -EINVAL;
+#ifdef CONFIG_CCSECURITY
+	if (ccs_tkill_permission(pid, sig))
+		return -EPERM;
+#endif
 
 	return do_tkill(0, pid, sig);
 }
@@ -2733,6 +2745,10 @@ SYSCALL_DEFINE3(rt_sigqueueinfo, pid_t, pid, int, sig,
 		return -EPERM;
 	}
 	info.si_signo = sig;
+#ifdef CONFIG_CCSECURITY
+	if (ccs_sigqueue_permission(pid, sig))
+		return -EPERM;
+#endif
 
 	/* POSIX.1b doesn't mention process groups.  */
 	return kill_proc_info(sig, &info, pid);
@@ -2753,6 +2769,10 @@ long do_rt_tgsigqueueinfo(pid_t tgid, pid_t pid, int sig, siginfo_t *info)
 		return -EPERM;
 	}
 	info->si_signo = sig;
+#ifdef CONFIG_CCSECURITY
+	if (ccs_tgsigqueue_permission(tgid, pid, sig))
+		return -EPERM;
+#endif
 
 	return do_send_specific(tgid, pid, sig, info);
 }

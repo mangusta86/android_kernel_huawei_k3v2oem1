@@ -1240,7 +1240,6 @@ static bool hdcp_sha_compare_vi(sha_ctx * pSha)
 static u32 hdcp_sha_get_byte_bstatus_mx(u32 addr)
 {
     u8 data[2] = {0};
-    BUG_ON((addr-2) >= 8);
 
     if (addr < 2) {
         /* Read B Status */
@@ -1807,7 +1806,6 @@ static void hdcp_anth_part2(void)
     hdcp_sendcp_packet(false);
     hdcp_auto_ksvready_check ( true );
 
-#if HDCP_FOR_CERTIFICATION
     hdcp_para.is_checking_ksv = true;
     for (i = 1; i <= (KSV_READY_TIMEOUT/KSV_READY_CHECK_INTERVAL) && hdcp_para.is_checking_ksv; i++) {
         msleep(KSV_READY_CHECK_INTERVAL);
@@ -1843,7 +1841,6 @@ static void hdcp_anth_part2(void)
     } else {
         logi("ksv ready check ok, time %dms\n", i*KSV_READY_CHECK_INTERVAL);
     }
-#endif
     OUT_FUNCTION;
 
     return;
@@ -1956,7 +1953,7 @@ static void hdcp_reathentication( void )
     hdcp_enable_hdmi_mode(is_hdmi);
     REG_FLD_MOD(HDMI_CORE_SYS, 0xCF*4, is_hdmi, 4, 4);
 
-    hdcp_blank_video(false);        /* Video Must be ON */
+    hdcp_blank_video(true);
     hdcp_sendcp_packet(true);
     hdcp_set_encryption(false);        /* Must turn encryption off when AVMUTE */
 
@@ -2300,17 +2297,14 @@ void hdcp_wait_anth_stop(void)
     int times = 0;
     hdcp_para.bhdcpstart = false;
     hdcp_para.wait_anth_stop = true;
-    hdcp_para.is_checking_ksv = false;
 
     logi("hdcp stop state:%d\n", hdcp_para.auth_state);
-    for (; times < 50; times++) {
-        if ((NO_HDCP == hdcp_para.auth_state) || (AUTHENTICATED == hdcp_para.auth_state) || (REPEATER_AUTH_REQ == hdcp_para.auth_state)) {
+    for (; times < 500; times++) {
+        if ((NO_HDCP == hdcp_para.auth_state) || (AUTHENTICATED == hdcp_para.auth_state)) {
             break;
         }
         msleep(10);
     }
-    
-    hdcp_set_auth_status(NO_HDCP);
     hdcp_disable();
     hdcp_para.wait_anth_stop = false;
     if (50 == times) {

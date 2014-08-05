@@ -536,6 +536,72 @@ static int hisik3_ehci_setup(struct usb_hcd *hcd)
 }
 
 #ifdef CONFIG_PM
+typedef void (*FN)(void);
+FN current_post_suspend=NULL;
+FN current_pre_resume=NULL;
+
+int hisik3_ehci_bus_post_suspend_register( struct device *dev, void (*fn)(void) )
+{
+    struct hisik3_ehci_hcd *hiusb_ehci = hiusb_ehci_private;
+
+    if ( hiusb_ehci && hiusb_ehci->pdata ) {
+        printk("%s: post_suspend %s\n", __func__, hiusb_ehci->pdata->post_suspend ? "already registered" : "will be registered");
+        hiusb_ehci->pdata->post_suspend = fn;
+        current_post_suspend = fn;
+        return 0;
+    } else {
+        printk("%s: hiusb_ehci %s, post_suspend will be registered later\n", __func__, "NULL");
+        current_post_suspend = fn;
+        return -1;
+    }
+}
+EXPORT_SYMBOL_GPL(hisik3_ehci_bus_post_suspend_register);
+void hisik3_ehci_bus_post_suspend_unregister( struct device *dev )
+{
+    struct hisik3_ehci_hcd *hiusb_ehci = hiusb_ehci_private;
+
+    if ( hiusb_ehci && hiusb_ehci->pdata ) {
+        printk("%s: post_suspend %s\n", __func__, hiusb_ehci->pdata->post_suspend ? "will be unregistered" : "already unregistered");
+        hiusb_ehci->pdata->post_suspend = NULL;
+        current_post_suspend = NULL;
+    } else {
+        printk("%s: hiusb_ehci %s\n", __func__, "NULL");
+        current_post_suspend = NULL;
+    }
+}
+EXPORT_SYMBOL_GPL(hisik3_ehci_bus_post_suspend_unregister);
+
+int hisik3_ehci_bus_pre_resume_register( struct device *dev, void (*fn)(void) )
+{
+    struct hisik3_ehci_hcd *hiusb_ehci = hiusb_ehci_private;
+
+    if ( hiusb_ehci && hiusb_ehci->pdata ) {
+        pr_info("%s: pre_resume %s\n", __func__, hiusb_ehci->pdata->pre_resume ? "already registered" : "will be registered");
+        hiusb_ehci->pdata->pre_resume = fn;
+        current_pre_resume = fn;
+        return 0;
+    } else {
+        printk("%s: hiusb_ehci %s, pre_resume will be registered later\n", __func__, "NULL");
+        current_pre_resume = fn;
+        return -1;
+    }
+}
+EXPORT_SYMBOL_GPL(hisik3_ehci_bus_pre_resume_register);
+void hisik3_ehci_bus_pre_resume_unregister( struct device *dev )
+{
+    struct hisik3_ehci_hcd *hiusb_ehci = hiusb_ehci_private;
+
+    if ( hiusb_ehci && hiusb_ehci->pdata ) {
+        printk("%s: pre_resume %s\n", __func__, hiusb_ehci->pdata->pre_resume ? "will be unregistered" : "already unregistered");
+        hiusb_ehci->pdata->pre_resume = NULL;
+        current_pre_resume = NULL;
+    } else {
+        printk("%s: hiusb_ehci %s\n", __func__, "NULL");
+        current_pre_resume = NULL;
+    }
+}
+EXPORT_SYMBOL_GPL(hisik3_ehci_bus_pre_resume_unregister);
+
 static int hisik3_ehci_bus_suspend(struct usb_hcd *hcd)
 {
 	struct hisik3_ehci_hcd *hiusb_ehci = dev_get_drvdata(hcd->self.controller);
@@ -543,14 +609,14 @@ static int hisik3_ehci_bus_suspend(struct usb_hcd *hcd)
 
 	printk("hisik3_ehci_bus_suspend.\n");
 
+      if (hiusb_ehci->pdata && hiusb_ehci->pdata->post_suspend)
+		hiusb_ehci->pdata->post_suspend();
+
 	error_status = ehci_bus_suspend(hcd);
 	if (!error_status && hiusb_ehci->power_down_on_bus_suspend) {
 		hisik3_usb_suspend(hcd);
 		hiusb_ehci->bus_suspended = 1;
 	}
-
-	if (hiusb_ehci->pdata && hiusb_ehci->pdata->post_suspend)
-		hiusb_ehci->pdata->post_suspend();
 
 	if (hiusb_ehci->clock_state) {
 		/*disable hisc phy cnf clk,12MHz and 480MHz.*/
@@ -568,6 +634,9 @@ static int hisik3_ehci_bus_resume(struct usb_hcd *hcd)
 	struct hisik3_ehci_hcd *hiusb_ehci = dev_get_drvdata(hcd->self.controller);
 	printk("hisik3_ehci_bus_resume.\n");
 
+	if (hiusb_ehci->pdata && hiusb_ehci->pdata->pre_resume)
+		hiusb_ehci->pdata->pre_resume();
+
 	if (!hiusb_ehci->clock_state) {
 		/*enable hisc phy cnf clk,12MHz and 480MHz.*/
 		hisik3_usb_phy_clk_enable(hiusb_ehci->phy);
@@ -578,9 +647,6 @@ static int hisik3_ehci_bus_resume(struct usb_hcd *hcd)
 
 		hiusb_ehci->clock_state = 1;
 	}
-
-	if (hiusb_ehci->pdata && hiusb_ehci->pdata->pre_resume)
-		hiusb_ehci->pdata->pre_resume();
 
 	if (hiusb_ehci->bus_suspended && hiusb_ehci->power_down_on_bus_suspend) {
 		hisik3_usb_resume(hcd);
@@ -827,6 +893,15 @@ static int hisik3_ehci_probe(struct platform_device *pdev)
 	}
 
 	hisik3_ehci_power_down(hcd);
+
+    //Register hisik3_ehci_bus_post_suspend and hisik3_ehci_bus_pre_resume function for dynamic compatible with multi modem
+    err = hisik3_ehci_bus_post_suspend_register( &(pdev->dev), current_post_suspend );
+    if (err)
+        dev_info(&pdev->dev, "Warning: Register hisik3_ehci_bus_post_suspend fn failed!\n");
+
+    err = hisik3_ehci_bus_pre_resume_register( &(pdev->dev), current_pre_resume );
+    if (err)
+        dev_info(&pdev->dev, "Warning: Register hisik3_ehci_bus_pre_resume fn failed!\n");
 
 #ifdef CONFIG_USB_EHCI_ONOFF_FEATURE
 	err = device_create_file(&(pdev->dev), &dev_attr_ehci_power);

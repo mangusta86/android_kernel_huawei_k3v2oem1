@@ -48,6 +48,7 @@
 #include <linux/audit.h>
 #include <linux/memcontrol.h>
 #include <linux/ftrace.h>
+#include <linux/proc_fs.h>
 #include <linux/profile.h>
 #include <linux/rmap.h>
 #include <linux/ksm.h>
@@ -67,6 +68,7 @@
 #include <linux/user-return-notifier.h>
 #include <linux/oom.h>
 #include <linux/khugepaged.h>
+#include <linux/signalfd.h>
 
 #include <asm/pgtable.h>
 #include <asm/pgalloc.h>
@@ -211,6 +213,9 @@ void __put_task_struct(struct task_struct *tsk)
 	put_signal_struct(tsk->signal);
 
 	atomic_notifier_call_chain(&task_free_notifier, 0, tsk);
+#ifdef CONFIG_CCSECURITY
+	ccs_free_task_security(tsk);
+#endif
 	if (!profile_handoff_task(tsk))
 		free_task(tsk);
 }
@@ -933,8 +938,10 @@ static int copy_sighand(unsigned long clone_flags, struct task_struct *tsk)
 
 void __cleanup_sighand(struct sighand_struct *sighand)
 {
-	if (atomic_dec_and_test(&sighand->count))
+	if (atomic_dec_and_test(&sighand->count)) {
+		signalfd_cleanup(sighand);
 		kmem_cache_free(sighand_cachep, sighand);
+	}
 }
 
 
@@ -996,6 +1003,9 @@ static int copy_signal(unsigned long clone_flags, struct task_struct *tsk)
 
 #ifdef CONFIG_CGROUPS
 	init_rwsem(&sig->threadgroup_fork_lock);
+#endif
+#ifdef CONFIG_CPUSETS
+	seqcount_init(&tsk->mems_allowed_seq);
 #endif
 
 	sig->oom_adj = current->signal->oom_adj;
@@ -1233,6 +1243,11 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 
 	if ((retval = audit_alloc(p)))
 		goto bad_fork_cleanup_policy;
+#ifdef CONFIG_CCSECURITY
+	retval = ccs_alloc_task_security(p);
+	if (retval)
+		goto bad_fork_cleanup_audit;
+#endif
 	/* copy all the process information */
 	if ((retval = copy_semundo(clone_flags, p)))
 		goto bad_fork_cleanup_audit;
@@ -1391,6 +1406,8 @@ bad_fork_cleanup_io:
 	if (p->io_context)
 		exit_io_context(p);
 bad_fork_cleanup_namespaces:
+	if (unlikely(clone_flags & CLONE_NEWPID))
+		pid_ns_release_proc(p->nsproxy->pid_ns);
 	exit_task_namespaces(p);
 bad_fork_cleanup_mm:
 	if (p->mm) {
@@ -1413,6 +1430,9 @@ bad_fork_cleanup_semundo:
 	exit_sem(p);
 bad_fork_cleanup_audit:
 	audit_free(p);
+#ifdef CONFIG_CCSECURITY
+	ccs_free_task_security(p);
+#endif
 bad_fork_cleanup_policy:
 	perf_event_free_task(p);
 #ifdef CONFIG_NUMA

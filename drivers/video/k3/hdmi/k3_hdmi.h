@@ -43,11 +43,12 @@
 #undef USE_HDCP
 #endif
 #define USE_HDCP    0
-
+/*
 #ifdef INFO_LEVEL
 #undef INFO_LEVEL
 #endif
 #define INFO_LEVEL  0
+*/
 #endif
 
 #ifndef USE_HDCP

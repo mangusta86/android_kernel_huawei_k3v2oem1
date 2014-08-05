@@ -23,6 +23,7 @@
 
 static const struct usb_device_id id_table[] = {
 	{USB_DEVICE(0x058b, 0x0041)},	/*  */
+    {USB_DEVICE(0x12d1, 0x1506)},
 	{ }				/* Terminating entry */
 };
 MODULE_DEVICE_TABLE(usb, id_table);
@@ -50,7 +51,8 @@ static int hi_gs_probe(struct usb_serial *serial, const struct usb_device_id *id
 	spin_lock_init(&data->susp_lock);
 	return 0;
 }
-
+//set bulk size to 8k to improve download modem image speed
+#define USB_BULK_OUT_SIZE   (8*1024)
 static struct usb_serial_driver hi_gs_device = {
 	.driver = {
 		.owner          = THIS_MODULE,
@@ -69,6 +71,7 @@ static struct usb_serial_driver hi_gs_device = {
 	.attach		     = usb_wwan_startup,
 	.disconnect	     = usb_wwan_disconnect,
 	.release	            = usb_wwan_release,
+	.bulk_out_size = USB_BULK_OUT_SIZE,
 #ifdef CONFIG_PM
 	.suspend	            = usb_wwan_suspend,
 	.resume		     = usb_wwan_resume,

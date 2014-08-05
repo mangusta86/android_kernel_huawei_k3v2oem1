@@ -50,10 +50,6 @@
 #include <linux/regulator/consumer.h>
 #include <linux/regulator/driver.h>
 #include <linux/regulator/machine.h>
-
-
-#include <hsad/config_interface.h>
-
 #include <linux/workqueue.h>
 #include <linux/semaphore.h>
 
@@ -64,6 +60,8 @@
 #include "k3_ispv1.h"
 #include "k3_ispv1_afae.h"
 #include "k3_isp_io.h"
+#include "k3_ispv1_hdr_movie_ae.h"
+#include <hsad/config_interface.h>
 
 #define DEBUG_DEBUG 0
 #define LOG_TAG "K3_ISPV1_TUNE_OPS"
@@ -76,6 +74,10 @@ static int scene_target_y_low = DEFAULT_TARGET_Y_LOW;
 static int scene_target_y_high = DEFAULT_TARGET_Y_HIGH;
 bool fps_lock;
 
+/* < zhoutian 00195335 2013-03-02 added for SuperZoom-LowLight begin */
+bool hw_lowlight_on_flg = false;
+/* zhoutian 00195335 2013-03-02 added for SuperZoom-LowLight end > */
+
 static bool ispv1_change_frame_rate(
 	camera_frame_rate_state *state, camera_frame_rate_dir direction, camera_sensor *sensor);
 static int ispv1_set_frame_rate(camera_frame_rate_mode mode, camera_sensor *sensor);
@@ -83,6 +85,43 @@ static int ispv1_set_frame_rate(camera_frame_rate_mode mode, camera_sensor *sens
 static void ispv1_uv_stat_work_func(struct work_struct *work);
 struct workqueue_struct *uv_stat_work_queue;
 struct work_struct uv_stat_work;
+/*
+set parameter for products
+FLASH_CAP_RAW_OVER_EXPO
+DEFAULT_TARGET_Y_FLASH
+*/
+u32 flash_cap_raw_over_expo;
+u32 default_target_y_flash;
+#define EDGE_FLASH_CAP_RAW_OVER_EXPO  0xc0
+#define EDGE_DEFAULT_TARGET_Y_FLASH      0x28
+void set_tune_parameter_for_product(void)
+{
+	if(product_type("UEDGE"))
+	{
+		flash_cap_raw_over_expo = EDGE_FLASH_CAP_RAW_OVER_EXPO;
+		default_target_y_flash = EDGE_DEFAULT_TARGET_Y_FLASH;
+	}
+	else if(product_type("TEDGE"))
+	{
+		flash_cap_raw_over_expo = EDGE_FLASH_CAP_RAW_OVER_EXPO;
+		default_target_y_flash = EDGE_DEFAULT_TARGET_Y_FLASH;
+	}
+	else if(product_type("CEDGED")) 
+	{
+		flash_cap_raw_over_expo = EDGE_FLASH_CAP_RAW_OVER_EXPO;
+		default_target_y_flash = EDGE_DEFAULT_TARGET_Y_FLASH;
+	}
+	else if(product_type("UEDGE_G"))
+	{
+		flash_cap_raw_over_expo = EDGE_FLASH_CAP_RAW_OVER_EXPO;
+		default_target_y_flash = EDGE_DEFAULT_TARGET_Y_FLASH;
+	}
+	else
+	{
+		flash_cap_raw_over_expo = FLASH_CAP_RAW_OVER_EXPO;
+		default_target_y_flash = DEFAULT_TARGET_Y_FLASH;
+	}
+}
 
 /*
  * For anti-shaking, y36721 todo
@@ -179,6 +218,16 @@ int ispv1_set_iso(camera_iso iso)
 
 	print_debug("enter %s", __func__);
 
+	/* < zhoutian 00195335 2013-03-02 added for SuperZoom-LowLight begin */
+	// when the ISO now is not AUTO, and capture mode changes from Single to Lowlight
+	// do not set ISO to auto again, because we already doubled ISO value in set_iso_double_or_normal
+	if (hw_lowlight_on_flg == true)
+	{
+		print_debug("%s: In lowlight mode, do not set ISO again!", __func__);
+		return 0;
+	}
+	/* zhoutian 00195335 2013-03-02 added for SuperZoom-LowLight end > */
+
 	/* ISO is to change sensor gain, but is not same */
 	switch (iso) {
 	case CAMERA_ISO_AUTO:
@@ -223,17 +272,28 @@ int ispv1_set_iso(camera_iso iso)
 		break;
 	}
 
+	if (sensor->hynix_set_lsc_shading) {
+		sensor->hynix_set_lsc_shading(iso);
+	}
 	max_gain = max_iso * 0x10 / 100;
 	min_gain = min_iso * 0x10 / 100;
 
+	sensor->min_gain = min_gain;
+	sensor->max_gain = max_gain;
+
+	if(BINNING_SUMMARY== sensor->support_binning_type)
+	{
+		if(sensor->frmsize_list[sensor->preview_frmsize_index].binning == false)
+		{
+			max_gain = max_gain *2;
+		}
+	}
 	/* set to ISP registers */
 	SETREG8(REG_ISP_MAX_GAIN, (max_gain & 0xff00) >> 8);
 	SETREG8(REG_ISP_MAX_GAIN + 1, max_gain & 0xff);
 	SETREG8(REG_ISP_MIN_GAIN, (min_gain & 0xff00) >> 8);
 	SETREG8(REG_ISP_MIN_GAIN + 1, min_gain & 0xff);
 
-	sensor->min_gain = min_gain;
-	sensor->max_gain = max_gain;
 
 out:
 	return retvalue;
@@ -242,10 +302,17 @@ out:
 int inline ispv1_iso2gain(int iso, bool binning)
 {
 	int gain;
-
-	if (binning == false)
+	camera_sensor *sensor;
+	if (NULL == this_ispdata) {
+		print_info("this_ispdata is NULL");
+		return -1;
+	}
+	sensor = this_ispdata->sensor;
+	if(BINNING_SUMMARY== sensor->support_binning_type)
+	{
+		if (binning == false)
 		iso *= 2;
-
+	}
 	gain = iso * 0x10 / 100;
 	return gain;
 }
@@ -253,11 +320,20 @@ int inline ispv1_iso2gain(int iso, bool binning)
 int inline ispv1_gain2iso(int gain, bool binning)
 {
 	int iso;
+	camera_sensor *sensor;
+	if (NULL == this_ispdata) {
+		print_info("this_ispdata is NULL");
+		return -1;
+	}
+	sensor = this_ispdata->sensor;
 
 	iso = gain * 100 / 0x10;
-	if (binning == false)
-		iso /= 2;
 
+	if(BINNING_SUMMARY== sensor->support_binning_type)
+	{
+		if (binning == false)
+			iso /= 2;
+	}
 	iso = (iso + 5) / 10 * 10;
 	return iso;
 }
@@ -316,7 +392,45 @@ int ispv1_get_actual_iso(void)
 	iso = ispv1_gain2iso(gain, binning);
 	return iso;
 }
+int ispv1_get_hdr_iso_exp(hdr_para_reserved *iso_exp)
+{
+	camera_sensor *sensor = this_ispdata->sensor;
+	u16 gain;
+	u32 expo, fps, vts;
+	int index;
+	bool binning;
 
+	//get iso value
+	index = sensor->capture_frmsize_index;
+	binning = sensor->frmsize_list[index].binning;
+
+	GETREG16(ISP_FIRST_FRAME_GAIN, gain);
+	iso_exp->iso_speed[0] = ispv1_gain2iso(gain, binning);
+
+	GETREG16(ISP_SECOND_FRAME_GAIN, gain);
+	iso_exp->iso_speed[1] = ispv1_gain2iso(gain, binning);
+
+	GETREG16(ISP_THIRD_FRAME_GAIN, gain);
+	iso_exp->iso_speed[2] = ispv1_gain2iso(gain, binning);
+
+	//get exp value
+	fps = sensor->frmsize_list[index].fps;
+	vts = sensor->frmsize_list[index].vts;
+
+	GETREG32(ISP_FIRST_FRAME_EXPOSURE, expo);
+	expo >>= 4;
+	iso_exp->exposure_time[0] = ispv1_expo_line2time(expo, fps, vts);
+
+	GETREG32(ISP_SECOND_FRAME_EXPOSURE, expo);
+	expo >>= 4;
+	iso_exp->exposure_time[1] = ispv1_expo_line2time(expo, fps, vts);
+
+	GETREG32(ISP_THIRD_FRAME_EXPOSURE, expo);
+	expo >>= 4;
+	iso_exp->exposure_time[2] = ispv1_expo_line2time(expo, fps, vts);
+
+	return 0;
+}
 int ispv1_get_exposure_time(void)
 {
 	u32 expo, fps, vts, index;
@@ -399,12 +513,124 @@ u32 ispv1_get_current_ccm_bgain(void)
 	return GETREG8(REG_ISP_CCM_PREGAIN_B);
 }
 
+/*
+ **************************************************************************
+ * FunctionName: ispv1_get_sensor_lux_matrix;
+ * Description : get lux matrix from sensor ,value is 14bit;
+ * Input       : the space pointer of lux_matrix;
+ * Output      : NA;
+ * ReturnValue : NA;
+ * Other       :
+ **************************************************************************
+ */
+int  ispv1_get_sensor_lux_matrix(lux_stat_matrix_tbl * lux_matrix)
+{
+	int  i;
+	int size = 0;
+	camera_sensor *sensor;
+
+	if (NULL == this_ispdata) {
+		print_info("this_ispdata is NULL");
+		return -1;
+	}
+	sensor = this_ispdata->sensor;
+       size = sensor->lux_matrix.size;
+       for( i = 0;i < size ; i++)
+       {
+          lux_matrix->matrix_table[i] = sensor->lux_matrix.matrix_table[i];
+	}
+	 lux_matrix->size = size;
+	return 0;
+}
+/*
+ **************************************************************************
+ * FunctionName: ispv1_get_sensor_hdr_points;
+ * Description : get hdr control points from sensor.
+ * Input       : the space pointer of atr_ctrl_points
+ * Output      : NA;
+ * ReturnValue : NA;
+ * Other       :
+ **************************************************************************
+ */
+int  ispv1_get_sensor_hdr_points(atr_ctrl_points* atr_points)
+{
+	camera_sensor *sensor;
+
+	if (NULL == this_ispdata) {
+		print_info("this_ispdata is NULL");
+		return -1;
+	}
+
+	if(atr_points == NULL){
+		print_error("atr_ctrl_points is NULL");
+		return -1;
+	}
+	sensor = this_ispdata->sensor;
+
+	atr_points->tc_out_noise = sensor->hdr_points.tc_out_noise;
+	atr_points->tc_out_mid = sensor->hdr_points.tc_out_mid;
+	atr_points->tc_out_sat = sensor->hdr_points.tc_out_sat;
+	atr_points->tc_noise_brate= sensor->hdr_points.tc_noise_brate;
+	atr_points->tc_mid_brate= sensor->hdr_points.tc_mid_brate;
+	atr_points->tc_sat_brate= sensor->hdr_points.tc_sat_brate;
+	atr_points->ae_sat= sensor->hdr_points.ae_sat;
+	atr_points->wb_lmt= sensor->hdr_points.wb_lmt;
+	return 0;
+}
+/*
+ **************************************************************************
+ * FunctionName: ispv1_get_sensor_hdr_info;
+ * Description : get hdr info from sensor that hdr info include long shutter,long gain short shutter,short gain hdr on status,atr on status, ae target
+ * Input       : the space pointer of hdr_info
+ * Output      : NA;
+ * ReturnValue : NA;
+ * Other       :
+ **************************************************************************
+ */
+int  ispv1_get_sensor_hdr_info(hdr_info* hdrInfo)
+{
+	camera_sensor *sensor;
+
+	if (NULL == this_ispdata) {
+		print_info("this_ispdata is NULL");
+		return -1;
+	}
+
+	if(hdrInfo == NULL){
+		print_error("hdr_info is NULL");
+		return -1;
+	}
+	sensor = this_ispdata->sensor;
+
+	hdrInfo->hdr_on = sensor->hdrInfo.hdr_on;
+	hdrInfo->atr_on = sensor->hdrInfo.atr_on;
+	hdrInfo->gain = sensor->hdrInfo.gain;
+	hdrInfo->expo= sensor->hdrInfo.expo;
+	hdrInfo->short_gain = sensor->hdrInfo.short_gain;
+	hdrInfo->short_expo= sensor->hdrInfo.short_expo;
+	hdrInfo->ae_target = sensor->hdrInfo.ae_target;
+	hdrInfo->avgLux_ave= sensor->hdrInfo.avgLux_ave;
+	hdrInfo->avgLux_weight= sensor->hdrInfo.avgLux_weight;
+	hdrInfo->stats_max= sensor->hdrInfo.stats_max;
+	hdrInfo->stats_diff= sensor->hdrInfo.stats_diff;
+	hdrInfo->atr_over_expo_on= sensor->hdrInfo.atr_over_expo_on;
+	hdrInfo->gainBeforeAjust = sensor->hdrInfo.gainBeforeAjust;
+	hdrInfo->wb_lmt  = sensor->hdrInfo.wb_lmt;
+	hdrInfo->ae_sat  = sensor->hdrInfo.ae_sat;
+
+	hdrInfo->N_digital_h  	= sensor->hdrInfo.N_digital_h;
+	hdrInfo->N_digital_l    = sensor->hdrInfo.N_digital_l;
+	return 0;
+}
 /* Added for EV: exposure compensation.
  * Just set as this: ev+2 add 40%, ev+1 add 20% to current target Y
  * should config targetY and step
  */
 void ispv1_calc_ev(u8 *target_low, u8 *target_high, int ev)
 {
+#ifdef OVISP_DEBUG_MODE
+	return 0;
+#endif
 	int target_y_low = DEFAULT_TARGET_Y_LOW;
 	int target_y_high = DEFAULT_TARGET_Y_HIGH;
 
@@ -704,6 +930,444 @@ int ispv1_set_awb(camera_white_balance awb_mode)
 }
 #endif
 
+/* < zhoutian 00195335 12-7-16 added for auto scene detect begin */
+int ispv1_get_extra_coff(extra_coff *extra_data)
+{
+	print_debug("enter %s", __func__);
+
+	extra_data->mean_y = GETREG8(0x1c75e);
+	extra_data->motion_x = (s8)GETREG8(0x1cc7c);
+	extra_data->motion_y = (s8)GETREG8(0x1cc7d);
+
+	extra_data->focal_length = ispv1_get_focus_distance();
+	extra_data->af_window_change = GETREG8(0x1cdd2);
+	
+	print_debug("mean_y = %d, motion_x = %d, motion_y = %d \n", extra_data->mean_y, extra_data->motion_x, extra_data->motion_y);
+	print_debug("focal_length = %d \n", extra_data->focal_length);
+
+	return 0;
+}
+
+
+int ispv1_get_ae_coff(ae_coff *ae_data)
+{
+	print_debug("enter %s", __func__);
+
+	GETREG16(0x1c158, ae_data->exposure_max);
+	GETREG16(0x1c15c, ae_data->exposure_min);
+	GETREG16(0x1c150, ae_data->gain_max);
+	GETREG16(0x1c154, ae_data->gain_min);
+	ae_data->luma_target_high = GETREG8(REG_ISP_TARGET_Y_HIGH);
+	ae_data->luma_target_low = GETREG8(REG_ISP_TARGET_Y_LOW);
+	ae_data->exposure = get_writeback_expo() >> 4;
+	ae_data->exposure_time = ispv1_get_exposure_time();
+	ae_data->gain = get_writeback_gain();
+	ae_data->iso = ispv1_get_actual_iso();
+
+	return 0;
+}
+
+
+int ispv1_set_ae_coff(ae_coff *ae_data)
+{
+	print_debug("enter %s", __func__);
+
+	u8 target_y_high = ae_data->luma_target_high;
+	u8 target_y_low = ae_data->luma_target_low;	
+
+	print_debug("target_y_high = %d, target_y_low = %d \n", target_y_high, target_y_low);
+
+	SETREG8(REG_ISP_TARGET_Y_HIGH, target_y_high);
+	SETREG8(REG_ISP_TARGET_Y_LOW, target_y_low);
+
+	return 0;
+}
+
+
+int ispv1_get_awb_coff(awb_coff *awb_data)
+{
+	print_debug("enter %s", __func__);
+
+	GETREG16(0x66c84, awb_data->auto_blue_gain);
+	GETREG16(0x66c86, awb_data->auto_green1_gain);
+	GETREG16(0x66c88, awb_data->auto_green2_gain);
+	GETREG16(0x66c8a, awb_data->auto_red_gain);
+
+	print_debug("auto_blue_gain = %d, auto_green1_gain = %d, auto_green2_gain = %d, auto_red_gain = %d \n"
+		, awb_data->auto_blue_gain, awb_data->auto_green1_gain, awb_data->auto_green2_gain, awb_data->auto_red_gain);
+
+	return 0;
+}
+
+
+int ispv1_set_awb_coff(awb_coff *awb_data)
+{
+	print_debug("enter %s", __func__);
+
+	SETREG8(0x1c5ac, awb_data->blue_gain_ratio);
+	SETREG8(0x1c5ad, awb_data->green_gain_ratio);
+	SETREG8(0x1c5ae, awb_data->red_gain_ratio);
+
+	return 0;
+}
+
+
+int ispv1_get_awb_ct_coff(awb_ct_coff *awb_ct_data)
+{
+	print_debug("enter %s", __func__);
+
+	awb_ct_data->avg_all_en = GETREG8(0x66201);
+	awb_ct_data->awb_window = GETREG8(0x66203);
+
+	awb_ct_data->awb_b_block = 	GETREG8(0x66200);
+	awb_ct_data->awb_s = 		GETREG8(0x1d925);
+	awb_ct_data->awb_ec = 		GETREG8(0x1d928);
+	awb_ct_data->awb_fc = 		GETREG8(0x1d92b);
+	awb_ct_data->awb_x0 = 		GETREG8(0x66209);
+	awb_ct_data->awb_y0 = 		GETREG8(0x6620a);
+	awb_ct_data->awb_kx = 		GETREG8(0x6620b);
+	awb_ct_data->awb_ky = 		GETREG8(0x6620c);
+	awb_ct_data->day_limit = 		GETREG8(0x1d92e);
+	awb_ct_data->a_limit = 		GETREG8(0x1d931);
+	awb_ct_data->day_split = 		GETREG8(0x1d934);
+	awb_ct_data->a_split = 		GETREG8(0x1d937);
+	awb_ct_data->awb_top_limit = 	GETREG8(0x66211);
+	awb_ct_data->awb_bot_limit = 	GETREG8(0x66212);
+
+	return 0;
+}
+
+
+int ispv1_set_awb_ct_coff(awb_ct_coff *awb_ct_data)
+{
+	print_debug("enter %s", __func__);
+
+	SETREG8(0x66201, awb_ct_data->avg_all_en);
+	SETREG8(0x66203, awb_ct_data->awb_window);
+
+	SETREG8(0x66200, awb_ct_data->awb_b_block);
+	SETREG8(0x1d925, awb_ct_data->awb_s);
+	SETREG8(0x1d928, awb_ct_data->awb_ec);
+	SETREG8(0x1d92b, awb_ct_data->awb_fc);
+	SETREG8(0x66209, awb_ct_data->awb_x0);
+	SETREG8(0x6620a, awb_ct_data->awb_y0);
+	SETREG8(0x6620b, awb_ct_data->awb_kx);
+	SETREG8(0x6620c, awb_ct_data->awb_ky);
+	SETREG8(0x1d92e, awb_ct_data->day_limit);
+	SETREG8(0x1d931, awb_ct_data->a_limit);
+	SETREG8(0x1d934, awb_ct_data->day_split);
+	SETREG8(0x1d937, awb_ct_data->a_split);
+	SETREG8(0x66211, awb_ct_data->awb_top_limit);
+	SETREG8(0x66212, awb_ct_data->awb_bot_limit);
+
+	return 0;
+}
+
+
+int ispv1_get_ccm_coff(ccm_coff *ccm_data)
+{
+	print_debug("enter %s", __func__);
+	s16 temp;
+	
+	GETREG16(0x1c1d8, temp);		ccm_data->ccm_center[0][0] = temp;
+	GETREG16(0x1c1da, temp);		ccm_data->ccm_center[0][1] = temp;
+	GETREG16(0x1c1dc, temp);		ccm_data->ccm_center[0][2] = temp;
+	GETREG16(0x1c1de, temp);		ccm_data->ccm_center[1][0] = temp;
+	GETREG16(0x1c1e0, temp);		ccm_data->ccm_center[1][1] = temp;
+	GETREG16(0x1c1e2, temp);		ccm_data->ccm_center[1][2] = temp;
+	GETREG16(0x1c1e4, temp);		ccm_data->ccm_center[2][0] = temp;
+	GETREG16(0x1c1e6, temp);		ccm_data->ccm_center[2][1] = temp;
+	GETREG16(0x1c1e8, temp);		ccm_data->ccm_center[2][2] = temp;
+
+	GETREG16(0x1c1fc, temp);		ccm_data->ccm_left[0][0] = temp;
+	GETREG16(0x1c1fe, temp);		ccm_data->ccm_left[0][1] = temp;
+	GETREG16(0x1c200, temp);		ccm_data->ccm_left[0][2] = temp;
+	GETREG16(0x1c202, temp);		ccm_data->ccm_left[1][0] = temp;
+	GETREG16(0x1c204, temp);		ccm_data->ccm_left[1][1] = temp;
+	GETREG16(0x1c206, temp);		ccm_data->ccm_left[1][2] = temp;
+	GETREG16(0x1c208, temp);		ccm_data->ccm_left[2][0] = temp;
+	GETREG16(0x1c20a, temp);		ccm_data->ccm_left[2][1] = temp;
+	GETREG16(0x1c20c, temp);		ccm_data->ccm_left[2][2] = temp;
+	
+	GETREG16(0x1c220, temp);		ccm_data->ccm_right[0][0] = temp;
+	GETREG16(0x1c222, temp);		ccm_data->ccm_right[0][1] = temp;
+	GETREG16(0x1c224, temp);		ccm_data->ccm_right[0][2] = temp;
+	GETREG16(0x1c226, temp);		ccm_data->ccm_right[1][0] = temp;
+	GETREG16(0x1c228, temp);		ccm_data->ccm_right[1][1] = temp;
+	GETREG16(0x1c22a, temp);		ccm_data->ccm_right[1][2] = temp;
+	GETREG16(0x1c22c, temp);		ccm_data->ccm_right[2][0] = temp;
+	GETREG16(0x1c22e, temp);		ccm_data->ccm_right[2][1] = temp;
+	GETREG16(0x1c230, temp);		ccm_data->ccm_right[2][2] = temp;
+	
+	return 0;
+}
+
+
+int ispv1_set_ccm_coff(ccm_coff *ccm_data)
+{
+	print_debug("enter %s", __func__);
+
+	SETREG16(0x1c1d8, ccm_data->ccm_center[0][0]);
+	SETREG16(0x1c1da, ccm_data->ccm_center[0][1]);
+	SETREG16(0x1c1dc, ccm_data->ccm_center[0][2]);
+	SETREG16(0x1c1de, ccm_data->ccm_center[1][0]);
+	SETREG16(0x1c1e0, ccm_data->ccm_center[1][1]);
+	SETREG16(0x1c1e2, ccm_data->ccm_center[1][2]);
+	SETREG16(0x1c1e4, ccm_data->ccm_center[2][0]);
+	SETREG16(0x1c1e6, ccm_data->ccm_center[2][1]);
+	SETREG16(0x1c1e8, ccm_data->ccm_center[2][2]);
+
+	SETREG16(0x1c1fc, ccm_data->ccm_left[0][0]);
+	SETREG16(0x1c1fe, ccm_data->ccm_left[0][1]);
+	SETREG16(0x1c200, ccm_data->ccm_left[0][2]);
+	SETREG16(0x1c202, ccm_data->ccm_left[1][0]);
+	SETREG16(0x1c204, ccm_data->ccm_left[1][1]);
+	SETREG16(0x1c206, ccm_data->ccm_left[1][2]);
+	SETREG16(0x1c208, ccm_data->ccm_left[2][0]);
+	SETREG16(0x1c20a, ccm_data->ccm_left[2][1]);
+	SETREG16(0x1c20c, ccm_data->ccm_left[2][2]);
+	
+	SETREG16(0x1c220, ccm_data->ccm_right[0][0]);
+	SETREG16(0x1c222, ccm_data->ccm_right[0][1]);
+	SETREG16(0x1c224, ccm_data->ccm_right[0][2]);
+	SETREG16(0x1c226, ccm_data->ccm_right[1][0]);
+	SETREG16(0x1c228, ccm_data->ccm_right[1][1]);
+	SETREG16(0x1c22a, ccm_data->ccm_right[1][2]);
+	SETREG16(0x1c22c, ccm_data->ccm_right[2][0]);
+	SETREG16(0x1c22e, ccm_data->ccm_right[2][1]);
+	SETREG16(0x1c230, ccm_data->ccm_right[2][2]);
+
+	return 0;
+}
+
+
+int ispv1_set_added_coff(added_coff *added_data)
+{
+	print_debug("enter %s", __func__);
+
+	SETREG8(0x65604, added_data->denoise[0]);
+	SETREG8(0x65605, added_data->denoise[1]);
+	SETREG8(0x65606, added_data->denoise[2]);
+	SETREG8(0x65607, added_data->denoise[3]);
+	SETREG8(0x65510, added_data->denoise[4]);
+	SETREG8(0x6551a, added_data->denoise[5]);
+	SETREG8(0x6551b, added_data->denoise[6]);
+	SETREG8(0x6551c, added_data->denoise[7]);
+	SETREG8(0x6551d, added_data->denoise[8]);
+	SETREG8(0x6551e, added_data->denoise[9]);
+	SETREG8(0x6551f, added_data->denoise[10]);
+	SETREG8(0x65520, added_data->denoise[11]);
+	SETREG8(0x65522, added_data->denoise[12]);
+	SETREG8(0x65523, added_data->denoise[13]);
+	SETREG8(0x65524, added_data->denoise[14]);
+	SETREG8(0x65525, added_data->denoise[15]);
+	SETREG8(0x65526, added_data->denoise[16]);
+	SETREG8(0x65527, added_data->denoise[17]);
+	SETREG8(0x65528, added_data->denoise[18]);
+	SETREG8(0x65529, added_data->denoise[19]);
+	SETREG8(0x6552a, added_data->denoise[20]);
+	SETREG8(0x6552b, added_data->denoise[21]);
+	SETREG8(0x6552c, added_data->denoise[22]);
+	SETREG8(0x6552d, added_data->denoise[23]);
+	SETREG8(0x6552e, added_data->denoise[24]);
+	SETREG8(0x6552f, added_data->denoise[25]);
+	SETREG8(0x65c00, added_data->denoise[26]);
+	SETREG8(0x65c01, added_data->denoise[27]);
+	SETREG8(0x65c02, added_data->denoise[28]);
+	SETREG8(0x65c03, added_data->denoise[29]);
+	SETREG8(0x65c04, added_data->denoise[30]);
+	SETREG8(0x65c05, added_data->denoise[31]);
+
+	SETREG8(0x1C4C0, added_data->tone[0]);
+	SETREG8(0x1C4C1, added_data->tone[1]);
+	SETREG8(0x1C4C2, added_data->tone[2]);
+	SETREG8(0x1C4C3, added_data->tone[3]);
+	SETREG8(0x1C4C4, added_data->tone[4]);
+	SETREG8(0x1C4C5, added_data->tone[5]);
+	SETREG8(0x1C4C6, added_data->tone[6]);
+	SETREG8(0x1C4C7, added_data->tone[7]);
+	SETREG8(0x1C4C8, added_data->tone[8]);
+	SETREG8(0x1C4C9, added_data->tone[9]);
+	SETREG8(0x1C4CA, added_data->tone[10]);
+	SETREG8(0x1C4CB, added_data->tone[11]);
+	SETREG8(0x1C4CC, added_data->tone[12]);
+	SETREG8(0x1C4CD, added_data->tone[13]);
+	SETREG8(0x1C4CE, added_data->tone[14]);
+	SETREG8(0x1c4d4, added_data->tone[15]);
+	SETREG8(0x1c4d5, added_data->tone[16]);
+	SETREG8(0x1c4cf, added_data->tone[17]);
+
+	SETREG8(0x1C998, added_data->uv[0]);
+	SETREG8(0x1C999, added_data->uv[1]);
+	SETREG8(0x1C99A, added_data->uv[2]);
+	SETREG8(0x1C99B, added_data->uv[3]);
+	SETREG8(0x1C99C, added_data->uv[4]);
+	SETREG8(0x1C99D, added_data->uv[5]);
+	SETREG8(0x1C99E, added_data->uv[6]);
+	SETREG8(0x1C99F, added_data->uv[7]);
+	SETREG8(0x1C9A0, added_data->uv[8]);
+	SETREG8(0x1C9A1, added_data->uv[9]);
+	SETREG8(0x1C9A2, added_data->uv[10]);
+	SETREG8(0x1C9A3, added_data->uv[11]);
+	SETREG8(0x1C9A4, added_data->uv[12]);
+	SETREG8(0x1C9A5, added_data->uv[13]);
+	SETREG8(0x1C9A6, added_data->uv[14]);
+	SETREG8(0x1C9A7, added_data->uv[15]);
+	SETREG8(0x1C9A8, added_data->uv[16]);
+	SETREG8(0x1C9A9, added_data->uv[17]);
+	SETREG8(0x1C9AA, added_data->uv[18]);
+	SETREG8(0x1C9AB, added_data->uv[19]);
+	SETREG8(0x1C9AC, added_data->uv[20]);
+	SETREG8(0x1C9AD, added_data->uv[21]);
+	SETREG8(0x1C9AE, added_data->uv[22]);
+	SETREG8(0x1C9AF, added_data->uv[23]);
+	SETREG8(0x1C9B0, added_data->uv[24]);
+	SETREG8(0x1C9B1, added_data->uv[25]);
+	SETREG8(0x1C9B2, added_data->uv[26]);
+	SETREG8(0x1C9B3, added_data->uv[27]);
+	SETREG8(0x1C9B4, added_data->uv[28]);
+	SETREG8(0x1C9B5, added_data->uv[29]);
+	SETREG8(0x1C9B6, added_data->uv[30]);
+	SETREG8(0x1C9B7, added_data->uv[31]);
+
+	SETREG8(0x1d904, added_data->uv_low[0]);
+	SETREG8(0x1d905, added_data->uv_low[1]);
+	SETREG8(0x1d906, added_data->uv_low[2]);
+	SETREG8(0x1d907, added_data->uv_low[3]);
+	SETREG8(0x1d908, added_data->uv_low[4]);
+	SETREG8(0x1d909, added_data->uv_low[5]);
+	SETREG8(0x1d90a, added_data->uv_low[6]);
+	SETREG8(0x1d90b, added_data->uv_low[7]);
+	SETREG8(0x1d90c, added_data->uv_low[8]);
+	SETREG8(0x1d90d, added_data->uv_low[9]);
+	SETREG8(0x1d90e, added_data->uv_low[10]);
+	SETREG8(0x1d90f, added_data->uv_low[11]);
+	SETREG8(0x1d910, added_data->uv_low[12]);
+	SETREG8(0x1d911, added_data->uv_low[13]);
+	SETREG8(0x1d912, added_data->uv_low[14]);
+	SETREG8(0x1d913, added_data->uv_low[15]);
+
+	SETREG8(0x1d914, added_data->uv_high[0]);
+	SETREG8(0x1d915, added_data->uv_high[1]);
+	SETREG8(0x1d916, added_data->uv_high[2]);
+	SETREG8(0x1d917, added_data->uv_high[3]);
+	SETREG8(0x1d918, added_data->uv_high[4]);
+	SETREG8(0x1d919, added_data->uv_high[5]);
+	SETREG8(0x1d91a, added_data->uv_high[6]);
+	SETREG8(0x1d91b, added_data->uv_high[7]);
+	SETREG8(0x1d91c, added_data->uv_high[8]);
+	SETREG8(0x1d91d, added_data->uv_high[9]);
+	SETREG8(0x1d91e, added_data->uv_high[10]);
+	SETREG8(0x1d91f, added_data->uv_high[11]);
+	SETREG8(0x1d920, added_data->uv_high[12]);
+	SETREG8(0x1d921, added_data->uv_high[13]);
+	SETREG8(0x1d922, added_data->uv_high[14]);
+	SETREG8(0x1d923, added_data->uv_high[15]);
+
+	SETREG8(0x1cccf, added_data->awb_shift[0]);
+	SETREG8(0x1ccd0, added_data->awb_shift[1]);
+	SETREG8(0x1c5b8, added_data->awb_shift[2]);
+	SETREG8(0x1c5b9, added_data->awb_shift[3]);
+	SETREG8(0x1ccd1, added_data->awb_shift[4]);
+	SETREG8(0x1ccd2, added_data->awb_shift[5]);
+	SETREG8(0x1ccd3, added_data->awb_shift[6]);
+	SETREG8(0x1ccd4, added_data->awb_shift[7]);
+	SETREG8(0x1cccc, added_data->awb_shift[8]);
+	SETREG8(0x1cccd, added_data->awb_shift[9]);
+
+	SETREG8(0x1c5ce, added_data->highlight[0]);
+	SETREG8(0x1c5cf, added_data->highlight[1]);
+	SETREG8(0x1c5d0, added_data->highlight[2]);
+	SETREG8(0x1c5d1, added_data->highlight[3]);
+	SETREG8(0x1c5d2, added_data->highlight[4]);
+	SETREG8(0x1c5d3, added_data->highlight[5]);
+	SETREG8(0x1c5d4, added_data->highlight[6]);
+	SETREG8(0x1c5d5, added_data->highlight[7]);
+	SETREG8(0x1c5d6, added_data->highlight[8]);
+	SETREG8(0x1c5d7, added_data->highlight[9]);
+	SETREG8(0x1c5d8, added_data->highlight[10]);
+	SETREG8(0x1c1c2, added_data->highlight[11]);
+	SETREG8(0x1c1c3, added_data->highlight[12]);
+
+	SETREG8(0x1d925, added_data->dynamic_awb[0]);
+	SETREG8(0x1d926, added_data->dynamic_awb[1]);
+	SETREG8(0x1d927, added_data->dynamic_awb[2]);
+	SETREG8(0x1d928, added_data->dynamic_awb[3]);
+	SETREG8(0x1d929, added_data->dynamic_awb[4]);
+	SETREG8(0x1d92a, added_data->dynamic_awb[5]);
+	SETREG8(0x1d92b, added_data->dynamic_awb[6]);
+	SETREG8(0x1d92c, added_data->dynamic_awb[7]);
+	SETREG8(0x1d92d, added_data->dynamic_awb[8]);
+	SETREG8(0x1d92e, added_data->dynamic_awb[9]);
+	SETREG8(0x1d92f, added_data->dynamic_awb[10]);
+	SETREG8(0x1d930, added_data->dynamic_awb[11]);
+	SETREG8(0x1d931, added_data->dynamic_awb[12]);
+	SETREG8(0x1d932, added_data->dynamic_awb[13]);
+	SETREG8(0x1d933, added_data->dynamic_awb[14]);
+	SETREG8(0x1d934, added_data->dynamic_awb[15]);
+	SETREG8(0x1d935, added_data->dynamic_awb[16]);
+	SETREG8(0x1d936, added_data->dynamic_awb[17]);
+	SETREG8(0x1d937, added_data->dynamic_awb[18]);
+	SETREG8(0x1d938, added_data->dynamic_awb[19]);
+	SETREG8(0x1d939, added_data->dynamic_awb[20]);
+
+	return 0;
+}
+
+
+int ispv1_get_coff_seq(seq_coffs *seq_data)
+{
+	print_debug("enter %s", __func__);
+
+	int i;
+	int length = seq_data->length;
+	int *reg = seq_data->reg;
+	int *value = seq_data->value;
+
+	for(i = 0; i < length; i++)
+	{
+		value[i] = GETREG8(reg[i]);
+		print_debug("i = %d, get reg[0x%x] = 0x%x", i, reg[i], value[i]);
+	}
+
+	return 0;
+}
+
+int ispv1_set_coff_seq(seq_coffs *seq_data)
+{
+	print_debug("enter %s", __func__);
+
+	int i;
+	int length = seq_data->length;
+	int *reg = seq_data->reg;
+	int *value = seq_data->value;
+
+	for(i = 0; i < length; i++)
+	{
+		SETREG8(reg[i], value[i]);
+		print_debug("i = %d, set reg[0x%x] = 0x%x", i, reg[i], value[i]);
+	}
+
+	return 0;
+}
+
+
+int max_expo_time = 0;	//used in ispv1_capture_cmd
+int ispv1_set_max_expo_time(int time)	//expo_time = 1/time s
+{
+	print_debug("enter %s", __func__);
+
+	if(max_expo_time < 0 || max_expo_time > 100)
+	{
+		print_error("%s, time = %d", __func__, time);
+		return time;
+	}
+	max_expo_time = time;
+
+	return 0;
+}
+
+/* zhoutian 00195335 12-7-16 added for auto scene detect end > */
 /* Added for sharpness, y36721 todo */
 int ispv1_set_sharpness(camera_sharpness sharpness)
 {
@@ -903,11 +1567,86 @@ void ispv1_change_max_exposure(camera_sensor *sensor, camera_max_exposrure mode)
 	if (CAMERA_MAX_EXPOSURE_LIMIT == mode)
 		max_exposure = (fps * vts / 100 - 14);
 	else
+	{
 		max_exposure = ((fps * vts / sensor->fps) - 14);
+		if(sensor->get_support_vts)
+		{
+			max_exposure = sensor->get_support_vts(sensor->fps,fps,vts);
+		}
+	}
+
+
 
 	SETREG16(REG_ISP_MAX_EXPOSURE, max_exposure);
 	SETREG16(REG_ISP_MAX_EXPOSURE_SHORT, max_exposure);
 }
+
+/* < zhoutian 00195335 12-7-16 added for auto scene detect begin */
+int ispv1_set_max_exposure(camera_max_exposrure mode)
+{
+	print_debug("enter %s, mode = %d ", __func__, mode);
+
+	ispv1_change_max_exposure(this_ispdata->sensor, mode);
+
+	return 0;
+}
+/* zhoutian 00195335 12-7-16 added for auto scene detect end > */
+
+/* < zhoutian 00195335 2013-03-02 added for SuperZoom-LowLight begin */
+typedef enum {
+	CAMERA_ISO_NORMAL = 0,
+	CAMERA_ISO_DOUBLE,
+} camera_iso_double;
+
+void set_iso_double_or_normal(camera_iso_double value)
+{
+	print_debug("enter %s", __func__);
+
+	camera_sensor *sensor;
+	sensor = this_ispdata->sensor;
+	int max_iso, min_iso;
+	int max_gain, min_gain;
+
+	max_iso = sensor->get_override_param(OVERRIDE_ISO_HIGH);
+	min_iso = sensor->get_override_param(OVERRIDE_ISO_LOW);
+
+	if (value == CAMERA_ISO_DOUBLE)
+		max_iso = max_iso * 2;
+
+	max_gain = max_iso * 0x10 / 100;
+	min_gain = min_iso * 0x10 / 100;
+
+	if(BINNING_SUMMARY== sensor->support_binning_type)
+	{
+		if(sensor->frmsize_list[sensor->preview_frmsize_index].binning == true)
+		{
+			sensor->max_gain = max_gain;
+		}
+	}
+	else
+	{
+		sensor->max_gain = max_gain;
+	}
+	sensor->min_gain = min_gain;
+	SETREG8(REG_ISP_MAX_GAIN, (max_gain & 0xff00) >> 8);
+	SETREG8(REG_ISP_MAX_GAIN + 1, max_gain & 0xff);
+	SETREG8(REG_ISP_MIN_GAIN, (min_gain & 0xff00) >> 8);
+	SETREG8(REG_ISP_MIN_GAIN + 1, min_gain & 0xff);
+/*
+	if (value == CAMERA_ISO_DOUBLE) {
+		SETREG8(0x1d9ae, 2); //max digital gain value
+		SETREG8(0x1d9b0, 1); //0:800, 1:1600, 2:disable
+		SETREG8(0x1d9af, 1); //enable preview digital gain
+		SETREG8(0x1d9b1, 1); //enable capture digital gain
+	} else {
+		SETREG8(0x1d9ae, 4); //max digital gain value
+		SETREG8(0x1d9b0, 2); //0:800, 1:1600, 2:disable
+		SETREG8(0x1d9af, 0); //disable preview digital gain
+		SETREG8(0x1d9b1, 0); //disable capture digital gain
+	}
+*/
+}
+/* zhoutian 00195335 2013-03-02 added for SuperZoom-LowLight end > */
 
 int ispv1_set_scene(camera_scene scene)
 {
@@ -922,6 +1661,9 @@ int ispv1_set_scene(camera_scene scene)
 
 	switch (scene) {
 	case CAMERA_SCENE_AUTO:
+	/* < lijiahuan 00175705 2012-10-22 add for HwAuto begin */
+	case CAMERA_SCENE_HWAUTO:
+	/* lijiahuan 00175705 2012-10-22 add for HwAuto end > */
 		print_info("case CAMERA_SCENE_AUTO ");
 		ispv1_change_fps(CAMERA_FRAME_RATE_AUTO);
 		ispv1_change_max_exposure(this_ispdata->sensor, CAMERA_MAX_EXPOSURE_RESUME);
@@ -933,6 +1675,22 @@ int ispv1_set_scene(camera_scene scene)
 		ispv1_set_focus_mode(CAMERA_FOCUS_CONTINUOUS_PICTURE);
 		ispv1_set_awb(this_ispdata->awb_mode);
 		break;
+	/* < lijiahuan 00175705 2013-06-01 add for hdr scene mode begin */
+	case CAMERA_SCENE_HDR:
+		{
+			print_info("case CAMERA_SCENE_HDR ");
+			ispv1_change_fps(CAMERA_FRAME_RATE_AUTO);
+			ispv1_change_max_exposure(this_ispdata->sensor, CAMERA_MAX_EXPOSURE_RESUME);
+			SETREG8(REG_ISP_TARGET_Y_LOW, target_y_low);
+			SETREG8(REG_ISP_TARGET_Y_HIGH, target_y_high);
+			this_ispdata->flash_mode = isp_hw_data.flash_mode;
+			SETREG8(REG_ISP_UV_ADJUST, UV_ADJUST_ENABLE);
+			SETREG8(REG_ISP_UV_SATURATION, 0x80);
+			ispv1_set_focus_mode(CAMERA_FOCUS_CONTINUOUS_PICTURE);
+			ispv1_set_awb(CAMERA_WHITEBALANCE_AUTO);
+		}
+		break;
+	/* lijiahuan 00175705 2013-06-01 add for hdr scene mode end > */
 
 	case CAMERA_SCENE_ACTION:
 		print_info("case CAMERA_SCENE_ACTION ");
@@ -1126,6 +1884,19 @@ int ispv1_set_scene(camera_scene scene)
 		ispv1_set_focus_mode(CAMERA_FOCUS_MACRO);
 		ispv1_set_awb(CAMERA_WHITEBALANCE_AUTO);
 		break;
+	/* < zhoutian 00195335 12-7-16 added for auto scene detect begin */
+	case CAMERA_SCENE_DETECTED_NIGHT:
+		print_info("CAMERA_SCENE_DETECTED_NIGHT");
+		break;
+		
+	case CAMERA_SCENE_DETECTED_ACTION:
+		print_info("CAMERA_SCENE_DETECTED_ACTION");
+		break;
+
+	case CAMERA_SCENE_DETECTED_AUTO:
+		print_info("CAMERA_SCENE_DETECTED_AUTO");
+		break;	
+	/* zhoutian 00195335 12-7-16 added for auto scene detect end > */
 
 	case CAMERA_SCENE_SUNSET:
 	case CAMERA_SCENE_STEADYPHOTO:
@@ -1316,6 +2087,348 @@ int ispv1_set_effect_saturation_done(camera_effects effect, camera_saturation sa
 	return 0;
 }
 
+
+/* < zhoutian 00195335 2013-02-07 modify for hwscope begin */
+static u8 denoise[33];
+static u8 sharpness[15];
+static u8 UV[2];
+bool denoise_already_closed_flg = false;
+bool hwscope_with_ISP_crop_flg = false;
+hwscope_coff crop_data;
+
+//1--backup coff& disable denoise, 2--revocer coff
+//need backup coffs before disable denoise, and avoid save action when denoise disabled
+int ispv1_set_hwscope(hwscope_coff *hwscope_data)
+{
+	print_info("enter %s, mode = %d", __func__, hwscope_data->mode);
+
+	if(hwscope_data->mode > HW_SCOPE_OFF)
+	{
+		print_error("%s:unknow mode id:%d", __func__, hwscope_data->mode);
+		return 2;
+	}
+
+	// ISP crop size set
+	if(hwscope_data->mode == HW_SCOPE_ON_WITH_CROP)
+	{
+		print_debug("ISP crop zoom = %d, border = %d", hwscope_data->zoom, hwscope_data->border);
+
+		hwscope_with_ISP_crop_flg = true;
+		crop_data.zoom = hwscope_data->zoom;
+		crop_data.border = hwscope_data->border;
+	}
+	// ISP crop size get
+	else if(hwscope_data->mode == HW_SCOPE_GET_CROP_INFO)
+	{
+		hwscope_data->out_width = crop_data.out_width;
+		hwscope_data->out_height = crop_data.out_height;
+		hwscope_data->crop_x = crop_data.crop_x;
+		hwscope_data->crop_y = crop_data.crop_y;
+		hwscope_data->crop_width = crop_data.crop_width;
+		hwscope_data->crop_height = crop_data.crop_height;
+	}
+	else
+	{
+		hwscope_with_ISP_crop_flg = false;
+	}
+
+	// denoise & sharpness ISP coff set
+	if(hwscope_data->mode == HW_SCOPE_ON || hwscope_data->mode == HW_SCOPE_ON_WITH_CROP)    //disable denoise
+	{
+		print_debug("close ISP's denoise and sharpness");
+
+		if(denoise_already_closed_flg == true)
+		{
+			print_error("%s:last time camera exit abend, so do not backup coff this time", __func__);
+		}
+		else
+		{
+			print_debug("backup ISP's denoise and sharpness coff");
+			//sonyimx135.c
+			denoise[0] = GETREG8(0x65604);
+			denoise[1] = GETREG8(0x65605);
+			denoise[2] = GETREG8(0x65606);
+			denoise[3] = GETREG8(0x65607);
+
+			denoise[4] = GETREG8(0x65510);
+			denoise[5] = GETREG8(0x65511);
+			denoise[6] = GETREG8(0x6551a);
+			denoise[7] = GETREG8(0x6551b);
+			denoise[8] = GETREG8(0x6551c);
+			denoise[9] = GETREG8(0x6551d);
+			denoise[10] = GETREG8(0x6551e);
+			denoise[11] = GETREG8(0x6551f);
+			denoise[12] = GETREG8(0x65520);
+			denoise[13] = GETREG8(0x65522);
+			denoise[14] = GETREG8(0x65523);
+			denoise[15] = GETREG8(0x65524);
+			denoise[16] = GETREG8(0x65525);
+			denoise[17] = GETREG8(0x65526);
+			denoise[18] = GETREG8(0x65527);
+			denoise[19] = GETREG8(0x65528);
+			denoise[20] = GETREG8(0x65529);
+			denoise[21] = GETREG8(0x6552a);
+			denoise[22] = GETREG8(0x6552b);
+			denoise[23] = GETREG8(0x6552c);
+			denoise[24] = GETREG8(0x6552d);
+			denoise[25] = GETREG8(0x6552e);
+			denoise[26] = GETREG8(0x6552f);
+
+			denoise[27] = GETREG8(0x65c00);
+			denoise[28] = GETREG8(0x65c01);
+			denoise[29] = GETREG8(0x65c02);
+			denoise[30] = GETREG8(0x65c03);
+			denoise[31] = GETREG8(0x65c04);
+			denoise[32] = GETREG8(0x65c05);
+
+			sharpness[0] = GETREG8(0x65600);
+			sharpness[1] = GETREG8(0x65601);
+			sharpness[2] = GETREG8(0x65602);
+			sharpness[3] = GETREG8(0x65603);
+			sharpness[4] = GETREG8(0x65608);
+			sharpness[5] = GETREG8(0x65609);
+			sharpness[6] = GETREG8(0x6560c);
+			sharpness[7] = GETREG8(0x6560d);
+			sharpness[8] = GETREG8(0x6560e);
+			sharpness[9] = GETREG8(0x6560f);
+			sharpness[10] = GETREG8(0x65610);
+			sharpness[11] = GETREG8(0x65611);
+			sharpness[12] = GETREG8(0x65613);
+			sharpness[13] = GETREG8(0x65615);
+			sharpness[14] = GETREG8(0x65617);
+
+			UV[0] = GETREG8(0x1c4eb);
+			UV[1] = GETREG8(0x1c4ec);
+		}
+
+		//set coff to 0
+		SETREG8(0x65604, 0x00);
+		SETREG8(0x65605, 0x00);
+		SETREG8(0x65606, 0x00);
+		SETREG8(0x65607, 0x00);
+
+		SETREG8(0x65510, 0x00);
+		SETREG8(0x65511, 0x00);
+		SETREG8(0x6551a, 0x00);
+		SETREG8(0x6551b, 0x00);
+		SETREG8(0x6551c, 0x00);
+		SETREG8(0x6551d, 0x00);
+		SETREG8(0x6551e, 0x00);
+		SETREG8(0x6551f, 0x00);
+		SETREG8(0x65520, 0x00);
+		SETREG8(0x65522, 0x00);
+		SETREG8(0x65523, 0x00);
+		SETREG8(0x65524, 0x00);
+		SETREG8(0x65525, 0x00);
+		SETREG8(0x65526, 0x00);
+		SETREG8(0x65527, 0x00);
+		SETREG8(0x65528, 0x00);
+		SETREG8(0x65529, 0x00);
+		SETREG8(0x6552a, 0x00);
+		SETREG8(0x6552b, 0x00);
+		SETREG8(0x6552c, 0x00);
+		SETREG8(0x6552d, 0x00);
+		SETREG8(0x6552e, 0x00);
+		SETREG8(0x6552f, 0x00);
+
+		SETREG8(0x65c00, 0x00);
+		SETREG8(0x65c01, 0x00);
+		SETREG8(0x65c02, 0x00);
+		SETREG8(0x65c03, 0x00);
+		SETREG8(0x65c04, 0x00);
+		SETREG8(0x65c05, 0x00);
+
+		SETREG8(0x65600, 0x00);
+		SETREG8(0x65601, 0x00);
+		SETREG8(0x65602, 0x00);
+		SETREG8(0x65603, 0x00);
+		SETREG8(0x65608, 0x00);
+		SETREG8(0x65609, 0x00);
+		SETREG8(0x6560c, 0x00);
+		SETREG8(0x6560d, 0x00);
+		SETREG8(0x6560e, 0x00);
+		SETREG8(0x6560f, 0x00);
+		SETREG8(0x65610, 0x00);
+		SETREG8(0x65611, 0x00);
+		SETREG8(0x65613, 0x00);
+		SETREG8(0x65615, 0x00);
+		SETREG8(0x65617, 0x00);
+
+		SETREG8(0x1c4eb, 0x78);
+		SETREG8(0x1c4ec, 0x78);
+
+		//k3_ispv1.c
+		SETREG8(0x65001, GETREG8(0x65001)&(~0x01));    //bit[0] set to 0
+		SETREG8(0x65002, GETREG8(0x65002)&(~0x10));    //bit[4] set to 0
+
+		denoise_already_closed_flg = true;
+
+	}
+	else if(hwscope_data->mode == HW_SCOPE_OFF)    //recover denoise
+	{
+		if(denoise_already_closed_flg == false)
+		{
+			print_error("%s:ISP's denoise and sharpness is on, no need to recover coff ", __func__);
+			return 1;
+		}
+
+		print_debug("recover ISP's denoise and sharpness");
+
+		//sonyimx135.c
+		SETREG8(0x65604, denoise[0]);
+		SETREG8(0x65605, denoise[1]);
+		SETREG8(0x65606, denoise[2]);
+		SETREG8(0x65607, denoise[3]);
+
+		SETREG8(0x65510, denoise[4]);
+		SETREG8(0x65511, denoise[5]);
+		SETREG8(0x6551a, denoise[6]);
+		SETREG8(0x6551b, denoise[7]);
+		SETREG8(0x6551c, denoise[8]);
+		SETREG8(0x6551d, denoise[9]);
+		SETREG8(0x6551e, denoise[10]);
+		SETREG8(0x6551f, denoise[11]);
+		SETREG8(0x65520, denoise[12]);
+		SETREG8(0x65522, denoise[13]);
+		SETREG8(0x65523, denoise[14]);
+		SETREG8(0x65524, denoise[15]);
+		SETREG8(0x65525, denoise[16]);
+		SETREG8(0x65526, denoise[17]);
+		SETREG8(0x65527, denoise[18]);
+		SETREG8(0x65528, denoise[19]);
+		SETREG8(0x65529, denoise[20]);
+		SETREG8(0x6552a, denoise[21]);
+		SETREG8(0x6552b, denoise[22]);
+		SETREG8(0x6552c, denoise[23]);
+		SETREG8(0x6552d, denoise[24]);
+		SETREG8(0x6552e, denoise[25]);
+		SETREG8(0x6552f, denoise[26]);
+
+		SETREG8(0x65c00, denoise[27]);
+		SETREG8(0x65c01, denoise[28]);
+		SETREG8(0x65c02, denoise[29]);
+		SETREG8(0x65c03, denoise[30]);
+		SETREG8(0x65c04, denoise[31]);
+		SETREG8(0x65c05, denoise[32]);
+
+		SETREG8(0x65600, sharpness[0]);
+		SETREG8(0x65601, sharpness[1]);
+		SETREG8(0x65602, sharpness[2]);
+		SETREG8(0x65603, sharpness[3]);
+		SETREG8(0x65608, sharpness[4]);
+		SETREG8(0x65609, sharpness[5]);
+		SETREG8(0x6560c, sharpness[6]);
+		SETREG8(0x6560d, sharpness[7]);
+		SETREG8(0x6560e, sharpness[8]);
+		SETREG8(0x6560f, sharpness[9]);
+		SETREG8(0x65610, sharpness[10]);
+		SETREG8(0x65611, sharpness[11]);
+		SETREG8(0x65613, sharpness[12]);
+		SETREG8(0x65615, sharpness[13]);
+		SETREG8(0x65617, sharpness[14]);
+
+		SETREG8(0x1c4eb, UV[0]);
+		SETREG8(0x1c4ec, UV[1]);
+
+		//k3_ispv1.c
+		SETREG8(0x65001, GETREG8(0x65001)|0x01);    //bit[0] set to 1
+		SETREG8(0x65002, GETREG8(0x65002)|0x10);    //bit[4] set to 1
+	
+		denoise_already_closed_flg = false;
+
+	}
+
+	return 0;
+}
+/* zhoutian 00195335 2013-02-07 modify for hwscope end > */
+
+/* < zhoutian 00195335 2013-03-02 added for SuperZoom-LowLight begin */
+int ispv1_set_hw_lowlight(int ctl)
+{
+	camera_sensor *sensor;
+	sensor = this_ispdata->sensor;
+	print_debug("enter %s, %d", __func__, ctl);
+
+	if(sensor->support_hw_lowlight)
+	{
+		if(sensor->support_hw_lowlight() == 0)
+		{
+			print_error("lowlight only support by sensor sonyimx135, but sensor used now is :%s", sensor->info.name);
+			return -1;
+		}
+	}
+
+	if(ctl == 1)
+	{
+		if(hw_lowlight_on_flg == true)
+		{
+			print_error("%s:ISP's seq already switch to lowlight, no need to set again", __func__);
+			return 1;
+		}
+		print_info("enter lowlight mode");
+		hw_lowlight_on_flg = true;
+		//set_iso_double_or_normal(CAMERA_ISO_DOUBLE);	//double the ISO value
+		if(sensor->switch_to_lowlight_isp_seq)
+			sensor->switch_to_lowlight_isp_seq(true);
+	}
+	else if(ctl == 0)
+	{
+		if(hw_lowlight_on_flg == false)
+		{
+			print_error("%s:ISP's seq already switch to normal mode, no need to set again", __func__);
+			return 1;
+		}
+
+		print_info("exit lowlight mode");
+		hw_lowlight_on_flg = false;
+		//set_iso_double_or_normal(CAMERA_ISO_NORMAL);	//recover ISO to normal
+		if(sensor->switch_to_lowlight_isp_seq)
+			sensor->switch_to_lowlight_isp_seq(false);
+	}
+	else
+	{
+		print_error("%s:unknow ctl id:%d", __func__, ctl);
+		return -1;
+	}
+
+	return 0;
+}
+
+
+int ispv1_get_binning_size(binning_size *size)
+{
+	camera_sensor *sensor;
+	int index, width, height;
+	bool binning = false;
+	sensor = this_ispdata->sensor;
+	print_debug("enter %s", __func__);
+
+	if(sensor->support_hw_lowlight)
+	{
+		if(sensor->support_hw_lowlight() == 0)
+		{
+			print_error("lowlight only support by sensor sonyimx135, but sensor used now is :%s", sensor->info.name);
+			return -1;
+		}
+	}
+
+	index = sensor->preview_frmsize_index;
+	width = sensor->frmsize_list[index].width;
+	height = sensor->frmsize_list[index].height;
+	binning = sensor->frmsize_list[index].binning;
+//	if(binning == true)
+	{
+		size->width = width;
+		size->height = height;
+		print_debug("frmsize_list[%d] = %d x %d", index, width, height);
+		return 0;
+	}
+
+	return -1;
+}
+
+/* zhoutian 00195335 2013-03-02 added for SuperZoom-LowLight end > */
+
 /*
  * Added for hue, y36721 todo
  * flag: if 1 is on, 0 is off, default is off
@@ -1501,7 +2614,7 @@ int ispv1_init_RGBGamma(int flag)
  */
 void ispv1_cmd_id_do_ecgc(camera_state state)
 {
-	u32 expo, gain;
+	u32 expo, gain, gain0;
 	camera_sensor *sensor = this_ispdata->sensor;
 #ifdef AP_WRITE_AE_TIME_PRINT
 	struct timeval tv_start, tv_end;
@@ -1522,6 +2635,12 @@ void ispv1_cmd_id_do_ecgc(camera_state state)
 			/* changed by y00231328.some sensor such as S5K4E1, expo and gain should be set together in holdon mode */
 			if (sensor->set_exposure_gain) {
 				sensor->set_exposure_gain(expo, gain);
+				gain0 = get_writeback_gain();
+				if(gain0 != gain)
+				{
+					print_info("gain0 != gain");
+					sensor->set_exposure_gain(expo, gain0);
+				}
 			} else {
 				if (sensor->set_exposure)
 					sensor->set_exposure(expo);
@@ -1542,7 +2661,7 @@ void ispv1_cmd_id_do_ecgc(camera_state state)
 }
 
 static int frame_rate_level;
-static camera_frame_rate_state fps_state = CAMERA_FRAME_RATE_HIGH;
+static camera_frame_rate_state fps_state = CAMERA_FPS_STATE_HIGH;;
 
 int ispv1_get_frame_rate_level()
 {
@@ -1570,7 +2689,7 @@ static int ispv1_set_frame_rate(camera_frame_rate_mode mode, camera_sensor *sens
 	int frame_rate_level = 0;
 	u16 vts, fullfps, fps;
 	u32 max_fps, min_fps;
-
+	u16 new_vts;
 	fullfps = sensor->frmsize_list[sensor->preview_frmsize_index].fps;
 	if (CAMERA_FRAME_RATE_FIX_MAX == mode) {
 		max_fps = (isp_hw_data.fps_max > fullfps) ? fullfps : isp_hw_data.fps_max;
@@ -1596,8 +2715,15 @@ static int ispv1_set_frame_rate(camera_frame_rate_mode mode, camera_sensor *sens
 		print_error("set_vts null");
 		goto error;
 	}
-
-	SETREG16(REG_ISP_MAX_EXPOSURE, (vts - 14));
+	if(sensor->get_support_vts)
+	{
+		new_vts = sensor->get_support_vts(fps,fullfps,sensor->frmsize_list[sensor->preview_frmsize_index].vts);
+	}
+	else
+	{
+		new_vts = vts - 14;
+	}
+	SETREG16(REG_ISP_MAX_EXPOSURE, new_vts);
 	ispv1_set_frame_rate_level(frame_rate_level);
 	return 0;
 error:
@@ -1608,25 +2734,38 @@ static bool ispv1_change_frame_rate(
 	camera_frame_rate_state *state, camera_frame_rate_dir direction, camera_sensor *sensor)
 {
 	int frame_rate_level = ispv1_get_frame_rate_level();
-	u16 vts, fullfps, fps;
+	u16 vts, fullfps, fps,new_vts;
 	bool level_changed = false;
-	u32 max_fps, min_fps;
-	u32 max_level;
+	u32 max_fps, min_fps, mid_fps;
+	u32 shift_level, max_level;
 
 	fullfps = sensor->frmsize_list[sensor->preview_frmsize_index].fps;
 	max_fps = (isp_hw_data.fps_max > fullfps) ? fullfps : isp_hw_data.fps_max;
+	mid_fps = (isp_hw_data.fps_mid > fullfps) ? fullfps : isp_hw_data.fps_mid;
 	min_fps = (isp_hw_data.fps_min < fullfps) ? isp_hw_data.fps_min : fullfps;
+
+	if (mid_fps > max_fps)
+		mid_fps = max_fps;
+
 	if (min_fps > max_fps)
 		min_fps = max_fps;
 	max_level = max_fps - min_fps;
 
 	print_debug("%s: state  %d, frame_rate_level %d", __func__, *state, frame_rate_level);
 
-	if (*state == CAMERA_EXPO_PRE_REDUCE) {
+	if (*state == CAMERA_EXPO_PRE_REDUCE1) {
+		/* desired level should go to FPS_HIGH level */
 		level_changed = true;
-		/* desired level should go to FRAME_RATE_HIGH level, state go to CAMERA_FRAME_RATE_HIGH*/
-		frame_rate_level -= max_level;
-		*state = CAMERA_FRAME_RATE_HIGH;
+		shift_level = max_fps - mid_fps;
+		frame_rate_level -= shift_level;
+		*state = CAMERA_FPS_STATE_HIGH;
+		goto framerate_set_done;
+	} else if (*state == CAMERA_EXPO_PRE_REDUCE2) {
+		/* desired level should go to FPS_MIDDLE level */
+		level_changed = true;
+		shift_level = mid_fps - min_fps;
+		frame_rate_level -= shift_level;
+		*state = CAMERA_FPS_STATE_MIDDLE;
 		goto framerate_set_done;
 	}
 
@@ -1634,18 +2773,30 @@ static bool ispv1_change_frame_rate(
 		if (frame_rate_level >= max_level) {
 			print_debug("Has arrival max frame_rate level");
 			return true;
+		} else if (frame_rate_level == 0) {
+			shift_level = max_fps - mid_fps;
+			frame_rate_level += shift_level;
+			*state = CAMERA_FPS_STATE_MIDDLE;
+			level_changed = true;
 		} else {
-			frame_rate_level += max_level;
-			*state = CAMERA_FRAME_RATE_LOW;
+			shift_level = mid_fps - min_fps;
+			frame_rate_level += shift_level;
+			*state = CAMERA_FPS_STATE_LOW;
 			level_changed = true;
 		}
 	} else if (CAMERA_FRAME_RATE_UP == direction) {
 		if (0 == frame_rate_level) {
 			print_debug("Has arrival min frame_rate level");
 			return true;
+		} else if (frame_rate_level == max_fps - mid_fps) {
+			shift_level = max_fps - mid_fps;
+			frame_rate_level -= shift_level;
+			*state = CAMERA_FPS_STATE_HIGH;
+			level_changed = true;
 		} else {
-			frame_rate_level -= max_level;
-			*state = CAMERA_FRAME_RATE_HIGH;
+			shift_level = mid_fps - min_fps;
+			frame_rate_level -= shift_level;
+			*state = CAMERA_FPS_STATE_MIDDLE;
 			level_changed = true;
 		}
 	}
@@ -1674,11 +2825,30 @@ framerate_set_done:
 		vts = sensor->frmsize_list[sensor->preview_frmsize_index].vts;
 		vts = vts * fullfps / fps;
 
-		if ((vts - 14) < (get_writeback_expo() / 0x10)) {
-			SETREG16(REG_ISP_MAX_EXPOSURE, (vts - 14));
+		if(sensor->get_support_vts)
+		{
+			new_vts = sensor->get_support_vts(fps,fullfps,sensor->frmsize_list[sensor->preview_frmsize_index].vts);
+		}
+		else
+		{
+			new_vts = vts - 14;
+		}
+		/* y36721 2012-04-23 add begin to avoid preview flicker when frame rate up */
+		if (new_vts < (get_writeback_expo() / 0x10)) {
+			SETREG16(REG_ISP_MAX_EXPOSURE, new_vts);
 			print_warn("current expo too large");
-			*state = CAMERA_EXPO_PRE_REDUCE;
+			if (*state == CAMERA_FPS_STATE_HIGH)
+				*state = CAMERA_EXPO_PRE_REDUCE1;
+			else
+				*state = CAMERA_EXPO_PRE_REDUCE2;
 			return true;
+		}
+		/* y36721 2012-04-23 add end */
+		if (CAMERA_FRAME_RATE_DOWN == direction) {
+			if(sensor->set_vts_change)
+			{
+				sensor->set_vts_change(1);
+			}
 		}
 
 		if (sensor->set_vts) {
@@ -1687,7 +2857,7 @@ framerate_set_done:
 			print_error("set_vts null");
 			goto error_out;
 		}
-		SETREG16(REG_ISP_MAX_EXPOSURE, (vts - 14));
+		SETREG16(REG_ISP_MAX_EXPOSURE, new_vts);
 		ispv1_set_frame_rate_level(frame_rate_level);
 	}
 	return true;
@@ -1700,11 +2870,14 @@ error_out:
 #define BOARD_ID_CS_U9510		0x67
 #define BOARD_ID_CS_U9510E		0x66
 #define BOARD_ID_CS_T9510E		0x06
+
+
 awb_gain_t flash_platform_awb[FLASH_PLATFORM_MAX] =
 {
 	{0xc8, 0x80, 0x80, 0x104}, /* U9510 */
 	{0xd6, 0x80, 0x80, 0x104}, /* U9510E/T9510E, recording AWB is 0xd0,0xfc, change a little */
 	{0xd0, 0x80, 0x80, 0x100}, /* s10 */
+	{0xc8, 0x80, 0x80, 0xfb}, /*D2*/
 };
 
 static void ispv1_cal_capture_awb(
@@ -1828,9 +3001,15 @@ static void ispv1_cal_ratio_lum(
 	if (delta_lum_sum < 0)
 		delta_lum_sum = 0;
 
-	capflash_ae->lum = FLASH_CAP2PRE_RATIO * delta_lum + ratio_ae.lum;
-	capflash_ae->lum_max = FLASH_CAP2PRE_RATIO * delta_lum_max + ratio_ae.lum_max;
-	capflash_ae->lum_sum = FLASH_CAP2PRE_RATIO * delta_lum_sum + ratio_ae.lum_sum;
+	if (product_type("U9900") || product_type("U9900L") || product_type("T9900")){
+		capflash_ae->lum = FLASH_CAP2PRE_RATIO * delta_lum + ratio_ae.lum;
+		capflash_ae->lum_max = FLASH_CAP2PRE_RATIO * delta_lum_max + ratio_ae.lum_max;
+		capflash_ae->lum_sum = FLASH_CAP2PRE_RATIO * delta_lum_sum + ratio_ae.lum_sum;
+	}else{
+		capflash_ae->lum = D2_FLASH_CAP2PRE_RATIO * delta_lum + ratio_ae.lum;
+		capflash_ae->lum_max = D2_FLASH_CAP2PRE_RATIO * delta_lum_max + ratio_ae.lum_max;
+		capflash_ae->lum_sum = D2_FLASH_CAP2PRE_RATIO * delta_lum_sum + ratio_ae.lum_sum;
+	}
 
 	/* if low light, we will use lum_sum to calculate weight for accuracy. */
 	if (preflash_ae->lum < FLASH_PREFLASH_LOWLIGHT_TH) {
@@ -1847,7 +3026,7 @@ static void ispv1_cal_ratio_lum(
 
 	*preview_ratio_lum = ratio_ae.lum;
 }
-
+#if 0
 u32 ispv1_cal_ratio_factor(aec_data_t *preview_ae, aec_data_t *preflash_ae, aec_data_t *capflash_ae, 
 	u32 target_y_low)
 {
@@ -1878,7 +3057,39 @@ u32 ispv1_cal_ratio_factor(aec_data_t *preview_ae, aec_data_t *preflash_ae, aec_
 
 	return ratio_factor;
 }
+#else
+u32 ispv1_cal_ratio_factor(aec_data_t *preview_ae, aec_data_t *preflash_ae, aec_data_t *capflash_ae, 
+	u32 target_y_low)
+{
+	u32 ratio_factor = 0x100;
+	u32 temp_ratio = 0x100;
+	u32 capture_target_lum;
 
+	if (capflash_ae->lum != 0) {
+		if (preview_ae->lum < target_y_low) {
+			capture_target_lum = default_target_y_flash;
+			ratio_factor = ratio_factor * capture_target_lum / capflash_ae->lum;
+			capflash_ae->lum_max = capflash_ae->lum_max * ratio_factor / 0x100;
+			if (capflash_ae->lum_max > flash_cap_raw_over_expo) {
+				/* decrease capflash max lum to  flash_cap_raw_over_expo */
+				temp_ratio = 0x100 * flash_cap_raw_over_expo / capflash_ae->lum_max;
+				ratio_factor = ratio_factor * temp_ratio / 0x100;
+				capflash_ae->lum_max = capflash_ae->lum_max * temp_ratio / 0x100;
+				print_info("%s, capflash lum_max 0x%x, temp_ratio 0x%x, new ratio_factor 0x%x",
+					__func__, capflash_ae->lum_max, temp_ratio, ratio_factor);
+			}
+		} else {
+			capture_target_lum = preview_ae->lum;
+			ratio_factor = ratio_factor * capture_target_lum / capflash_ae->lum;
+		}
+	} else {
+		ratio_factor = ISP_EXPOSURE_RATIO_MAX;
+	}
+
+	return ratio_factor;
+}
+
+#endif
 void ispv1_save_aecawb_step(aecawb_step_t *step)
 {
 	step->stable_range0 = GETREG8(REG_ISP_UNSTABLE2STABLE_RANGE);
@@ -1917,8 +3128,11 @@ bool ae_is_need_flash(camera_sensor *sensor, aec_data_t *ae_data, u32 target_y_l
 		compare_gain = sensor->get_override_param(OVERRIDE_FLASH_TRIGGER_GAIN);
 
 	binning = sensor->frmsize_list[frame_index].binning;
-	if (binning == false)
-		compare_gain *= 2;
+	if(BINNING_SUMMARY == sensor->support_binning_type)
+	{
+		if (binning == false)
+			compare_gain *= 2;
+	}
 
 	if (ae_data->lum <= (target_y_low * FLASH_TRIGGER_LUM_RATIO / 0x100) ||
 		ae_data->gain >= compare_gain)
@@ -1951,7 +3165,7 @@ void ispv1_check_flash_prepare(void)
 	awb_gain_t *led_awb1 = &(isp_hw_data.led_awb[1]);
 	FLASH_AWBTEST_POLICY action;
 
-	if ((afae_ctrl_is_null() == false) &&
+	if ((afae_ctrl_is_valid() == true) &&
 		(FOCUS_STATE_CAF_RUNNING == get_focus_state() ||
 		FOCUS_STATE_CAF_DETECTING == get_focus_state() ||
 		FOCUS_STATE_AF_RUNNING == get_focus_state())) {
@@ -1963,30 +3177,31 @@ void ispv1_check_flash_prepare(void)
 	ispv1_config_aecawb_step(true, &isp_hw_data.aecawb_step);
 
 	/* get platform type */
+/*
 	#ifdef PLATFORM_TYPE_PAD_S10
 		type = FLASH_PLATFORM_S10;
 	#else
 		boardid = get_boardid();
 		print_info("%s : boardid=0x%x.", __func__, boardid);
-
+*/
 		/* if unknow board ID, should use flash params as X9510E */
-		if (boardid == BOARD_ID_CS_U9510E || boardid == BOARD_ID_CS_T9510E)
+/*		if (boardid == BOARD_ID_CS_U9510E || boardid == BOARD_ID_CS_T9510E)
 			type = FLASH_PLATFORM_9510E;
 		else if (boardid == BOARD_ID_CS_U9510)
 			type = FLASH_PLATFORM_U9510;
-
-		else if(product_type("U9508"))
-			type = FLASH_PLATFORM_U9508;
-
-		else
+		else if (product_type("U9900") || product_type("U9900L") || product_type("T9900"))
 			type = FLASH_PLATFORM_9510E;
+		else
+			type = FLASH_PLATFORM_D2;
 	#endif
+*/
+	/* EternityProject: FORCE U9508 */
+	type = FLASH_PLATFORM_U9508;
 
 	if(sensor->get_flash_awb != NULL)
 		sensor->get_flash_awb(type, preset_awb);
 	else
 		memcpy(preset_awb, &flash_platform_awb[type], sizeof(awb_gain_t));
-
 
 	if (isp_hw_data.flash_type == U9508_FLASH_TYPE_OSRAM) {
 		preset_awb->b_gain = preset_awb->gr_gain;
@@ -2235,56 +3450,44 @@ awbtest_out:
 	}
 }
 
-void ispv1_dynamic_ydenoise(camera_sensor *sensor, bool flash_on)
+#define ISP_DENOISE_ARRAY_SIZE		7
+
+void ispv1_dynamic_ydenoise(camera_sensor *sensor, camera_state state, bool flash_on)
 {
-	int index = sensor->preview_frmsize_index;
-	u32 ae_th[3];
-	u32 ae_value = get_writeback_gain() * get_writeback_expo() / 0x10;
-	u8 ydenoise_value[5] = {
-		ISP_YDENOISE_COFF_1X, /* gain 1x y denoise */
-		ISP_YDENOISE_COFF_1X, /* gain 2x y denoise */
-		ISP_YDENOISE_COFF_4X, /* gain 4x y denoise */
-		ISP_YDENOISE_COFF_8X, /* gain 8x y denoise */
-		ISP_YDENOISE_COFF_16X}; /* gain 16x y denoise */
+	u8 ydenoise_value[ISP_DENOISE_ARRAY_SIZE];
+	u16 uvdenoise_value[ISP_DENOISE_ARRAY_SIZE];
 
-	if (flash_on == false) {
-		ae_th[0] = sensor->frmsize_list[index].banding_step_50hz * 0x18; /* (1band expo and 0x18 gain) */
-		ae_th[1] = 3 * sensor->frmsize_list[index].banding_step_50hz * 0x10; /* (3band expo and 0x10 gain) */
-		ae_th[2] = sensor->frmsize_list[index].vts * 0x20; /* (vts expo and 0x20 gain) */
+	if(NULL == sensor->fill_denoise_buf)
+		return;
 
-		if (sensor->frmsize_list[index].binning == false) {
-			ae_th[0] *= 2;
-			ae_th[1] *= 2;
-			ae_th[2] *= 2;
-		}
+	memset(ydenoise_value, 0, sizeof(ydenoise_value));
+	memset(uvdenoise_value, 0, sizeof(uvdenoise_value));
 
-		/* simplify dynamic denoise threshold*/
-		if (ae_value <= ae_th[0]) {
-			ydenoise_value[0] = ISP_YDENOISE_COFF_1X;
-			ydenoise_value[1] = ISP_YDENOISE_COFF_1X;
-		} else {
-			ydenoise_value[0] = ISP_YDENOISE_COFF_2X;
-			ydenoise_value[1] = ISP_YDENOISE_COFF_2X;
-		}
-	} else {
-		/* should calculated in capture_cmd again. */
-		ydenoise_value[0] = 0;
-		ydenoise_value[1] = 0;
-	}
+	sensor->fill_denoise_buf(ydenoise_value, uvdenoise_value,ISP_DENOISE_ARRAY_SIZE,state,flash_on);
 
 	SETREG8(REG_ISP_YDENOISE_1X, ydenoise_value[0]);
 	SETREG8(REG_ISP_YDENOISE_2X, ydenoise_value[1]);
 	SETREG8(REG_ISP_YDENOISE_4X, ydenoise_value[2]);
 	SETREG8(REG_ISP_YDENOISE_8X, ydenoise_value[3]);
 	SETREG8(REG_ISP_YDENOISE_16X, ydenoise_value[4]);
+	SETREG8(REG_ISP_YDENOISE_32X, ydenoise_value[5]);
+	SETREG8(REG_ISP_YDENOISE_64X, ydenoise_value[6]);
+
+	SETREG16(REG_ISP_UVDENOISE_1X, uvdenoise_value[0]);
+	SETREG16(REG_ISP_UVDENOISE_2X, uvdenoise_value[1]);
+	SETREG16(REG_ISP_UVDENOISE_4X, uvdenoise_value[2]);
+	SETREG16(REG_ISP_UVDENOISE_8X, uvdenoise_value[3]);
+	SETREG16(REG_ISP_UVDENOISE_16X, uvdenoise_value[4]);
+	SETREG16(REG_ISP_UVDENOISE_32X, uvdenoise_value[5]);
+	SETREG16(REG_ISP_UVDENOISE_64X, uvdenoise_value[6]);
 }
 
 void ispv1_dynamic_framerate(camera_sensor *sensor, camera_iso iso)
 {
 	static u32 count;
 
-	u16 gain_th_high = CAMERA_AUTO_FPS_MAX_GAIN;
-	u16 gain_th_low = CAMERA_AUTO_FPS_MIN_GAIN;
+	u16 gain_th_up[2] = {CAMERA_AUTOFPS_GAIN_LOW2MID, CAMERA_AUTOFPS_GAIN_MID2HIGH};
+	u16 gain_th_down[2] = {CAMERA_AUTOFPS_GAIN_HIGH2MID, CAMERA_AUTOFPS_GAIN_MID2LOW};
 	u16 gain;
 	int ret;
 	int index;
@@ -2293,17 +3496,20 @@ void ispv1_dynamic_framerate(camera_sensor *sensor, camera_iso iso)
 	camera_frame_rate_state state = ispv1_get_frame_rate_state();
 
 	if (sensor->get_override_param) {
-		gain_th_high = sensor->get_override_param(OVERRIDE_AUTO_FPS_GAIN_HIGH);
-		gain_th_low = sensor->get_override_param(OVERRIDE_AUTO_FPS_GAIN_LOW);
+		gain_th_up[0] = sensor->get_override_param(OVERRIDE_AUTOFPS_GAIN_LOW2MID);
+		gain_th_up[1] = sensor->get_override_param(OVERRIDE_AUTOFPS_GAIN_MID2HIGH);
+		gain_th_down[0] = sensor->get_override_param(OVERRIDE_AUTOFPS_GAIN_HIGH2MID);
+		gain_th_down[1] = sensor->get_override_param(OVERRIDE_AUTOFPS_GAIN_MID2LOW);
 	}
 
 	if (CAMERA_ISO_AUTO != iso) {
-		if (state == CAMERA_EXPO_PRE_REDUCE || ispv1_get_frame_rate_level() != 0) {
+		if (state == CAMERA_EXPO_PRE_REDUCE1 || state == CAMERA_EXPO_PRE_REDUCE2
+			|| ispv1_get_frame_rate_level() != 0) {
 			ispv1_change_frame_rate(&state, CAMERA_FRAME_RATE_UP, sensor);
 			ispv1_set_frame_rate_state(state);
 		}
 	} else {
-		if (state == CAMERA_EXPO_PRE_REDUCE) {
+		if (state == CAMERA_EXPO_PRE_REDUCE1 || state == CAMERA_EXPO_PRE_REDUCE2) {
 			ret = ispv1_change_frame_rate(&state, CAMERA_FRAME_RATE_UP, sensor);
 			ispv1_set_frame_rate_state(state);
 			return;
@@ -2315,16 +3521,23 @@ void ispv1_dynamic_framerate(camera_sensor *sensor, camera_iso iso)
 		/* added for non-binning frame size auto frame rate control start */
 		index = sensor->preview_frmsize_index;
 
+		if(BINNING_SUMMARY == sensor->support_binning_type)
+		{
 		if (sensor->frmsize_list[index].binning == false) {
-			gain_th_high *= 2;
-			gain_th_low *= 2;
+			gain_th_up[0] *= 2;
+			gain_th_up[1] *= 2;
+			gain_th_down[0] *= 2;
+			gain_th_down[1] *= 2;
+		}
 		}
 
-		if (gain > gain_th_high) {
-			direction = CAMERA_FRAME_RATE_DOWN;
-			count++;
-		} else if (gain < gain_th_low) {
+		if ((state == CAMERA_FPS_STATE_LOW && gain < gain_th_up[0])
+			|| (state == CAMERA_FPS_STATE_MIDDLE && gain < gain_th_up[1])) {
 			direction = CAMERA_FRAME_RATE_UP;
+			count++;
+		} else if ((state == CAMERA_FPS_STATE_HIGH && gain > gain_th_down[0])
+			|| (state == CAMERA_FPS_STATE_MIDDLE && gain > gain_th_down[1])) {
+			direction = CAMERA_FRAME_RATE_DOWN;
 			count++;
 		} else {
 			count = 0;
@@ -2351,7 +3564,7 @@ void ispv1_preview_done_do_tune(void)
 
 	camera_frame_rate_state state = ispv1_get_frame_rate_state();
 
-	if (NULL == ispdata) {
+	if (NULL == ispdata || isp_hw_data.frame_count <= 1) {
 		return;
 	}
 
@@ -2382,7 +3595,8 @@ void ispv1_preview_done_do_tune(void)
 	}
 
 	if ((FLASH_TESTING == ispdata->flash_flow) || (FLASH_FROZEN == ispdata->flash_flow)) {
-		if (state == CAMERA_EXPO_PRE_REDUCE || ispv1_get_frame_rate_level() != 0) {
+		if (state == CAMERA_EXPO_PRE_REDUCE1 || state == CAMERA_EXPO_PRE_REDUCE2
+			|| ispv1_get_frame_rate_level() != 0) {
 			ispv1_set_aecagc_mode(AUTO_AECAGC);
 			ispv1_change_frame_rate(&state, CAMERA_FRAME_RATE_UP, sensor);
 			ispv1_set_frame_rate_state(state);
@@ -2390,18 +3604,19 @@ void ispv1_preview_done_do_tune(void)
 		} else {
 			ispv1_poll_flash_lum();
 		}
-	} else if (!afae_ctrl_is_null() && ((get_focus_state() == FOCUS_STATE_AF_PREPARING) ||
+	} else if (afae_ctrl_is_valid() == true &&
+		((get_focus_state() == FOCUS_STATE_AF_PREPARING) ||
 		(get_focus_state() == FOCUS_STATE_AF_RUNNING) ||
 		(get_focus_state() == FOCUS_STATE_CAF_RUNNING))) {
 		print_debug("focusing metering, should not change frame rate.");
 	} else if (isp_hw_data.ae_resume == true && ispdata->flash_on == false) {
 		ispv1_set_aecagc_mode(AUTO_AECAGC);
 		ispv1_change_frame_rate(&state, CAMERA_FRAME_RATE_DOWN, sensor);
+		ispv1_set_frame_rate_state(state);
 		isp_hw_data.ae_resume = false;
 	} else {
 		ispv1_dynamic_framerate(sensor, ispdata->iso);
 	}
-
 	if (true == camera_ajustments_flag) {
 		last_state.saturation = CAMERA_SATURATION_MAX;
 		last_state.contrast = CAMERA_CONTRAST_MAX;
@@ -2449,7 +3664,7 @@ void ispv1_preview_done_do_tune(void)
 	}
 
 #ifndef OVISP_DEBUG_MODE
-	ispv1_dynamic_ydenoise(sensor, ispdata->flash_on);
+//	ispv1_dynamic_ydenoise(sensor, ispdata->flash_on);
 #endif
 
 	if (isp_hw_data.frame_count == 0)
@@ -2459,7 +3674,7 @@ void ispv1_preview_done_do_tune(void)
 
 	if ((ispv1_need_rcc(this_ispdata->sensor) == true)
 		&& (isp_hw_data.frame_count % RED_CLIP_FRAME_INTERVAL == 0)) {
-		if (afae_ctrl_is_null() == true) {
+		if (afae_ctrl_is_valid() == false) {
 			ispv1_uv_stat_excute();
 		} else if ((get_focus_state() != FOCUS_STATE_CAF_RUNNING) &&
 			(get_focus_state() != FOCUS_STATE_AF_RUNNING)) {
@@ -2485,6 +3700,10 @@ void ispv1_tune_ops_init(k3_isp_data *ispdata)
 		ispv1_focus_init();
 	if (ispv1_need_rcc(this_ispdata->sensor) == true)
 		ispv1_uv_stat_init();
+
+	if(this_ispdata->sensor->support_hdr_movie)
+		ispv1_hdr_ae_init();
+
 	ispv1_init_DPC(1, 1);
 
 	ispv1_init_rawDNS(1);
@@ -2492,8 +3711,7 @@ void ispv1_tune_ops_init(k3_isp_data *ispdata)
 	ispv1_init_GbGrDNS(1);
 	ispv1_init_RGBGamma(1);
 	camera_ajustments_flag = true;
-
-	ispv1_set_frame_rate_state(CAMERA_FRAME_RATE_HIGH);
+	ispv1_set_frame_rate_state(CAMERA_FPS_STATE_HIGH);
 
 	/*
 	 *y36721 2012-02-08 delete them for performance tunning.
@@ -2505,6 +3723,7 @@ void ispv1_tune_ops_init(k3_isp_data *ispdata)
 	ispv1_init_sensor_config(ispdata->sensor);
 
 	ispv1_save_aecawb_step(&isp_hw_data.aecawb_step);
+	set_tune_parameter_for_product();
 }
 
 /*
@@ -2517,6 +3736,10 @@ void ispv1_tune_ops_exit(void)
 
 	if (ispv1_need_rcc(this_ispdata->sensor) == true)
 		ispv1_uv_stat_exit();
+
+	if(this_ispdata->sensor->support_hdr_movie)
+		ispv1_hdr_ae_exit();
+
 }
 
 
@@ -2534,7 +3757,7 @@ void ispv1_tune_ops_prepare(camera_state state)
 			ispv1_focus_prepare();
 
 		if (CAMERA_USE_K3ISP == sensor->isp_location) {
-			ispv1_set_ae_statwin(&ispdata->pic_attr[state], ISP_ZOOM_BASE_RATIO);
+			//ispv1_set_ae_statwin(&ispdata->pic_attr[state], ISP_ZOOM_BASE_RATIO);
 			ispv1_set_stat_unit_area(unit_height * unit_width);
 			up(&(this_ispdata->frame_sem));
 		}
@@ -2568,6 +3791,20 @@ void ispv1_tune_ops_withdraw(camera_state state)
 			flush_workqueue(uv_stat_work_queue);
 			down(&(this_ispdata->frame_sem));
 	}
+
+	if(this_ispdata->sensor->support_hdr_movie)
+	{
+		if((HDR_MOVIE_SUPPORT == this_ispdata->sensor->support_hdr_movie())
+			&&(HDR_MOVIE_ON == this_ispdata->sensor->get_hdr_movie_switch()))
+		{
+			this_ispdata->sensor->set_hdr_movie_switch(HDR_MOVIE_OFF);
+			if (this_ispdata->sensor->init_isp_reg )
+			{
+				this_ispdata->sensor->init_isp_reg();
+			}
+		}
+	}
+
 }
 
 bool ispv1_is_hdr_movie_mode(void)

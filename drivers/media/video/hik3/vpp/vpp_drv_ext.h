@@ -13,7 +13,7 @@
 #define VPP_ORECT_MIN_W 64
 #define VPP_ORECT_MIN_H 64
 #define VPP_ORECT_MAX_W 1920
-#define VPP_ORECT_MAX_H 1080
+#define VPP_ORECT_MAX_H 1088
 
 #define VPP_MAX_RATIO 16
 #define VPP_MIN_RARIO 1/16
@@ -145,6 +145,30 @@ typedef struct VPP_OUTIMAGE_S_
     unsigned int       stride;
 }VPP_OUTIMAGE_S;
 
+//S00198515 add for support DIE 20120823 [start]
+typedef struct VPP_DIE_ADDRINFO_S_
+{
+    unsigned int   lluma_addr;       /* just for deinterlace*/
+    unsigned int   lchroma_addr;
+    unsigned int   cluma_addr;
+    unsigned int   cchroma_addr;
+    unsigned int   nluma_addr;
+    unsigned int   nchroma_addr;
+}VPP_DIE_ADDRINFO_S;
+
+typedef struct VPP_FRAME_ADDRINFO_S_
+{
+    unsigned int   vhd_clum_addr;
+    unsigned int   vhd_cchm_addr;
+
+    unsigned int   vhd_llum_addr;       /*single frame,  planar : V address ; */ 
+    unsigned int   vhd_lchm_addr;       /*single frame,  planar : not used ; */ 
+
+    unsigned short vhd_lum_str;		/*stride */
+    unsigned short vhd_chm_str;
+}VPP_FRAME_ADDRINFO_S;
+//S00198515 add for support DIE 20120823 [end]
+
 typedef struct VPP_CONFIG_S_
 {
     k3_bool   bincrop_enable;//是否使能crop功能，crop的具体参数vpp_in_crop
@@ -157,6 +181,7 @@ typedef struct VPP_CONFIG_S_
     VPP_INCROPPING_S        vpp_in_crop;//Crop参数
     VPP_DIE_CFG_S           vpp_die_config;//此功能未实现
     VPP_CSCCOEF_E           encsc_mode; //颜色空间转换类型
+    VPP_DIE_ADDRINFO_S       vpp_die_addrinfo;//S00198515 add //vpp dieaddrinfo 参数，主要用于进行DIE设置
 }VPP_CONFIG_S;
 
 #endif  

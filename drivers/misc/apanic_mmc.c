@@ -45,6 +45,12 @@
 
 #include "apanic_mmc.h"
 
+#ifdef CONFIG_SRECORDER_DUMP_LOG_TO_STORAGECARD
+#include <mach/early-debug.h>
+#include <linux/vmalloc.h>
+#include <linux/srecorder.h>
+#endif
+
 #define MEM_DUMP_LABEL "memdump"
 
 struct panic_header {
@@ -59,6 +65,11 @@ struct panic_header {
 
 	u32 threads_offset;
 	u32 threads_length;
+
+#ifdef CONFIG_SRECORDER_DUMP_LOG_TO_STORAGECARD
+    u32 srecorder_offset;
+    u32 srecorder_length;
+#endif
 };
 
 struct memdump_header {
@@ -79,6 +90,11 @@ struct apanic_data {
 	void			*bounce;
 	struct proc_dir_entry	*apanic_console;
 	struct proc_dir_entry	*apanic_threads;
+
+#ifdef CONFIG_SRECORDER_DUMP_LOG_TO_STORAGECARD
+    struct proc_dir_entry *apanic_srecorder;
+#endif
+
 	struct raw_hd_struct    *mmchd;
 	struct raw_mmc_panic_ops	*mmc_panic_ops;
 };
@@ -138,6 +154,14 @@ static int apanic_proc_read_mmc(char *buffer, char **start, off_t offset,
 		file_length = ctx->curr.threads_length;
 		file_offset = ctx->curr.threads_offset;
 		break;
+#ifdef CONFIG_SRECORDER_DUMP_LOG_TO_STORAGECARD
+        case 3:	/* apanic_srecorder */ 
+            {
+                file_length = ctx->curr.srecorder_length;
+                file_offset = ctx->curr.srecorder_offset;
+                break;
+            }
+#endif
 	default:
 		pr_err("Bad dat (%d)\n", (int) dat);
 		mutex_unlock(&drv_mutex);
@@ -284,6 +308,15 @@ static void apanic_remove_proc_work(struct work_struct *work)
 		remove_proc_entry("apanic_threads", NULL);
 		ctx->apanic_threads = NULL;
 	}
+
+#ifdef CONFIG_SRECORDER_DUMP_LOG_TO_STORAGECARD
+    if (NULL != ctx->apanic_srecorder) 
+    {
+        remove_proc_entry("apanic_srecorder", NULL);
+        ctx->apanic_srecorder = NULL;
+    }
+#endif
+
 	mutex_unlock(&drv_mutex);
 }
 
@@ -383,6 +416,25 @@ static void mmc_panic_notify_add(struct raw_hd_struct *hd,
 		}
 	}
 
+#ifdef CONFIG_SRECORDER_DUMP_LOG_TO_STORAGECARD
+    printk(KERN_EMERG "Apanic: srecorder_length = %d", hdr->srecorder_length);
+    if (0 != hdr->srecorder_length)
+    {
+        ctx->apanic_srecorder = create_proc_entry("apanic_srecorder", S_IFREG | S_IRUGO, NULL);
+        if (!ctx->apanic_srecorder)
+        {
+            printk(KERN_ERR "%s: failed creating apanic_srecorder procfile\n",__func__);
+        }
+        else 
+        {
+            ctx->apanic_srecorder->read_proc = apanic_proc_read_mmc;
+            ctx->apanic_srecorder->write_proc = apanic_proc_write;
+            ctx->apanic_srecorder->size = hdr->srecorder_length;
+            ctx->apanic_srecorder->data = (void *)3;
+        }
+    }
+#endif
+
 	return;
 out_err:
 	ctx->mmchd = NULL;
@@ -481,7 +533,69 @@ static int apanic_write_console_mmc(unsigned int off)
 	return idx;
 }
 
+
+#ifdef CONFIG_SRECORDER_DUMP_LOG_TO_STORAGECARD
+static int apanic_write_srecorder_mmc(unsigned int off, char *psrc, int data_len)
+{
+    struct apanic_data *ctx = &drv_ctx;
+    int ret = -1;
+    int bytes_write_total = 0;
+    int bytes_to_write = data_len;
+    int bytes_write_this_time = PAGE_SIZE;
+
+    if (unlikely(NULL == ctx || NULL == psrc))
+    {
+        return 0;
+    }
+
+    while (bytes_to_write > 0)
+    {
+        bytes_write_this_time = (bytes_to_write > PAGE_SIZE) ? (PAGE_SIZE) : (bytes_to_write);
+        memcpy(ctx->bounce, psrc + bytes_write_total, bytes_write_this_time);
+        if (bytes_write_this_time != PAGE_SIZE)
+        {
+            memset(ctx->bounce + bytes_write_this_time, 0, PAGE_SIZE - bytes_write_this_time);
+        }
+        
+        ret = ctx->mmc_panic_ops->panic_write(ctx->mmchd, ctx->bounce, off, ((bytes_write_this_time + 1024 -1) / 1024) * 1024);
+        if (ret <= 0) 
+        {
+            printk(KERN_EMERG"apanic: Flash write failed (%d)\n", bytes_write_total);
+            return bytes_write_total;
+        }
+        off += ret;
+        bytes_to_write -= bytes_write_this_time;
+        bytes_write_total += bytes_write_this_time;
+    }
+
+    return bytes_write_total;
+}
+
+
+/**
+    @function: char *alloc_buf_for_srecorder(unsigned long buf_len)
+    @brief: allocate memory for SRecorder by vmalloc
+
+    @param: size memory size of the buffer to be allocated
+    
+    @return: the start address of the buffer allocated
+
+    @note: 
+*/
+char *alloc_buf_for_srecorder(unsigned long size)
+{
+    return vmalloc(size);
+}
+EXPORT_SYMBOL(alloc_buf_for_srecorder);
+#endif
+
+extern void feed_watdog(void);
+
+#ifdef CONFIG_SRECORDER_DUMP_LOG_TO_STORAGECARD
+static void apanic_mmc_logbuf_dump(char *panic_reason)
+#else
 static void apanic_mmc_logbuf_dump(void)
+#endif
 {
 	struct apanic_data *ctx = &drv_ctx;
 	struct panic_header *hdr = (struct panic_header *) ctx->bounce;
@@ -489,6 +603,12 @@ static void apanic_mmc_logbuf_dump(void)
 	int console_len = 0;
 	int threads_offset = 0;
 	int threads_len = 0;
+
+#ifdef CONFIG_SRECORDER_DUMP_LOG_TO_STORAGECARD
+    int srecorder_offset = 0;
+    int srecorder_len = 0;
+#endif
+
 	int rc;
 	struct timespec now;
 	struct timespec uptime;
@@ -511,6 +631,8 @@ static void apanic_mmc_logbuf_dump(void)
 		return;
 	}
 
+    feed_watdog();
+	
 	/*
 	 * Add timestamp to displays current UTC time and uptime (in seconds).
 	 */
@@ -543,12 +665,50 @@ static void apanic_mmc_logbuf_dump(void)
 		console_len = 0;
 	}
 
+#ifdef CONFIG_SRECORDER_DUMP_LOG_TO_STORAGECARD
+    /*
+     * Write out log captured by SRecorder
+     */
+    do
+    {
+        /* save buffer data to EMMC */
+        char *psrc = NULL;
+        unsigned long data_len = 0;
+        
+        if (unlikely(!get_srecorder_log_buf(panic_reason, &psrc, &data_len)))
+        {
+            break;
+        }
+        
+        srecorder_offset = (ALIGN(console_offset + console_len + threads_offset + threads_len, 1024) == 0) 
+            ? 1024 : ALIGN(console_offset + console_len + threads_offset + threads_len, 1024);  
+        srecorder_len = apanic_write_srecorder_mmc(srecorder_offset, psrc, data_len);
+        printk(KERN_EMERG "apanic: srecorder_len=%d", srecorder_len);
+        if (srecorder_len < 0) 
+        {
+            printk(KERN_EMERG "Error writing srecorder info to panic log! (%d)\n", srecorder_len);
+            srecorder_len = 0;
+        }
+    } while (0);
+    
+    for (con = console_drivers; con; con = con->next)
+    {
+        con->flags &= ~CON_ENABLED;
+    }
+#endif
+
 	/*
 	 * Write out all threads
 	 */
-	threads_offset = (ALIGN(console_offset + console_len,
-		1024) == 0) ? 1024 :
-		ALIGN(console_offset + console_len, 1024);
+#ifdef CONFIG_SRECORDER_DUMP_LOG_TO_STORAGECARD
+    threads_offset = (ALIGN(console_offset + console_len + srecorder_offset + srecorder_len,
+        1024) == 0) ? 1024 :
+        ALIGN(console_offset + console_len + srecorder_offset + srecorder_len, 1024);
+#else
+    threads_offset = (ALIGN(console_offset + console_len,
+        1024) == 0) ? 1024 :
+        ALIGN(console_offset + console_len, 1024);
+#endif
 
 	log_buf_clear();
 
@@ -577,6 +737,12 @@ static void apanic_mmc_logbuf_dump(void)
 
 	hdr->threads_offset = threads_offset;
 	hdr->threads_length = threads_len;
+
+    /* add srecorder file header */
+#ifdef CONFIG_SRECORDER_DUMP_LOG_TO_STORAGECARD
+    hdr->srecorder_offset = srecorder_offset;
+    hdr->srecorder_length = srecorder_len;
+#endif
 
 	rc = ctx->mmc_panic_ops->panic_write(ctx->mmchd, ctx->bounce, 0,
 		console_offset);
@@ -661,7 +827,11 @@ static int apanic_mmc(struct notifier_block *this, unsigned long event,
 #endif
 	touch_softlockup_watchdog();
 
-	apanic_mmc_logbuf_dump();
+#ifdef CONFIG_SRECORDER_DUMP_LOG_TO_STORAGECARD
+    apanic_mmc_logbuf_dump(ptr);
+#else
+    apanic_mmc_logbuf_dump();
+#endif
 
 #ifdef CONFIG_APANIC_MMC_MEMDUMP
 	apanic_mmc_memdump();

@@ -41,7 +41,8 @@ struct lcd_tuning_ops {
 	int (*set_gamma)(struct lcd_tuning_dev *ltd, enum lcd_gamma gamma);
 	int (*set_cabc)(struct lcd_tuning_dev *ltc, enum tft_cabc cabc);
 	/* END:   Added by huohua, 2012/02/14 */
-        /* BEGIN: Added by wugao 00190753*/
+
+	/* BEGIN: Added by wugao 00190753*/
 	int (*set_color_temperature)(struct lcd_tuning_dev *ltc, unsigned int ctValue[]);
 	/* END:   Added by wugao 00190753 */
 };

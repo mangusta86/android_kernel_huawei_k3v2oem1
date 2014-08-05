@@ -576,7 +576,9 @@ void pm_qos_add_request(struct pm_qos_request_list *dep,
 		new_value = value;
 
 #ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
+	/*s00107748 add begin*/
 	pm_qos_verify_request(pm_qos_class, &new_value);
+	/*s00107748 add end*/
 #endif
 
 	plist_node_init(&dep->list, new_value);
@@ -617,7 +619,9 @@ void pm_qos_update_request(struct pm_qos_request_list *pm_qos_req,
 		temp = new_value;
 
 #ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
+	/*s00107748 add begin*/
 	pm_qos_verify_request(pm_qos_req->pm_qos_class, &temp);
+	/*s00107748 add end*/
 #endif
 
 	if (temp != pm_qos_req->list.prio)

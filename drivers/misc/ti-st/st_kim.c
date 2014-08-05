@@ -20,6 +20,8 @@
  *
  */
 
+
+
 #define pr_fmt(fmt) "(stk) :" fmt
 #include <linux/platform_device.h>
 #include <linux/jiffies.h>
@@ -35,11 +37,37 @@
 
 #include <linux/skbuff.h>
 #include <linux/ti_wilink_st.h>
+#include <linux/mux.h>
 
+#define BTPM_BT2AP_GPIO    GPIO_20_6
+#define BTPM_AP2BT_GPIO    GPIO_20_7
 
 #define MAX_ST_DEVICES	3	/* Imagine 1 on each UART for now */
 static struct platform_device *st_kim_devices[MAX_ST_DEVICES];
+#include <linux/mux.h>											
+#define BT_GPIO_IOMUX_BLOCK "block_btpwr"   
+#define BTPM_GPIO_IOMUX_BLOCK "block_btpm"
 
+struct bluepower_info {											
+	bool             previous;								
+	unsigned	     gpio_enable;										
+//#ifndef CONFIG_MACH_K3V2OEM1
+//	unsigned         gpio_bt_vdd;
+//#endif
+//	unsigned		 sleep_clk;
+//	unsigned		 normal_clk;
+//	unsigned		 pwr_count;
+//	struct regulator   *regulator;
+//	struct clk		   *bt_clk;
+//	struct rfkill    *rfkill;
+	struct iomux_block	*gpio_blockTemp;
+	struct block_config	*gpio_configTemp;
+};
+struct bluepower_info *bt_info;
+/* referance to store the chip version */		
+static short g_wilink_version = 0;
+struct iomux_block	*btpm_blockTemp;
+struct block_config	*btpm_configTemp;
 /**********************************************************************/
 /* internal functions */
 
@@ -68,6 +96,7 @@ void validate_firmware_response(struct kim_data_s *kim_gdata)
 	if (unlikely(skb->data[5] != 0)) {
 		pr_err("no proper response during fw download");
 		pr_err("data6 %x", skb->data[5]);
+		kfree_skb(skb);
 		return;		/* keep waiting for the proper response */
 	}
 	/* becos of all the script being downloaded */
@@ -210,10 +239,13 @@ static long read_local_version(struct kim_data_s *kim_gdata, char *bts_scr_name)
 		pr_err(" waiting for ver info- timed out ");
 		return -ETIMEDOUT;
 	}
+	INIT_COMPLETION(kim_gdata->kim_rcvd);
 
 	version =
 		MAKEWORD(kim_gdata->resp_buffer[13],
 				kim_gdata->resp_buffer[14]);
+	g_wilink_version = version;
+
 	chip = (version & 0x7C00) >> 10;
 	min_ver = (version & 0x007F);
 	maj_ver = (version & 0x0380) >> 7;
@@ -231,6 +263,11 @@ static long read_local_version(struct kim_data_s *kim_gdata, char *bts_scr_name)
 
 	pr_info("%s", bts_scr_name);
 	return 0;
+}
+
+short get_wilink_chip_version()
+{
+	return g_wilink_version;
 }
 
 void skip_change_remote_baud(unsigned char **ptr, long *len)
@@ -298,6 +335,7 @@ static long download_firmware(struct kim_data_s *kim_gdata)
 
 		switch (((struct bts_action *)ptr)->type) {
 		case ACTION_SEND_COMMAND:	/* action send */
+			pr_debug("S");
 			action_ptr = &(((struct bts_action *)ptr)->data[0]);
 			if (unlikely
 			    (((struct hci_command *)action_ptr)->opcode ==
@@ -335,7 +373,10 @@ static long download_firmware(struct kim_data_s *kim_gdata)
 				release_firmware(kim_gdata->fw_entry);
 				return -ETIMEDOUT;
 			}
-
+			/* reinit completion before sending for the
+			 * relevant wait
+			 */
+			INIT_COMPLETION(kim_gdata->kim_rcvd);
 			/*
 			 * Free space found in uart buffer, call st_int_write
 			 * to send current firmware command to the uart tx
@@ -361,6 +402,7 @@ static long download_firmware(struct kim_data_s *kim_gdata)
 			}
 			break;
 		case ACTION_WAIT_EVENT:  /* wait */
+			pr_debug("W");
 			if (!wait_for_completion_timeout
 					(&kim_gdata->kim_rcvd,
 					 msecs_to_jiffies(CMD_RESP_TIME))) {
@@ -434,16 +476,37 @@ long st_kim_start(void *kim_data)
 {
 	long err = 0;
 	long retry = POR_RETRY_COUNT;
+	struct ti_st_plat_data	*pdata;
 	struct kim_data_s	*kim_gdata = (struct kim_data_s *)kim_data;
 
 	pr_info(" %s", __func__);
-
+	pdata = kim_gdata->kim_pdev->dev.platform_data;
 	do {
+			/* platform specific enabling code here */
+		if (pdata->chip_enable)
+			pdata->chip_enable();
+		#ifdef CONFIG_MACH_K3V2OEM1
+			int	ret	= 0;
+			pr_info("set mux normal mode======>\n");
+
+			/*SET NORMAL*/
+			ret	= blockmux_set(bt_info->gpio_blockTemp,
+					bt_info->gpio_configTemp, NORMAL);
+			if (unlikely(ret)) {
+				pr_info("%s:	SETERROR:gpio blockmux set err %d\r\n",
+					__func__, ret);
+				return ret;
+			}
+		#endif
+		
 		/* Configure BT nShutdown to HIGH state */
 		gpio_set_value(kim_gdata->nshutdown, GPIO_LOW);
-		mdelay(5);	/* FIXME: a proper toggle */
+		mdelay(1000);	/* FIXME: a proper toggle */
 		gpio_set_value(kim_gdata->nshutdown, GPIO_HIGH);
-		mdelay(100);
+		mdelay(200);
+		pr_info("GPIO %ld -- triggered", kim_gdata->nshutdown);
+		ret = gpio_get_value(kim_gdata->nshutdown);
+		pr_info("GPIO %ld status %d",kim_gdata->nshutdown, ret);  //add by barbara
 		/* re-initialize the completion */
 		INIT_COMPLETION(kim_gdata->ldisc_installed);
 		/* send notification to UIM */
@@ -454,13 +517,11 @@ long st_kim_start(void *kim_data)
 		/* wait for ldisc to be installed */
 		err = wait_for_completion_timeout(&kim_gdata->ldisc_installed,
 				msecs_to_jiffies(LDISC_TIME));
-		if (!err) {	/* timeout */
-			pr_err("line disc installation timed out ");
-			kim_gdata->ldisc_install = 0;
-			pr_info("ldisc_install = 0");
-			sysfs_notify(&kim_gdata->kim_pdev->dev.kobj,
-					NULL, "install");
-			err = -ETIMEDOUT;
+		if (!err) {
+			/* ldisc installation timeout,
+			 * flush uart, power cycle BT_EN */
+			pr_err("ldisc installation timeout");
+			err = st_kim_stop(kim_gdata);
 			continue;
 		} else {
 			/* ldisc installed now */
@@ -468,10 +529,7 @@ long st_kim_start(void *kim_data)
 			err = download_firmware(kim_gdata);
 			if (err != 0) {
 				pr_err("download firmware failed");
-				kim_gdata->ldisc_install = 0;
-				pr_info("ldisc_install = 0");
-				sysfs_notify(&kim_gdata->kim_pdev->dev.kobj,
-						NULL, "install");
+				err = st_kim_stop(kim_gdata);
 				continue;
 			} else {	/* on success don't retry */
 				break;
@@ -489,13 +547,16 @@ long st_kim_stop(void *kim_data)
 {
 	long err = 0;
 	struct kim_data_s	*kim_gdata = (struct kim_data_s *)kim_data;
-
+	struct ti_st_plat_data	*pdata =
+		kim_gdata->kim_pdev->dev.platform_data;
+	struct tty_struct	*tty = kim_gdata->core_data->tty;
 	INIT_COMPLETION(kim_gdata->ldisc_installed);
-
-	/* Flush any pending characters in the driver and discipline. */
-	tty_ldisc_flush(kim_gdata->core_data->tty);
-	tty_driver_flush_buffer(kim_gdata->core_data->tty);
-
+	if (tty) {	/* can be called before ldisc is installed */
+		/* Flush any pending characters in the driver and discipline. */
+		tty_ldisc_flush(tty);
+		tty_driver_flush_buffer(tty);
+		tty->ops->flush_buffer(tty);
+	}
 	/* send uninstall notification to UIM */
 	pr_info("ldisc_install = 0");
 	kim_gdata->ldisc_install = 0;
@@ -506,7 +567,7 @@ long st_kim_stop(void *kim_data)
 			msecs_to_jiffies(LDISC_TIME));
 	if (!err) {		/* timeout */
 		pr_err(" timed out waiting for ldisc to be un-installed");
-		return -ETIMEDOUT;
+		err = -ETIMEDOUT;
 	}
 
 	/* By default configure BT nShutdown to LOW state */
@@ -515,6 +576,9 @@ long st_kim_stop(void *kim_data)
 	gpio_set_value(kim_gdata->nshutdown, GPIO_HIGH);
 	mdelay(1);
 	gpio_set_value(kim_gdata->nshutdown, GPIO_LOW);
+	/* platform specific disable */
+	if (pdata->chip_disable)
+		pdata->chip_disable();
 	return err;
 }
 
@@ -544,7 +608,27 @@ static ssize_t show_install(struct device *dev,
 	struct kim_data_s *kim_data = dev_get_drvdata(dev);
 	return sprintf(buf, "%d\n", kim_data->ldisc_install);
 }
+#ifdef DEBUG
+static ssize_t store_dev_name(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct kim_data_s *kim_data = dev_get_drvdata(dev);
+	pr_debug("storing dev name >%s<", buf);
+	strncpy(kim_data->dev_name, buf, count);
+	pr_debug("stored dev name >%s<", kim_data->dev_name);
+	return count;
+}
 
+static ssize_t store_baud_rate(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t count)
+{
+	struct kim_data_s *kim_data = dev_get_drvdata(dev);
+	pr_debug("storing baud rate >%s<", buf);
+	sscanf(buf, "%ld", &kim_data->baud_rate);
+	pr_debug("stored baud rate >%ld<", kim_data->baud_rate);
+	return count;
+}
+#endif	/* if DEBUG */
 static ssize_t show_dev_name(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
@@ -569,13 +653,19 @@ static ssize_t show_flow_cntrl(struct device *dev,
 /* structures specific for sysfs entries */
 static struct kobj_attribute ldisc_install =
 __ATTR(install, 0444, (void *)show_install, NULL);
-
 static struct kobj_attribute uart_dev_name =
+#ifdef DEBUG	/* TODO: move this to debug-fs if possible */
+__ATTR(dev_name, 0644, (void *)show_dev_name, (void *)store_dev_name);
+#else
 __ATTR(dev_name, 0444, (void *)show_dev_name, NULL);
+#endif
 
 static struct kobj_attribute uart_baud_rate =
+#ifdef DEBUG	/* TODO: move to debugfs */
+__ATTR(baud_rate, 0644, (void *)show_baud_rate, (void *)store_baud_rate);
+#else
 __ATTR(baud_rate, 0444, (void *)show_baud_rate, NULL);
-
+#endif
 static struct kobj_attribute uart_flow_cntrl =
 __ATTR(flow_cntrl, 0444, (void *)show_flow_cntrl, NULL);
 
@@ -650,6 +740,8 @@ static int kim_probe(struct platform_device *pdev)
 	struct kim_data_s	*kim_gdata;
 	struct ti_st_plat_data	*pdata = pdev->dev.platform_data;
 
+	pr_info("inside kim_probe");  // add by barbara
+
 	if ((pdev->id != -1) && (pdev->id < MAX_ST_DEVICES)) {
 		/* multiple devices could exist */
 		st_kim_devices[pdev->id] = pdev;
@@ -672,15 +764,64 @@ static int kim_probe(struct platform_device *pdev)
 	}
 	/* refer to itself */
 	kim_gdata->core_data->kim_data = kim_gdata;
-
-	/* Claim the chip enable nShutdown gpio from the system */
-	kim_gdata->nshutdown = pdata->nshutdown_gpio;
-	status = gpio_request(kim_gdata->nshutdown, "kim");
-	if (unlikely(status)) {
-		pr_err(" gpio %ld request failed ", kim_gdata->nshutdown);
-		return status;
+	
+	bt_info	= kzalloc(sizeof(struct	bluepower_info), GFP_KERNEL);
+	if (!bt_info) {
+		pr_info("couldn't kzalloc bluepower_info.\n");
+		return -ENOMEM;
+	}
+	
+	bt_info->gpio_blockTemp	= iomux_get_block(BT_GPIO_IOMUX_BLOCK);
+	if (IS_ERR(bt_info->gpio_blockTemp)) {
+		pr_info("%s	: iomux_get_block gpio_blockTemp failed\n",
+			__func__);
+		return -ENXIO;
+	}
+  
+  int ret = 0;
+  
+	bt_info->gpio_configTemp = iomux_get_blockconfig(BT_GPIO_IOMUX_BLOCK);
+	if (IS_ERR(bt_info->gpio_blockTemp)) {
+		pr_info("%s	: iomux_blockconfig_lookup gpio_configTemp:\n",
+			__func__);
+		ret = -ENXIO;
+		if (bt_info->gpio_blockTemp)
+		bt_info->gpio_blockTemp	= NULL;
 	}
 
+	ret	= blockmux_set(bt_info->gpio_blockTemp,
+			bt_info->gpio_configTemp, LOWPOWER);
+	if (ret) {
+		pr_info("%s	: gpio_blockTemp blockmux set err %d\r\n",
+			__func__, ret);
+		if (bt_info->gpio_configTemp)
+		bt_info->gpio_configTemp = NULL;
+	}
+
+	struct resource	*res;
+	res	= platform_get_resource_byname(pdev, IORESOURCE_IO, "bt_gpio_enable");
+	if (!res) {
+		pr_info("couldn't find bt_gpio_enable gpio");
+		return -EIO;
+	}
+	else{pr_info("find bt_gpio_enable gpio!");}
+	
+	/* Claim the chip enable nShutdown gpio from the system */
+	//kim_gdata->nshutdown = pdata->nshutdown_gpio;  
+	kim_gdata->nshutdown = res->start; 								
+//	status = gpio_request(kim_gdata->nshutdown, "kim");
+//	if (unlikely(status)) {
+//		pr_err(" gpio %ld request failed ", kim_gdata->nshutdown);
+//		return status;
+//	}
+
+	status = gpio_request(kim_gdata->nshutdown, "bt_gpio_enable");
+	if (unlikely(status)) {
+		pr_info(" gpio request failed ");
+		return status;
+	}
+	else{pr_info(" gpio %ld request done ", kim_gdata->nshutdown);}
+  
 	/* Configure nShutdown GPIO as output=0 */
 	status = gpio_direction_output(kim_gdata->nshutdown, 0);
 	if (unlikely(status)) {
@@ -704,6 +845,34 @@ static int kim_probe(struct platform_device *pdev)
 	kim_gdata->flow_cntrl = pdata->flow_cntrl;
 	kim_gdata->baud_rate = pdata->baud_rate;
 	pr_info("sysfs entries created\n");
+
+	btpm_blockTemp	= iomux_get_block(BTPM_GPIO_IOMUX_BLOCK);
+	if (IS_ERR(btpm_blockTemp)) {
+		pr_info("%s	: iomux_get_block gpio_blockTemp failed\n", __func__);
+		return -ENXIO;
+	}
+	btpm_configTemp = iomux_get_blockconfig(BTPM_GPIO_IOMUX_BLOCK);
+	if (IS_ERR(btpm_configTemp)) {
+		pr_info("%s	: iomux_blockconfig_lookup gpio_configTemp:\n", __func__);
+		return -ENXIO;
+	}
+	ret	= blockmux_set(btpm_blockTemp, btpm_configTemp, LOWPOWER);
+	if (ret) {
+		pr_info("%s	: gpio_blockTemp blockmux set err %d\r\n", __func__, ret);
+		return ret;
+	}
+	
+	ret = gpio_request(BTPM_BT2AP_GPIO, NULL);
+	if (ret < 0) {
+		pr_info("%s: gpio_request failed, ret:%d.\n", __func__, BTPM_BT2AP_GPIO);
+	}
+	gpio_direction_input(BTPM_BT2AP_GPIO);
+	
+	ret = gpio_request(BTPM_AP2BT_GPIO, NULL);
+	if (ret < 0) {
+		pr_info("%s: gpio_request failed, ret:%d.\n", __func__, BTPM_AP2BT_GPIO);
+	}
+	gpio_direction_input(BTPM_AP2BT_GPIO);
 
 	kim_debugfs_dir = debugfs_create_dir("ti-st", NULL);
 	if (IS_ERR(kim_debugfs_dir)) {
@@ -778,17 +947,19 @@ static struct platform_driver kim_platform_driver = {
 		.owner = THIS_MODULE,
 	},
 };
-
 static int __init st_kim_init(void)
 {
-	return platform_driver_register(&kim_platform_driver);
+	int ret = 0;
+	printk(KERN_ALERT"Inside st_kim_init\n");
+	ret = platform_driver_register(&kim_platform_driver);
+	printk(KERN_ALERT"platform_driver_register in kim returned %d\n", ret);
 }
 
 static void __exit st_kim_deinit(void)
 {
+	printk(KERN_ALERT"Inside %s\n", __func__);
 	platform_driver_unregister(&kim_platform_driver);
 }
-
 
 module_init(st_kim_init);
 module_exit(st_kim_deinit);

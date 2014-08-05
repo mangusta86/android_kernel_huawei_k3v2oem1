@@ -1644,6 +1644,7 @@ gckOS_Free(
 
     /* Verify the arguments. */
     gcmkVERIFY_OBJECT(Os, gcvOBJ_OS);
+    gcmkVERIFY_ARGUMENT(Os != gcvNULL);
     gcmkVERIFY_ARGUMENT(Memory != gcvNULL);
 
     /* Do we have a heap? */
@@ -2629,8 +2630,8 @@ gckOS_WriteRegisterEx(
     )
 {
     gcmkHEADER_ARG("Os=0x%X Core=%d Address=0x%X Data=0x%08x", Os, Core, Address, Data);
-	if(Address == 0x00414)    
-	 {    
+	if (Address == 0x00414)    
+	{    
 	 #ifdef CONFIG_LCD_1080P
 		 if(Core == gcvCORE_2D)    
 		 {    
@@ -2650,7 +2651,7 @@ gckOS_WriteRegisterEx(
 		 	Data = (Data & 0xfffffff0) | 8;    
 		 }
 	#endif
-	 }  
+	}  
 
     if (Address == 0x0010c)
     {

@@ -14,6 +14,8 @@
 #include <linux/mux.h>
 #include <linux/slab.h>
 #include <linux/miscdevice.h>
+#include <linux/uaccess.h>	   /* copy_from_user() */
+#include <linux/debugfs.h>
 
 #include <linux/platform_device.h>
 
@@ -25,6 +27,9 @@
 #define PRINT_WARN  1
 #define PRINT_DEBUG 1
 #define PRINT_ERR   1
+#ifdef CONFIG_DEBUG_FS
+struct dentry *spa_5vboost_debugfs;
+#endif
 
 #if PRINT_INFO
 #define logi(fmt, ...) printk("[" LOG_TAG "][I]" fmt "\n", ##__VA_ARGS__)
@@ -67,6 +72,61 @@ static int spk_5vboost_release(struct inode *inode, struct file *file)
 {
     return 0;
 }
+#ifdef CONFIG_DEBUG_FS 
+static int spk_5vboost_read(struct file *file, char __user *user_buf,
+				   size_t count, loff_t *ppos)
+{
+    unsigned int value = 0;
+	char buf[32];
+    memset(buf,0,32);
+    value = gpio_get_value(pdata->gpio_5vboost_en);
+	sprintf(buf,"%d\n",value);
+    return simple_read_from_buffer(user_buf, count, ppos, buf, strlen(buf));
+}
+static int spk_5vboost_write(struct file *file,
+		const char __user *user_buf, size_t count, loff_t *ppos)
+{
+    int ret=0;
+    char buf[32];
+    size_t buf_size;
+    unsigned int value;
+    memset(buf,0,32);
+    buf_size = min(count, (sizeof(buf)-1));
+    if (copy_from_user(buf, user_buf, buf_size))
+	    return -EFAULT;
+    kstrtoint(buf, 10, &value);
+    if(value){
+    	ret = blockmux_set(spk_5vboost_iomux_block, spk_5vboost_block_config, NORMAL);
+        if (0 > ret) {
+            loge("%s: set iomux to gpio normal error", __FUNCTION__);
+            goto err_exit;
+        }
+        gpio_set_value(pdata->gpio_5vboost_en, 1);
+    }
+    else{
+        gpio_set_value(pdata->gpio_5vboost_en, 0);
+        ret = blockmux_set(spk_5vboost_iomux_block, spk_5vboost_block_config, LOWPOWER);
+        if (0 > ret) {
+            loge("%s: set iomux to gpio lowpower error", __FUNCTION__);
+            goto err_exit;
+        }
+    }
+err_exit:
+    return buf_size;     
+}
+static int default_open(struct inode *inode, struct file *file)
+{
+	if (inode->i_private)
+		file->private_data = inode->i_private;
+	return 0;
+}
+static const struct file_operations spk_5vboost_list_fops = {
+	.read =     spk_5vboost_read,
+	.write =    spk_5vboost_write,
+	.open =		default_open,
+	.llseek =	default_llseek,
+};
+#endif
 
 static long spk_5vboost_ioctl(struct file *file,
                             unsigned int cmd,
@@ -161,6 +221,11 @@ static int __devinit spk_5vboost_probe(struct platform_device *pdev)
         gpio_free(pdata->gpio_5vboost_en);
         return ret;
     }
+#ifdef CONFIG_DEBUG_FS  
+	if (!debugfs_create_file("spa_5vboost", 0644, NULL, NULL,
+				 &spk_5vboost_list_fops))
+		pr_warn("PA: Failed to create spa_5vboost debugfs file\n");
+#endif
 
     return ret;
 }

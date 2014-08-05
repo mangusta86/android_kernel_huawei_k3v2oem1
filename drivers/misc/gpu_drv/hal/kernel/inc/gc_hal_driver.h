@@ -150,6 +150,9 @@ typedef enum _gceHAL_COMMAND_CODES
 
     /* Reset time stamp. */
     gcvHAL_QUERY_RESET_TIME_STAMP,
+
+    /* query heap size */
+    gcvHAL_QUERY_HEAP_SIZE
 }
 gceHAL_COMMAND_CODES;
 
@@ -918,6 +921,12 @@ typedef struct _gcsHAL_INTERFACE
             OUT gctUINT64           timeStamp;
         }
         QueryResetTimeStamp;
+
+        struct _gcsHAL_QUERY_HEAP_SIZE
+        {
+            OUT gctSIZE_T   heapSize;
+        }
+        QueryHeapSize;
     }
     u;
 }

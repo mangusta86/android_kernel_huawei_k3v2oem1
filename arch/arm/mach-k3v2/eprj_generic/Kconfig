@@ -1,0 +1,43 @@
+#
+# EternityProject drivers and routines for nVidia Tegra
+#
+# Copyright (C) 2012-2013 EternityProject Development
+# Angelo G. Del Regno <kholk11@gmail.com>
+# Joel Low <joel@joelsplace.sg>
+#
+# This software is GPL.
+
+
+config EPRJ_CPUMANAGER
+	bool "EternityProject CPU Manager"
+	depends on !CONFIG_TEGRA_AUTO_HOTPLUG && !CONFIG_TEGRA_CPUQUIET
+	help
+	  Compile the EternityProject CPU Manager.
+	  It will manage Tegra's clusters and cores using
+	  precise calculations and workqueue/load previsions.
+	  This provides really good powersaving features,
+	  generally also while executing CPU-intensive tasks.
+
+	  CPU Manager also integrates (required)
+	  EternityProject Scheduling Helper, which is being
+	  used as core of the predictive load calculation.
+
+	  If unsure, say Y.
+
+config EPRJ_SYSFS_TOOLS
+	bool "EternityProject sysfs Tools"
+	default n
+
+config ETERNITYPROJECT_LIVECOLOR
+	bool "EternityProject LiveColor"
+	depends on TEGRA_DC && MACH_X3
+	help
+	  EternityProject LiveColor is a color enhancement driver.
+	  It will provide brilliant colors and better contrast.
+
+config EPRJ_FAN_MANAGEMENT
+	bool "EternityProject FANs Interface"
+	depends on SENSORS_NCT1008
+	help
+	  EternityProject FANs Interface is an helper for FANs
+	  management. Raises FAN speed on HIGH TJ, lowers on LOW.

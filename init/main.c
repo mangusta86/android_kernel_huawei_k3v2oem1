@@ -68,6 +68,7 @@
 #include <linux/shmem_fs.h>
 #include <linux/slab.h>
 #include <linux/perf_event.h>
+#include <linux/random.h>
 
 #include <asm/io.h>
 #include <asm/bugs.h>
@@ -77,6 +78,10 @@
 
 #ifdef CONFIG_X86_LOCAL_APIC
 #include <asm/smp.h>
+#endif
+
+#ifdef CONFIG_SRECORDER
+#include <linux/srecorder.h>
 #endif
 
 static int kernel_init(void *);
@@ -453,6 +458,44 @@ static void __init mm_init(void)
 	vmalloc_init();
 }
 
+#ifdef CONFIG_SRECORDER
+static char *psrecorder_temp_buf = NULL;
+char* get_srecorder_temp_buf_addr(void)
+{
+    return psrecorder_temp_buf;
+}
+EXPORT_SYMBOL(get_srecorder_temp_buf_addr);
+
+void move_srecorder_log(void)
+{
+    int mem_header_size = sizeof(srecorder_reserved_mem_header_t);
+    int bytes_to_write = 0;
+    char *psrc = __va(PHYS_OFFSET + CONFIG_SRECORDER_TEMPBUF_ADDR_FROM_PHYS_OFFSET);
+    srecorder_reserved_mem_header_t *pheader = (srecorder_reserved_mem_header_t *)psrc;
+
+    if ((srecorder_get_crc32((unsigned char *)pheader, mem_header_size - sizeof(pheader->crc32) 
+        - sizeof(pheader->reserved)) != pheader->crc32)
+        || (SRECORDER_MAGIC_NUM != pheader->magic_num))
+    {
+        /* invalid log, return */
+        printk("~_~_~_~ [SRecorder]: Invalid magic number: %08lx, valid data length: %lu\n", 
+            pheader->magic_num, pheader->data_length);
+        return;
+    }
+
+    bytes_to_write = pheader->data_length + sizeof(srecorder_reserved_mem_header_t);
+    psrecorder_temp_buf = vmalloc(bytes_to_write);
+    if (unlikely(NULL == psrecorder_temp_buf))
+    {
+        printk("~_~_~_~ [SRecorder]: can not vmalloc memory\n");
+        return;
+    }
+
+    memcpy(psrecorder_temp_buf, psrc, bytes_to_write);
+    memset(psrc, 0, bytes_to_write);
+}
+#endif
+
 asmlinkage void __init start_kernel(void)
 {
 	char * command_line;
@@ -549,9 +592,6 @@ asmlinkage void __init start_kernel(void)
 	early_boot_irqs_disabled = false;
 	local_irq_enable();
 
-	/* Interrupts are enabled now so all GFP allocations are safe. */
-	gfp_allowed_mask = __GFP_BITS_MASK;
-
 	kmem_cache_init_late();
 
 	/*
@@ -626,6 +666,10 @@ asmlinkage void __init start_kernel(void)
 	ftrace_init();
 
 	/* Do the rest non-__init'ed, we're now alive */
+#ifdef CONFIG_SRECORDER
+    move_srecorder_log();
+#endif
+
 	rest_init();
 }
 
@@ -720,6 +764,7 @@ static void __init do_basic_setup(void)
 	init_irq_proc();
 	do_ctors();
 	do_initcalls();
+	random_int_secret_init();
 }
 
 static void __init do_pre_smp_initcalls(void)
@@ -783,6 +828,10 @@ static int __init kernel_init(void * unused)
 	 * Wait until kthreadd is all set-up.
 	 */
 	wait_for_completion(&kthreadd_done);
+
+	/* Now the scheduler is fully set up and can do blocking allocations */
+	gfp_allowed_mask = __GFP_BITS_MASK;
+
 	/*
 	 * init can allocate pages on any node
 	 */

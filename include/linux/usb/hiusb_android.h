@@ -77,6 +77,7 @@ enum usb_charger_type{
 	CHARGER_TYPE_NON_STANDARD,
 	CHARGER_TYPE_STANDARD,
 	CHARGER_REMOVED,
+    USB_EVENT_OTG_ID,
 };
 
 int hiusb_probe_phase1(struct lm_device *_dev);

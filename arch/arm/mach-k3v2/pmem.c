@@ -90,7 +90,7 @@ static struct platform_device android_pmem_overlay_device = {
 	.id = 3,
 	.dev = { .platform_data = &android_pmem_overlay_pdata},
 };
-#endif //CONFIG_OVERLAY_COMPOSE
+#endif
 
 static struct platform_device *pmem_devs[] __initdata = {
 	&android_pmem_camera_device,
@@ -101,97 +101,106 @@ static struct platform_device *pmem_devs[] __initdata = {
 };
 
 unsigned long hisi_reserved_gpu_phymem;
-unsigned long hisi_reserved_frame_buffer_phymem;
+unsigned long hisi_reserved_fb_phymem;
 unsigned long hisi_reserved_codec_phymem;
 unsigned long hisi_reserved_dumplog_phymem;
 unsigned long hisi_reserved_camera_phymem;
+unsigned long hisi_reserved_vpp_phymem;
 EXPORT_SYMBOL(hisi_reserved_gpu_phymem);
-EXPORT_SYMBOL(hisi_reserved_frame_buffer_phymem);
+EXPORT_SYMBOL(hisi_reserved_fb_phymem);
 EXPORT_SYMBOL(hisi_reserved_codec_phymem);
 EXPORT_SYMBOL(hisi_reserved_dumplog_phymem);
 EXPORT_SYMBOL(hisi_reserved_camera_phymem);
+EXPORT_SYMBOL(hisi_reserved_vpp_phymem);
 
 #define HISI_LCD_SIZE_NAME 10
 struct hisi_reserved_media_memory {
 	unsigned char lcd_name[HISI_LCD_SIZE_NAME];
 	unsigned long gpu_size;
-	unsigned long framebuffer_size;
 	unsigned long codec_size;
 	unsigned long camera_size;
 	unsigned long gralloc_size;
+	unsigned long vpp_size;
 #if defined(CONFIG_OVERLAY_COMPOSE)
 	unsigned long overlay_size;
 #endif
+	unsigned long fb_size;
 };
 
 static struct hisi_reserved_media_memory hisi_media_mem_array[] = {
 	[0] = {
 		.lcd_name = "hvga",
 		.gpu_size = HISI_MEM_GPU_SIZE,
-		.framebuffer_size = HISI_MEM_FRAME_BUFFER_SIZE,
 		.codec_size = HISI_MEM_CODEC_SIZE,
 		.camera_size = HISI_PMEM_CAMERA_SIZE,
 		.gralloc_size = HISI_PMEM_GRALLOC_SIZE,
-    #if defined(CONFIG_OVERLAY_COMPOSE)
+		.vpp_size = HISI_MEM_VPP_SIZE,
+	#if defined(CONFIG_OVERLAY_COMPOSE)
 		.overlay_size = HISI_PMEM_OVERLAY_SIZE,
-    #endif
+	#endif
+		.fb_size = HISI_MEM_FB_SIZE,
 	},
 	[1] = {
 		.lcd_name = "vga",
 		.gpu_size = HISI_MEM_GPU_SIZE,
-		.framebuffer_size = HISI_MEM_FRAME_BUFFER_SIZE,
 		.codec_size = HISI_MEM_CODEC_SIZE,
 		.camera_size = HISI_PMEM_CAMERA_SIZE,
 		.gralloc_size = HISI_PMEM_GRALLOC_SIZE,
-    #if defined(CONFIG_OVERLAY_COMPOSE)
+		.vpp_size = HISI_MEM_VPP_SIZE,
+	#if defined(CONFIG_OVERLAY_COMPOSE)
 		.overlay_size = HISI_PMEM_OVERLAY_SIZE,
-    #endif
+	#endif
+		.fb_size = HISI_MEM_FB_SIZE,
 	},
 	[2] = {
 		.lcd_name = "dvga",
 		.gpu_size = HISI_MEM_GPU_SIZE,
-		.framebuffer_size = HISI_MEM_FRAME_BUFFER_SIZE,
 		.codec_size = HISI_MEM_CODEC_SIZE,
 		.camera_size = HISI_PMEM_CAMERA_SIZE,
 		.gralloc_size = HISI_PMEM_GRALLOC_SIZE,
-    #if defined(CONFIG_OVERLAY_COMPOSE)
+		.vpp_size = HISI_MEM_VPP_SIZE,
+	#if defined(CONFIG_OVERLAY_COMPOSE)
 		.overlay_size = HISI_PMEM_OVERLAY_SIZE,
-    #endif
+	#endif
+		.fb_size = HISI_MEM_FB_SIZE,
 	},
 	[3] = {
 		.lcd_name = "720p",
 		.gpu_size = HISI_MEM_GPU_SIZE,
-		.framebuffer_size = HISI_MEM_FRAME_BUFFER_SIZE,
 		.codec_size = HISI_MEM_CODEC_SIZE,
 		.camera_size = HISI_PMEM_CAMERA_SIZE,
 		.gralloc_size = HISI_PMEM_GRALLOC_SIZE,
-    #if defined(CONFIG_OVERLAY_COMPOSE)
+		.vpp_size = HISI_MEM_VPP_SIZE,
+	#if defined(CONFIG_OVERLAY_COMPOSE)
 		.overlay_size = HISI_PMEM_OVERLAY_SIZE,
-    #endif
+	#endif
+		.fb_size = HISI_MEM_FB_SIZE,
 	},
 	[4] = {
 		.lcd_name = "1080p",
 		.gpu_size = HISI_MEM_GPU_SIZE,
-		.framebuffer_size = HISI_MEM_FRAME_BUFFER_SIZE,
 		.codec_size = HISI_MEM_CODEC_SIZE,
 		.camera_size = HISI_PMEM_CAMERA_SIZE,
 		.gralloc_size = HISI_PMEM_GRALLOC_SIZE,
-    #if defined(CONFIG_OVERLAY_COMPOSE)
+		.vpp_size = HISI_MEM_VPP_SIZE,
+	#if defined(CONFIG_OVERLAY_COMPOSE)
 		.overlay_size = HISI_PMEM_OVERLAY_SIZE,
-    #endif
+	#endif
+		.fb_size = HISI_MEM_FB_SIZE,
 	},
 };
 
 static struct hisi_reserved_media_memory hisi_media_mem = {
 	.lcd_name = "720p",
 	.gpu_size = HISI_MEM_GPU_SIZE,
-	.framebuffer_size = HISI_MEM_FRAME_BUFFER_SIZE,
 	.codec_size = HISI_MEM_CODEC_SIZE,
 	.camera_size = HISI_PMEM_CAMERA_SIZE,
 	.gralloc_size = HISI_PMEM_GRALLOC_SIZE,
-   #if defined(CONFIG_OVERLAY_COMPOSE)
-       .overlay_size = HISI_PMEM_OVERLAY_SIZE,
-   #endif
+	.vpp_size = HISI_MEM_VPP_SIZE,
+#if defined(CONFIG_OVERLAY_COMPOSE)
+	.overlay_size = HISI_PMEM_OVERLAY_SIZE,
+#endif
+	.fb_size = HISI_MEM_FB_SIZE,
 };
 
 /*
@@ -222,18 +231,24 @@ static struct hisi_reserved_media_memory hisi_media_mem = {
 unsigned long hisi_get_reserve_mem_size(void)
 {
 	unsigned long reserved = SZ_2M;
+	unsigned long section_size = 1<<SECTION_SIZE_BITS;
 
 	reserved += hisi_media_mem.gpu_size;
-	reserved += hisi_media_mem.framebuffer_size;
 	reserved += hisi_media_mem.codec_size;
 	reserved += hisi_media_mem.camera_size;
 	reserved += hisi_media_mem.gralloc_size;
+	reserved += hisi_media_mem.vpp_size;
 #if defined(CONFIG_OVERLAY_COMPOSE)
 	reserved += hisi_media_mem.overlay_size;
 #endif
+	reserved += hisi_media_mem.fb_size;
 	reserved += HISI_PMEM_DUMPLOG_SIZE;
 	reserved = (reserved & 0xFFF00000) + SZ_1M;
-
+	printk("ori reserved = 0x%x\n",reserved);
+	#ifdef CONFIG_SPARSEMEM
+	reserved = ((reserved/section_size) + 1) * section_size;
+	#endif
+	printk("reserved = 0x%x\n",reserved);
 	return reserved;
 }
 
@@ -258,28 +273,32 @@ static int __init early_k3v2_lcd_density(char *p)
 
 	if (mach) {
 		hisi_media_mem.gpu_size = hisi_media_mem_array[i].gpu_size;
-		hisi_media_mem.framebuffer_size = hisi_media_mem_array[i].framebuffer_size;
 		hisi_media_mem.codec_size = hisi_media_mem_array[i].codec_size;
 		hisi_media_mem.camera_size = hisi_media_mem_array[i].camera_size;
 		hisi_media_mem.gralloc_size = hisi_media_mem_array[i].gralloc_size;
+		hisi_media_mem.vpp_size = hisi_media_mem_array[i].vpp_size;
 	#if defined(CONFIG_OVERLAY_COMPOSE)
 		hisi_media_mem.overlay_size = hisi_media_mem_array[i].overlay_size;
 	#endif
-              memcpy(hisi_media_mem.lcd_name, p, strlen(p) + 1);
+		hisi_media_mem.fb_size = hisi_media_mem_array[i].fb_size;
+		memcpy(hisi_media_mem.lcd_name, p, strlen(p) + 1);
 
-		printk("lcd %s gpu %luMB framebuffer %luMB codec %luMB camera %luMB gralloc %luMB "
+		printk("lcd %s gpu %luMB codec %luMB camera %luMB gralloc %luMB vpp %luMB"
 			#if defined(CONFIG_OVERLAY_COMPOSE)
-				"overlay %luMB"
+				" overlay %luMB"
 			#endif
-				"\n",
-				hisi_media_mem.lcd_name, hisi_media_mem.gpu_size / SZ_1M,
-				hisi_media_mem.framebuffer_size / SZ_1M,
-				hisi_media_mem.codec_size / SZ_1M, hisi_media_mem.camera_size / SZ_1M,
-				hisi_media_mem.gralloc_size / SZ_1M
+				" fb %luMB\n",
+				hisi_media_mem.lcd_name,
+				hisi_media_mem.gpu_size / SZ_1M,
+				hisi_media_mem.codec_size / SZ_1M,
+				hisi_media_mem.camera_size / SZ_1M,
+				hisi_media_mem.gralloc_size / SZ_1M,
+				hisi_media_mem.vpp_size / SZ_1M,
 			#if defined(CONFIG_OVERLAY_COMPOSE)
-				,hisi_media_mem.overlay_size/ SZ_1M
+				hisi_media_mem.overlay_size / SZ_1M,
 			#endif
-                    );
+				hisi_media_mem.fb_size / SZ_1M
+		);
 	} else {
 		printk("lcd %s not found!\n", p);
 	}
@@ -308,20 +327,18 @@ void __init k3v2_allocate_memory_regions(void)
 
 	reserved_base += size;
 
-	/*FRAMEBUFFER memory*/
-	size = hisi_media_mem.framebuffer_size;
-	hisi_reserved_frame_buffer_phymem = reserved_base;
-	printk("pmem allocating %lu bytes at (%lx physical) for framebuffer "
-		"pmem area\n", size, reserved_base);
-
-	reserved_base += size;
-
 	/* CODEC memory */
 	size = hisi_media_mem.codec_size;
 	/*Revived by y44207 ,V200 64 byte align*/
 	hisi_reserved_codec_phymem = reserved_base; 
 	printk("codec pmem allocating %lu bytes at (%lx physical) for codec "
 		"pcodec area\n", size, reserved_base);
+	reserved_base += size;
+	/* VPP memory */
+	size = hisi_media_mem.vpp_size;
+	hisi_reserved_vpp_phymem = reserved_base; 
+	printk("pmem allocating %lu bytes at (%lx physical) for vpp "
+		"pmem area\n", size, reserved_base);
 
 	reserved_base += size;
 
@@ -359,6 +376,15 @@ void __init k3v2_allocate_memory_regions(void)
 
 	reserved_base += size;
 #endif
+
+	/*FB memory*/
+	size = hisi_media_mem.fb_size;
+	hisi_reserved_fb_phymem = reserved_base;
+	printk("pmem allocating %lu bytes at (%lx physical) for fb "
+		"pmem area\n",size,reserved_base);
+
+	reserved_base += size;
+
 	/* dumplog memory */
 	size = HISI_PMEM_DUMPLOG_SIZE;
 	/*Revived by y44207 ,V200 64 byte align*/
@@ -367,7 +393,6 @@ void __init k3v2_allocate_memory_regions(void)
 		"area\n", size, reserved_base);
 
 	reserved_base += size;
-
 }
 
 static int __init k3v2_pmem_setup(char *str)

@@ -7,6 +7,9 @@
 int inter_init(void);
 void inter_deinit(void);
 
+void inter_deinit_layer(HAL_LAYER_E enLayer);
+void inter_init_layer(HAL_LAYER_E enLayer);
+
 void inter_open(HAL_LAYER_E enLayer);
 void inter_close(HAL_LAYER_E enLayer);
 

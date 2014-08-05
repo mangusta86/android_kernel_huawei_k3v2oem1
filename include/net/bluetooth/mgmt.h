@@ -21,6 +21,8 @@
    SOFTWARE IS DISCLAIMED.
 */
 
+
+
 #define MGMT_INDEX_NONE			0xFFFF
 
 struct mgmt_hdr {
@@ -301,3 +303,11 @@ struct mgmt_ev_remote_name {
 } __packed;
 
 #define MGMT_EV_DISCOVERING		0x0014
+
+/*soldel start --- barbara */
+#define MGMT_EV_REMOTE_CLASS        0x0018
+struct mgmt_ev_remote_class {
+    bdaddr_t bdaddr;
+    __u8 dev_class[3];
+} __packed;
+/*soldel stop --- barbara*/

@@ -27,6 +27,9 @@
 #include <mach/tps61310.h>
 #include <linux/delay.h>
 #include <linux/time.h>
+#ifdef CONFIG_HUAWEI_HW_DEV_DCT
+#include <linux/hw_dev_dec.h>
+#endif
 
 #define LOG_TAG "K3_STROBE"
 
@@ -39,13 +42,25 @@
 #define STATE_BRIGHT_HIGH      0x1b
 #define STATE_BRIGHT_LEFT_HIGH      0x18
 #define STATE_BRIGHT_RIGHT_HIGH      0x03
+#define THERMAL_PROTECT (1)
 
-static struct device_attribute tps61310_led;
-static struct device_attribute tps61310_led_hw;
 static camera_flashlight tps61310_intf;
-struct i2c_client *tps61310_client = NULL;
+struct i2c_client *tps61310_client;
 
-static int brightness_level;
+static int brightness_level = 0;
+
+static ssize_t tps61310_led_torch_mode_get_brightness(struct device *dev, struct device_attribute *attr,char *buf);
+static ssize_t tps61310_led_torch_mode_set_brightness(struct device *dev, struct device_attribute *attr, const char *buf, size_t count);
+
+#ifdef THERMAL_PROTECT 
+static DEFINE_SPINLOCK(led_stat_lock);
+static bool thermal_protect_led_stat = true;
+//static int led_configed_flag = 0;
+static void thermal_protect_set_flash_stat(bool thermal_led_stat);
+static bool thermal_protect_get_flash_stat(void);
+static ssize_t thermal_protect_flash_led_state_get(struct device *dev, struct device_attribute *attr,char *buf);
+static ssize_t thermal_protect_flash_led_state_set(struct device *dev, struct device_attribute *attr, const char *buf, size_t count);
+#endif
 
 /*
  * record led select status
@@ -72,11 +87,11 @@ static void set_strobe1(u32 value);
 static void dump_reg(void);
 static int tps61310_turn_on(work_mode mode, flash_lum_level lum);
 static int tps61310_turn_off(void);
+static int tps61310_read_reg8(u8 reg, u8 *val);
 static int tps61310_camera_mode_flag = 0;
 static int tps61310_init_flag = 0;
-
+static int led_configed_flag = 0;
 static char led_status = '0';
-static  int led_configed_flag = 0;
 
 int tps61310_init(void);
 void tps61310_exit(void);
@@ -95,6 +110,14 @@ static struct i2c_driver tps61310_driver = {
 	.id_table = tps61310_id,
 };
 
+static struct device_attribute tps61310_led=
+    __ATTR(lightness, 0664, tps61310_led_torch_mode_get_brightness,
+                        tps61310_led_torch_mode_set_brightness);
+#ifdef THERMAL_PROTECT
+static struct device_attribute thermal_protect_flash_led=
+    __ATTR(thermal_protect_flash_led_state, 0664, thermal_protect_flash_led_state_get,
+                        thermal_protect_flash_led_state_set);
+#endif
 
 /*
  **************************************************************************
@@ -163,11 +186,14 @@ static int tps61310_i2c_write(char *txData, int length)
  * Other       : NA;
  **************************************************************************
  */
+ extern int register_torch_led(struct device_attribute *attr);
+
 static int tps61310_probe(struct i2c_client *client, const struct i2c_device_id *id)
 {
 	struct i2c_adapter *adapter;
 	struct tps61310_platform_data *pdata = NULL;
 	int ret = 0;
+	u8 val;
 	print_debug("Enter %s", __FUNCTION__);
 
 	adapter = client->adapter;
@@ -183,18 +209,37 @@ static int tps61310_probe(struct i2c_client *client, const struct i2c_device_id 
 	}
 
 	tps61310_client = client;
+	reset_pin = pdata->reset_pin;
+	ret = gpio_request(reset_pin, NULL);
+	if (ret) {
+		print_error("failed to request reset pin of flash ic");
+		return -EIO;
+	}	
+	gpio_direction_output(reset_pin, 1);
+	//read REVID
+	ret = tps61310_read_reg8(0x07,&val);
+	if(val &0x07 !=0x06)
+	{
+		tps61310_client = NULL;
+		print_error( "%s:tps61310 isn't mountted\n", __func__, &client->dev);
+      		return -1;
+      	}
+	gpio_direction_output(reset_pin, 0);
+	gpio_free(reset_pin);
 
-	 if (device_create_file(&client->dev, &tps61310_led))
-         {
-         print_error( "%s:Unable to create interface\n", __func__, &client->dev);
-         return -ENOMEM;
-         }
+	if(register_torch_led(&tps61310_led))
+	{
+		print_error( "%s:Unable to create interface\n", __func__, &client->dev);
+		return -ENOMEM;
+	}
 
-	 if (device_create_file(&client->dev, &tps61310_led_hw))
-         {
-         print_error( "%s:Unable to create interface\n", __func__, &client->dev);
-         return -ENOMEM;
-         }
+	#ifdef THERMAL_PROTECT
+	if(register_torch_led(&thermal_protect_flash_led))
+	{
+		print_error( "%s:Unable to create thermal_protect_flash_led interface\n", __func__);
+		return -ENOMEM;
+	}
+	#endif
 
 	/* get gpio block */
 	gpio_block = iomux_get_block(K3_FLASH_BLOCK);
@@ -220,6 +265,11 @@ static int tps61310_probe(struct i2c_client *client, const struct i2c_device_id 
 	reset_pin = pdata->reset_pin;
 	strobe0_pin = pdata->strobe0;
 	strobe1_pin = pdata->strobe1;
+
+#ifdef CONFIG_HUAWEI_HW_DEV_DCT
+    /* detect current device successful, set the flag as present */
+        set_hw_dev_flag(DEV_I2C_TPS);
+#endif
 
 	return 0;
 }
@@ -340,8 +390,8 @@ static tps61310_led_torch_mode_off()
 	int val,ret;
 
 	if (tps61310_camera_mode_flag)
-		 	return;
-	
+		return;
+
 	//set device shutdown mode
         ret =  tps61310_read_reg8(0x2, &val);
         if(ret < 0){
@@ -391,89 +441,145 @@ static ssize_t tps61310_led_torch_mode_get_brightness(struct device *dev, struct
 
 static ssize_t tps61310_led_torch_mode_set_brightness(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
 {
-        int val,ret;
+    int val,ret;
+    //static char status = '0';
+	//#ifndef THERMAL_PROTECT
+	//static  int led_configed_flag = 0;
+	//#endif
 
-        if(led_status != buf[0])
-        {
-            led_status = buf[0];
-        }
-        else
-        {
-            return count;
+    if(led_status != buf[0])
+    {
+        led_status = buf[0];
+    }
+    else
+    {
+        return count;
+    }
+
+    if (buf[0] == '0')//close
+    {
+        ret = tps61310_led_torch_mode_off();
+        if(ret != 0){
+            print_error("tps61310_led_torch_mode_off error");
+            return -1;
         }
 
-        if (buf[0] == '0')//close
+		#ifdef THERMAL_PROTECT
+		spin_lock(&led_stat_lock);
+		#endif
+        led_configed_flag = 0;
+        brightness_level = 0;
+		#ifdef THERMAL_PROTECT
+		spin_unlock(&led_stat_lock);
+		#endif
+    }
+    else 
+    {
+	/*
+    	#ifdef THERMAL_PROTECT
+		if(!thermal_protect_get_flash_stat())
+		{
+			print_info("temperature is too high,can't open the flash led");
+			return -1;
+		}
+		#endif
+	*/
+        if(led_configed_flag == 0)
         {
-            ret = tps61310_led_torch_mode_off();
+            ret = tps61310_led_torch_mode_on();
             if(ret != 0){
-                print_error("tps61310_led_torch_mode_off error");
+                print_error("tps61310_led_torch_mode_on error");
                 return -1;
             }
-            led_configed_flag = 0;
-            brightness_level = 0;
-        }
-        else 
-        {
-                if(led_configed_flag == 0)
-                {
-                        ret = tps61310_led_torch_mode_on();
-                        if(ret != 0){
-                            print_error("tps61310_led_torch_mode_on error");
-                            return -1;
-                        }
 
-                        led_configed_flag = 1;
+			#ifdef THERMAL_PROTECT
+			spin_lock(&led_stat_lock);
+			#endif
+            led_configed_flag = 1;
+			#ifdef THERMAL_PROTECT
+			spin_unlock(&led_stat_lock);
+			#endif
 		}
 
 		if (buf[0] == '1')//class 1
 		{
-		        ret = tps61310_write_reg8(0x0, STATE_BRIGHT_LOW);
-                        if(ret < 0){
-                            print_error("set light level error write reg0 = %x",STATE_BRIGHT_LOW);
-                            return -1;
-                        }
+	        ret = tps61310_write_reg8(0x0, STATE_BRIGHT_LOW);
+            if(ret < 0){
+                print_error("set light level error write reg0 = %x",STATE_BRIGHT_LOW);
+                return -1;
+            }
 
-                        brightness_level = 1;
+			#ifdef THERMAL_PROTECT
+			spin_lock(&led_stat_lock);
+			#endif
+            brightness_level = 1;
+			#ifdef THERMAL_PROTECT
+			spin_unlock(&led_stat_lock);
+			#endif
 		}
 		else if (buf[0] == '2')//class 2
 		{
-                        ret = tps61310_write_reg8(0x0, STATE_BRIGHT_MEDIUM);
-                        if(ret < 0){
-                            print_error("set light level error write reg0 = %x",STATE_BRIGHT_MEDIUM);
-                            return -1;
-                        }
+            ret = tps61310_write_reg8(0x0, STATE_BRIGHT_MEDIUM);
+            if(ret < 0){
+                print_error("set light level error write reg0 = %x",STATE_BRIGHT_MEDIUM);
+                return -1;
+            }
 
-                        brightness_level = 2;
+			#ifdef THERMAL_PROTECT
+			spin_lock(&led_stat_lock);
+			#endif
+            brightness_level = 2;
+			#ifdef THERMAL_PROTECT
+			spin_unlock(&led_stat_lock);
+			#endif
 		}
 		else if(buf[0] == '3')
 		{
-			 ret = tps61310_write_reg8(0x0, STATE_BRIGHT_HIGH);
-                        if(ret < 0){
-                            print_error("set light level error write reg0 = %x",STATE_BRIGHT_HIGH);
-                            return -1;
-                        }
+			ret = tps61310_write_reg8(0x0, STATE_BRIGHT_HIGH);
+            if(ret < 0){
+                print_error("set light level error write reg0 = %x",STATE_BRIGHT_HIGH);
+                return -1;
+            }
 
+			#ifdef THERMAL_PROTECT
+			spin_lock(&led_stat_lock);
+			#endif
 			brightness_level = 3;
+			#ifdef THERMAL_PROTECT
+			spin_unlock(&led_stat_lock);
+			#endif
 		}
 		else if(buf[0] == '4')
 		{
-			 ret = tps61310_write_reg8(0x0, STATE_BRIGHT_LEFT_HIGH);
-                        if(ret < 0){
-                            print_error("set light level error write reg0 = %x",STATE_BRIGHT_HIGH);
-                            return -1;
-                        }
+			ret = tps61310_write_reg8(0x0, STATE_BRIGHT_LEFT_HIGH);
+            if(ret < 0){
+                print_error("set light level error write reg0 = %x",STATE_BRIGHT_HIGH);
+                return -1;
+            }
 
+			#ifdef THERMAL_PROTECT
+			spin_lock(&led_stat_lock);
+			#endif
 			brightness_level = 3;
+			#ifdef THERMAL_PROTECT
+			spin_unlock(&led_stat_lock);
+			#endif
 		}
 		else if(buf[0] == '5')
 		{
-			 ret = tps61310_write_reg8(0x0, STATE_BRIGHT_RIGHT_HIGH);
-                        if(ret < 0){
-                            print_error("set light level error write reg0 = %x",STATE_BRIGHT_HIGH);
-                            return -1;
-                        }
+			ret = tps61310_write_reg8(0x0, STATE_BRIGHT_RIGHT_HIGH);
+            if(ret < 0){
+                print_error("set light level error write reg0 = %x",STATE_BRIGHT_HIGH);
+                return -1;
+            }
 
+			#ifdef THERMAL_PROTECT
+			spin_lock(&led_stat_lock);
+			#endif
 			brightness_level = 3;
+			#ifdef THERMAL_PROTECT
+			spin_unlock(&led_stat_lock);
+			#endif
 		}
 		else 
 		{
@@ -482,32 +588,9 @@ static ssize_t tps61310_led_torch_mode_set_brightness(struct device *dev, struct
 		}
 	}
 
-        return count;
+    return count;
 }
 
-
-static ssize_t tps61310_led_hw_free(struct device *dev, struct device_attribute *attr,char *buf)
-{
-	if('0' != led_status)
-	{
-		int ret;
-		led_status = 0;
-		ret = tps61310_led_torch_mode_off();
-		if(ret != 0){
-		print_error("tps61310_led_torch_mode_off error");
-		return -1;
-		}
-		led_configed_flag = 0;
-		brightness_level = 0;
-	}
-}
-
- static struct device_attribute tps61310_led=
-    __ATTR(tps61310_led_lightness, 0644, tps61310_led_torch_mode_get_brightness,
-                        tps61310_led_torch_mode_set_brightness);
-
-   static struct device_attribute tps61310_led_hw=
-    __ATTR(tps61310_led_hw, 0644, tps61310_led_hw_free, NULL);
 /*
  **************************************************************************
  * FunctionName: tps61310_cfg_led;
@@ -579,11 +662,25 @@ int tps61310_init(void)
 {
 	int ret;
 
-	
-	if (tps61310_init_flag)
-		return;
-       
-	ret = gpio_request(reset_pin, NULL);	
+	if (tps61310_init_flag){
+		ret = tps61310_led_torch_mode_off();
+		if(ret != 0){
+			print_error("tps61310_led_torch_mode_off error");
+			return -1;
+		}
+		#ifdef THERMAL_PROTECT
+		spin_lock(&led_stat_lock);
+		#endif
+		led_configed_flag = 0;
+		brightness_level = 0;
+		led_status = '0';
+		#ifdef THERMAL_PROTECT
+		spin_unlock(&led_stat_lock);
+		#endif
+		//return 0;
+	}
+
+	ret = gpio_request(reset_pin, NULL);
 	if (ret) {
 		print_error("failed to request reset pin of flash ic");
 		return -EIO;
@@ -592,20 +689,24 @@ int tps61310_init(void)
 	ret = gpio_request(strobe0_pin, NULL);
 	if (ret) {
 		print_error("failed to request strobe0 pin of flash ic");
-		return -EIO;
+		goto err1;
 	}
 
 	ret = gpio_request(strobe1_pin, NULL);
 	if (ret) {
 		print_error("failed to request strobe1 pin of flash ic");
-		return -EIO;
+		goto err2;
 	}
 
-	
 	tps61310_init_flag = 1;
-	return 0; 
-}
+	return 0;
 
+err2:
+	gpio_free(strobe0_pin);
+err1:
+	gpio_free(reset_pin);
+	return -EIO;
+}
 /*
  **************************************************************************
  * FunctionName: tps61310_exit;
@@ -632,8 +733,14 @@ void tps61310_exit(void)
 		print_error("%s: failed to set iomux flash to gpio mode.\n", __func__);
 		return;
 	}
-	
-    tps61310_camera_mode_flag = 0;
+
+	#ifdef THERMAL_PROTECT
+	spin_lock(&led_stat_lock);
+	#endif
+	tps61310_camera_mode_flag = 0;
+	#ifdef THERMAL_PROTECT
+	spin_unlock(&led_stat_lock);
+	#endif
 	tps61310_init_flag = 0;
 	return;
 }
@@ -769,12 +876,19 @@ int tps61310_reset(void)
  * Other       : NA;
  **************************************************************************
  */
- #ifdef CONFIG_PRODUCT_U9510
 static int tps61310_turn_on(work_mode mode, flash_lum_level lum)
 {
 	u8 val;
 	print_debug("enter %s", __FUNCTION__);
-
+/*
+	#ifdef THERMAL_PROTECT 
+	if(!thermal_protect_get_flash_stat())
+	{
+		print_info("temperature is too high,can't open the flash led");
+		return -1;
+	}
+	#endif
+*/
 	set_strobe0(0);
 	set_strobe1(1);
 
@@ -830,7 +944,11 @@ static int tps61310_turn_on(work_mode mode, flash_lum_level lum)
 		tps61310_write_reg8(0x1, val | 0x80);
 		tps61310_write_reg8(0x2, (val >> 1) | 0x80);
 
-		print_debug("start FLASH_MODE");
+		tps61310_read_reg8(0x3, &val);
+		val |= 0x02;
+		tps61310_write_reg8(0x3, val);
+
+		print_info("start FLASH_MODE");
 		set_strobe1(0);
 		set_strobe0(1);
 	} else if (mode == TORCH_MODE) {
@@ -851,128 +969,17 @@ static int tps61310_turn_on(work_mode mode, flash_lum_level lum)
 		set_strobe0(1);
 	}
 
-
+	#ifdef THERMAL_PROTECT
+	spin_lock(&led_stat_lock);
+	#endif
 	tps61310_camera_mode_flag = 1;
-	
-	return 0; 
-}
- #else
-static int tps61310_turn_on(work_mode mode, flash_lum_level lum)
-{
-	u8 val;
-	print_debug("enter %s", __FUNCTION__);
-
-	set_strobe0(0);
-	set_strobe1(1);
-
-	gpio_direction_output(reset_pin, 1);
-	tps61310_read_reg8(0x4, &val);
-	val = val | 0x10;
-	tps61310_write_reg8(0x4, val);
-
-	/* enable LED1,2,3 */
-	tps61310_read_reg8(0x5, &val);
-	val = val | 0x7;
-	tps61310_write_reg8(0x5, val);
-
-	if (mode == FLASH_MODE) {
-		switch (lum) {
-		case LUM_LEVEL0:
-			val = FLASH_100MA;
-			break;
-
-		case LUM_LEVEL1:
-			val = FLASH_200MA;
-			break;
-
-		case LUM_LEVEL2:
-			val = FLASH_300MA;
-			break;
-
-		case LUM_LEVEL3:
-			val = FLASH_400MA;
-			break;
-
-		case LUM_LEVEL4:
-			val = FLASH_500MA;
-			break;
-
-		case LUM_LEVEL5:
-			val = FLASH_600MA;
-			break;
-
-		case LUM_LEVEL6:
-			val = FLASH_700MA;
-			break;
-
-		case LUM_LEVEL7:
-			val = FLASH_800MA;
-			break;
-
-		default:
-			print_error("Unsupport lum_level:%d", lum);
-			return -1;
-		}
-
-		tps61310_write_reg8(0x1, val | 0x80);
-		tps61310_write_reg8(0x2, (val >> 1) | 0x80);
-
-		print_debug("start FLASH_MODE");
-		set_strobe1(0);
-		set_strobe0(1);
-	} else if (mode == TORCH_MODE) {
-		printk("%s torch lum=%d.\n", __func__, lum);
-
-              /*Enable LED2 LED3 ,Disable LED1*/
-		tps61310_read_reg8(0x5, &val);
-		val = (val & 0xf8)|0x6;
-		tps61310_write_reg8(0x5, val);
-
-		switch (lum) {
-		case LUM_LEVEL0:
-			val = TOUCH_100MA;
-			break;
-
-		case LUM_LEVEL1:
-			val = TOUCH_150MA;
-			break;
-
-		case LUM_LEVEL2:
-			val = TOUCH_200MA;
-			break;
-
-		case LUM_LEVEL3:
-			val = TOUCH_250MA;
-			break;
-
-		case LUM_LEVEL4:
-			val = TOUCH_300MA;
-			break;
-
-		default:
-			print_error("Unsupport lum_level:%d", lum);
-			return -1;
-		}
-
-		tps61310_write_reg8(0x0, val);
-		tps61310_read_reg8(0x1, &val);
-		val |= 0x80;
-		tps61310_write_reg8(0x1, val);
-		tps61310_read_reg8(0x2, &val);
-		val |= 0x80;
-		tps61310_write_reg8(0x2, val);
-
-		print_debug("start TORCH_MODE");
-		set_strobe1(1);
-		set_strobe0(1);
-	}
-
-
-	tps61310_camera_mode_flag = 1;
+	#ifdef THERMAL_PROTECT
+	spin_unlock(&led_stat_lock);
+	#endif
 
 	return 0;
 }
-#endif
+
 
 
 /*
@@ -991,7 +998,13 @@ static int tps61310_turn_off(void)
 	u32 value;
 	print_debug("enter %s", __FUNCTION__);
 
+	#ifdef THERMAL_PROTECT
+	spin_lock(&led_stat_lock);
+	#endif
 	tps61310_camera_mode_flag = 0;
+	#ifdef THERMAL_PROTECT
+	spin_unlock(&led_stat_lock);
+	#endif
 
 	value = gpio_get_value(reset_pin);
 	if (value != 0) {
@@ -1008,9 +1021,69 @@ static int tps61310_turn_off(void)
 	set_strobe0(0);
 	set_strobe1(1);
 	gpio_direction_output(reset_pin, 0);
+	
+	print_info("exit %s",__func__);
 
 	return 0;
 }
+
+#ifdef THERMAL_PROTECT 
+static bool thermal_protect_get_flash_stat(void)
+{
+	return thermal_protect_led_stat;
+}
+
+static void thermal_protect_set_flash_stat(bool thermal_led_stat)
+{
+	thermal_protect_led_stat = thermal_led_stat;
+}
+
+static ssize_t thermal_protect_flash_led_state_get(struct device *dev, struct device_attribute *attr,char *buf)
+{
+    int ret;
+    sprintf(buf,"thermal_protect_led_stat = %d\n",thermal_protect_led_stat);
+    ret = strlen(buf)+1;
+    return ret;
+}
+
+static ssize_t thermal_protect_flash_led_state_set(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
+{
+	int ret = 0;
+	
+    if (buf[0] == '0')
+    {
+    	if(led_configed_flag)
+    	{
+		    ret = tps61310_led_torch_mode_off();
+		    if(ret != 0){
+		        print_error("tps61310_led_torch_mode_off error");
+		        return -1;
+		    }
+			spin_lock(&led_stat_lock);
+		    led_configed_flag = 0;
+		    brightness_level = 0;
+			spin_unlock(&led_stat_lock);
+    	}
+
+		if(tps61310_camera_mode_flag)
+		{
+			tps61310_turn_off();
+		}
+		
+		thermal_protect_led_stat = false;
+    }
+	else if (buf[0] == '1')
+	{
+		thermal_protect_led_stat = true;
+	}
+	else 
+	{
+		printk("Input the wrong number\n");
+		return -1;
+	}
+	return count;
+}
+#endif
 
 /*
  **************************************************************************
@@ -1055,8 +1128,16 @@ static int __init tps61310_module_init(void)
 		return -1;
 	}
 
+	if(tps61310_client == NULL)
+	{
+		return -1;
+	}
+	
 	tps61310_set_default();
 	register_camera_flash(&tps61310_intf);
+	#ifdef THERMAL_PROTECT 
+	thermal_protect_set_flash_stat(true);
+	#endif
 	return 0;
 }
 

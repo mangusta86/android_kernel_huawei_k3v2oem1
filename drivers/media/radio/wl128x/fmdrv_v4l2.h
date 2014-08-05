@@ -26,7 +26,7 @@
 #include <media/v4l2-ioctl.h>
 #include <media/v4l2-common.h>
 #include <media/v4l2-ctrls.h>
-
+#define V4L2_CTRL_FLAG_VOLATILE         0x0080
 int fm_v4l2_init_video_device(struct fmdev *, int);
 void *fm_v4l2_deinit_video_device(void);
 

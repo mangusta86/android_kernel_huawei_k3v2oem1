@@ -711,7 +711,10 @@ static void __exit vcc_regulator_exit(void)
 {
 	platform_driver_unregister(&vcc_regulator_driver);
 }
-
+#ifdef CONFIG_EXTRAL_DYNAMIC_DCDC
+fs_initcall(vcc_regulator_init);
+#else
 core_initcall(vcc_regulator_init);
+#endif
 module_exit(vcc_regulator_exit);
 MODULE_LICENSE("GPL");

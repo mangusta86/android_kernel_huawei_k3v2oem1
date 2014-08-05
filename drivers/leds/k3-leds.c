@@ -18,7 +18,22 @@
 #include <linux/led/k3-leds.h>
 #include <linux/io.h>
 #include <linux/clk.h>
+#include <hsad/config_mgr.h>
 
+int light_red = 0;
+int light_green = 0;
+int light_blue = 0;
+int light_red_bright = 0;
+int light_green_bright = 0;
+int light_blue_bright = 0;
+int rising_and_falling = 0x33; //default Value, means 1s to rising and falling
+int start_time = DR_START_DEL_512;
+unsigned long light_red_delay_on = 0;
+unsigned long light_red_delay_off = 0;
+unsigned long light_green_delay_on = 0;
+unsigned long light_green_delay_off = 0;
+unsigned long light_blue_delay_on = 0;
+unsigned long light_blue_delay_off = 0;
 static struct k3_led_drv_data *k3_led_pdata;
 
 /* read register  */
@@ -42,14 +57,17 @@ static void k3_led_set_disable(u8 id)
 
 	case K3_LED0:
 		led_k3_dr_ctl &= DR3_DISABLE;
+                light_red_bright = 0;
 		break;
 
 	case K3_LED1:
 		led_k3_dr_ctl &= DR4_DISABLE;
+                light_green_bright = 0;
 		break;
 
 	case K3_LED2:
 		led_k3_dr_ctl &= DR5_DISABLE;
+                light_blue_bright = 0;
 		break;
 
 	default:
@@ -63,13 +81,15 @@ static void k3_led_set_reg_write(struct led_set_config *bightness_config)
 	/* config current  */
 	k3_led_reg_write(bightness_config->brightness_set, bightness_config->k3_led_iset_address);
 	/* start_delay  */
-	k3_led_reg_write(DR_START_DEL_512, bightness_config->k3_led_start_address);
+	k3_led_reg_write(start_time, bightness_config->k3_led_start_address);
 	/* delay_on  */
 	k3_led_reg_write(DR_DELAY_ON, bightness_config->k3_led_tim_address);
 	/* enable */
 	k3_led_reg_write(bightness_config->led_k3_dr_ctl, DR_LED_CTRL);
 	/* output enable */
 	k3_led_reg_write(bightness_config->led_k3_dr_out_ctl, DR_OUT_CTRL);
+	/*set rising and falling*/
+	k3_led_reg_write(rising_and_falling,bightness_config->k3_led_tim1_address );
 }
 
 /* set led half brightness or full brightness  */
@@ -91,6 +111,9 @@ static void k3_led_set_select_led(u8 brightness_set, u8 id)
 		bightness_config[id].k3_led_tim_address = DR3_TIM_CONF0;
 		bightness_config[id].led_k3_dr_ctl = led_k3_dr_ctl | DR3_ENABLE;
 		bightness_config[id].led_k3_dr_out_ctl = led_k3_dr_out_ctl & DR3_OUT_ENABLE;
+		bightness_config[id].k3_led_tim1_address = DR3_TIM_CONF1;
+                light_red = id;
+                light_red_bright = brightness_set;
 		break;
 
 	case K3_LED1:
@@ -100,6 +123,9 @@ static void k3_led_set_select_led(u8 brightness_set, u8 id)
 		bightness_config[id].k3_led_tim_address = DR4_TIM_CONF0;
 		bightness_config[id].led_k3_dr_ctl = led_k3_dr_ctl | DR4_ENABLE;
 		bightness_config[id].led_k3_dr_out_ctl = led_k3_dr_out_ctl & DR4_OUT_ENABLE;
+		bightness_config[id].k3_led_tim1_address = DR4_TIM_CONF1;
+                light_green = id;
+                light_green_bright = brightness_set;
 		break;
 
 	case K3_LED2:
@@ -109,6 +135,9 @@ static void k3_led_set_select_led(u8 brightness_set, u8 id)
 		bightness_config[id].k3_led_tim_address = DR5_TIM_CONF0;
 		bightness_config[id].led_k3_dr_ctl = led_k3_dr_ctl | DR5_ENABLE;
 		bightness_config[id].led_k3_dr_out_ctl = led_k3_dr_out_ctl & DR5_OUT_ENABLE;
+		bightness_config[id].k3_led_tim1_address = DR5_TIM_CONF1;
+                light_blue = id;
+                light_blue_bright = brightness_set;
 		break;
 
 	default:
@@ -239,7 +268,18 @@ static int k3_led_set_blink(struct led_classdev *led_ldev,
 
 	if ((*delay_on == 0) && (*delay_off == 0))
 		return ret;
-
+        if (id == 0){
+            light_red_delay_on = *delay_on;
+            light_red_delay_off = *delay_off;
+        }
+        if (id == 1){
+            light_green_delay_on = *delay_on;
+            light_green_delay_off = *delay_off;
+        }
+        if (id == 2){
+            light_blue_delay_on = *delay_on;
+            light_blue_delay_off = *delay_off;
+        }
 	mutex_lock(&data->lock);
 	ret = clk_enable(data->clk);
 	if (ret) {
@@ -384,6 +424,13 @@ static int __devinit k3_led_probe(struct platform_device *pdev)
 	ret = k3_led_configure(pdev, data, pdata);
 	if (ret < 0)
 		goto err_remap;
+
+
+	ret = get_hw_config_int("sensor/rising_and_falling", &rising_and_falling, NULL);
+	if(!ret)
+		dev_err(&pdev->dev, "failed to get rising and falling value from boardid\n");
+	if(0 == rising_and_falling)
+		start_time = 0x00;
 
 	return 0;
 

@@ -59,6 +59,9 @@
 #include "dwc_otg_core_if.h"
 #include "dwc_otg_core_param.h"
 
+#include <mach/gpio.h>
+#include <hsad/config_mgr.h>
+
 
 /* #define NANO_PHY */
 #define DWC_DRIVER_VERSION	"2.93a 28-JUNE-2011"
@@ -1150,6 +1153,104 @@ static int __init dwc_otg_driver_init(void)
 
 module_init(dwc_otg_driver_init);
 
+#if defined( CONFIG_USB_OTG_GPIO_ID_DET )
+static int gpio_otg_id_det = -1;
+static bool gpio_otg_id_det_irq_low = true; //true for IRQF_TRIGGER_LOW, and false for IRQF_TRIGGER_HIGH;
+struct work_struct usb_otg_work;
+
+//schedule a work to call k3v2_otg_id_status_change
+static void otg_det_work_func(struct work_struct *data)
+{
+    if (gpio_otg_id_det >= 0) {
+        if (0 == gpio_get_value(gpio_otg_id_det)) {
+            DWC_INFO("%s: GPIO_OTG_ID_DET interrupt: %d, USB_OTG device plug in;\n",__func__, gpio_otg_id_det_irq_low);
+            k3v2_otg_id_status_change(ID_FALL);
+        } else {
+            DWC_INFO("%s: GPIO_OTG_ID_DET interrupt: %d, USB_OTG device plug out;\n",__func__, gpio_otg_id_det_irq_low);
+            k3v2_otg_id_status_change(ID_RISE);
+        }
+    }
+}
+
+static irqreturn_t usb_otg_det_isr(int irq, void *dev_id)
+{
+    schedule_work(&usb_otg_work);
+
+    gpio_otg_id_det_irq_low = !gpio_otg_id_det_irq_low;
+    if (gpio_otg_id_det_irq_low == true)
+        irq_set_irq_type(irq, IRQF_TRIGGER_LOW);
+    else
+        irq_set_irq_type(irq, IRQF_TRIGGER_HIGH);
+
+    return IRQ_HANDLED;
+}
+
+static int __init dwc_otg_gpio_det_late_init(void)
+{
+    int retval = 0;
+
+    retval = get_hw_config_int("usbphy/gpio_otg_id_det", &gpio_otg_id_det, NULL);
+    if (retval == false) {
+        gpio_otg_id_det = -1;
+        DWC_ERROR("hw_config GPIO_OTG_ID_DET not support\n");
+        return 0;
+    }
+
+    if (gpio_otg_id_det < 0) {
+        DWC_ERROR("hw_config GPIO_OTG_ID_DET %d invalid value\n", gpio_otg_id_det);
+        return 0;
+    }
+
+    INIT_WORK(&usb_otg_work, otg_det_work_func);
+
+    retval = gpio_request(gpio_otg_id_det, "GPIO_OTG_ID_DET");
+    if (retval < 0) {
+        DWC_ERROR("gpio_request GPIO_OTG_ID_DET %d failed. %d\n", gpio_otg_id_det, retval);
+        gpio_otg_id_det = -1; //Set gpio_otg_id_det to invalid value to bypass gpio_free(gpio_otg_id_det);
+        goto fail;
+    }
+
+    retval = gpio_direction_input(gpio_otg_id_det);
+    if (retval < 0) {
+        DWC_ERROR("gpio_direction_input GPIO_OTG_ID_DET %d failed. %d\n", gpio_otg_id_det, retval);
+        goto fail;
+    }
+
+    gpio_otg_id_det_irq_low = true; //true for IRQF_TRIGGER_LOW, and false for IRQF_TRIGGER_HIGH;
+    retval = request_irq(gpio_to_irq(gpio_otg_id_det),
+                     usb_otg_det_isr,
+                     IRQF_TRIGGER_LOW | IRQF_NO_SUSPEND,
+                     "USB_OTG_DET_ISR",
+                     NULL);
+    if (retval) {
+        DWC_ERROR("Request irq for GPIO_OTG_ID_DET %d failed. %d\n", gpio_otg_id_det, retval);
+        goto fail;
+    }
+    DWC_INFO("Request irq for GPIO_OTG_ID_DET %d succeed, level %d\n", gpio_otg_id_det, gpio_get_value(gpio_otg_id_det));
+
+    return 0;
+
+fail:
+    if (gpio_otg_id_det >= 0) {
+        gpio_free(gpio_otg_id_det);
+        gpio_otg_id_det = -1;
+    }
+    return -1;
+}
+
+static void __exit dwc_otg_gpio_det_late_exit(void)
+{
+    if (gpio_otg_id_det >= 0) {
+        free_irq(gpio_to_irq(gpio_otg_id_det), NULL);
+        gpio_free(gpio_otg_id_det);
+        gpio_otg_id_det = -1;
+    }
+    DWC_INFO("%s: module late_exit\n", __func__);
+}
+
+late_initcall(dwc_otg_gpio_det_late_init);
+#endif  //#if defined( CONFIG_USB_OTG_GPIO_ID_DET )
+
 /**
  * This function is called when the driver is removed from the kernel
  * with the rmmod command. The driver unregisters itself with its bus
@@ -1169,6 +1270,10 @@ static void __exit dwc_otg_driver_cleanup(void)
 	driver_remove_file(&dwc_otg_driver.driver, &driver_attr_version);
 	pci_unregister_driver(&dwc_otg_driver);
 #endif
+#if defined( CONFIG_USB_OTG_GPIO_ID_DET )
+	dwc_otg_gpio_det_late_exit();
+#endif  //#if defined( CONFIG_USB_OTG_GPIO_ID_DET )
+
 	printk(KERN_INFO "%s module removed\n", dwc_driver_name);
 }
 

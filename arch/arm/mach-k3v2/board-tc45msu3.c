@@ -55,24 +55,8 @@
 #define	GPIO_BT_RST					(GPIO_20_4)
 #define	GPIO_BT_VDD					(GPIO_21_6)
 
-#define GPIO_LCD_RESET  (0)
-#define GPIO_LCD_POWER  (25)
-#define GPIO_LCD_ID0	(135)
-#define GPIO_LCD_ID1	(136)
-#define GPIO_PWM0   (149)
-#define GPIO_PWM1   (150)
 
 /* for framebuffer */
-#define GPIO_LCD_POWER_NAME "gpio_lcd_power"
-#define GPIO_LCD_RESET_NAME "gpio_lcd_reset"
-#define GPIO_LCD_ID0_NAME "gpio_lcd_id0"
-#define GPIO_LCD_ID1_NAME "gpio_lcd_id1"
-#define GPIO_PWM0_NAME   "gpio_pwm0"
-#define GPIO_PWM1_NAME   "gpio_pwm1"
-#define REG_BASE_PWM0_NAME  "reg_base_pwm0"
-#define REGULATOR_DEV_LCD_NAME  "k3_dev_lcd"
-#define REGULATOR_DEV_EDC_NAME  "k3_dev_edc"
-
 #ifdef CONFIG_LCD_TOSHIBA_MDW70
 #define PLATFORM_DEVICE_LCD_NAME "mipi_toshiba_MDW70_V001"
 #elif  defined(CONFIG_LCD_PANASONIC_VVX10F002A00)
@@ -89,6 +73,10 @@
 #define PLATFORM_DEVICE_LCD_NAME "mipi_jdi_OTM1282B"
 #elif defined(CONFIG_LCD_CMI_PT045TN07)
 #define PLATFORM_DEVICE_LCD_NAME "mipi_cmi_PT045TN07"
+#elif defined(CONFIG_LCD_TOSHIBA_MDY90)
+#define PLATFORM_DEVICE_LCD_NAME "mipi_toshiba_MDY90"
+#elif defined(CONFIG_LCD_K3_FAKE)
+#define PLATFORM_DEVICE_LCD_NAME "lcd_k3_fake_fb"
 #else
 #error "PLATFORM_DEVICE_LCD_NAME not defined"
 #endif
@@ -232,59 +220,12 @@ static struct platform_device hisik3_hi6421_irq_device = {
 	.resource       =  hi6421_irq_resources,
 };
 
-static struct resource k3_lcd_resources[] = {
-	[0] = {
-		.name = GPIO_LCD_RESET_NAME,
-		.start = GPIO_LCD_RESET,
-		.end = GPIO_LCD_RESET,
-		.flags = IORESOURCE_IO,
-	},
-	[1] = {
-		.name = GPIO_LCD_POWER_NAME,
-		.start = GPIO_LCD_POWER,
-		.end = GPIO_LCD_POWER,
-		.flags = IORESOURCE_IO,
-	},
-	[2] = {
-		.name = GPIO_LCD_ID0_NAME,
-		.start = GPIO_LCD_ID0,
-		.end = GPIO_LCD_ID0,
-		.flags = IORESOURCE_IO,
-	},
-	[3] = {
-		.name = GPIO_LCD_ID1_NAME,
-		.start = GPIO_LCD_ID1,
-		.end = GPIO_LCD_ID1,
-		.flags = IORESOURCE_IO,
-	},
-	[4] = {
-		.name = GPIO_PWM0_NAME,
-		.start = GPIO_PWM0,
-		.end = GPIO_PWM0,
-		.flags = IORESOURCE_IO,
-	}, 
-	[5] = {
-		.name = GPIO_PWM1_NAME,
-		.start = GPIO_PWM1,
-		.end = GPIO_PWM1,
-		.flags = IORESOURCE_IO,
-	}, 
-	[6] = {
-		.name = REG_BASE_PWM0_NAME,
-		.start = REG_BASE_PWM0,
-		.end = REG_BASE_PWM0 + REG_PWM0_IOSIZE-1,
-		.flags = IORESOURCE_MEM,
-	},
-};
-
 static struct platform_device k3_lcd_device = {
 	.name = PLATFORM_DEVICE_LCD_NAME,
 	.id = 1,
 	.dev = {
-		.init_name = REGULATOR_DEV_LCD_NAME,
+		.init_name = "k3_dev_lcd",
 	},
-	.num_resources = ARRAY_SIZE(k3_lcd_resources),
-	.resource = k3_lcd_resources,
 };
 
 /* Begin: Added by d59977 for BCM GPS, for FPGA */

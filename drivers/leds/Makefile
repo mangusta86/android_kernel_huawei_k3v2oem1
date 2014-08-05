@@ -58,3 +58,5 @@ obj-$(CONFIG_LEDS_TRIGGER_SLEEP)	+= ledtrig-sleep.o
 
 obj-$(CONFIG_LEDS_K3_6421)	        += k3-leds.o
 obj-$(CONFIG_K3V2_KEYBOARD_BACKLIGHT)	+= k3v2_keypad_backlight.o
+obj-$(CONFIG_LESD_COLORS)	                     += leds-colors.o
+

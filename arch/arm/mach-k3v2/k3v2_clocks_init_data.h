@@ -12,4 +12,7 @@
 #include "clock.h"
 extern struct k3v2_clk_init_table common_clk_init_table_es[];
 extern struct k3v2_clk_init_table common_clk_init_table_cs[];
+#ifdef CONFIG_SUPPORT_B3750000_BITRATE
+extern struct k3v2_clk_init_table common_clk_init_table_cs_60M[];
+#endif
 #endif

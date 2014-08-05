@@ -23,9 +23,13 @@
 #include "leds.h"
 
 static struct class *leds_class;
+static unsigned char lcd_force_flag=0;
 
 static void led_update_brightness(struct led_classdev *led_cdev)
 {
+    if (1 == lcd_force_flag){
+        return;
+    }
 	if (led_cdev->brightness_get)
 		led_cdev->brightness = led_cdev->brightness_get(led_cdev);
 }
@@ -41,6 +45,41 @@ static ssize_t led_brightness_show(struct device *dev,
 	return sprintf(buf, "%u\n", led_cdev->brightness);
 }
 
+static ssize_t led_force_flag_get(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	//struct led_classdev *led_cdev = dev_get_drvdata(dev);
+
+	/* no lock needed for this */
+	//led_update_brightness(led_cdev);
+
+	return sprintf(buf, "%u\n", lcd_force_flag);
+}
+
+static ssize_t led_force_flag_set(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t size)
+{
+	//struct led_classdev *led_cdev = dev_get_drvdata(dev);
+	ssize_t ret = -EINVAL;
+	char *after;
+	unsigned long state = simple_strtoul(buf, &after, 10);
+	size_t count = after - buf;
+
+	if (isspace(*after))
+		count++;
+
+	if (count == size) {
+		ret = count;
+
+		/*if (state == LED_OFF)
+			led_trigger_remove(led_cdev);*/
+
+		//led_set_brightness(led_cdev, state);
+         lcd_force_flag = state;
+	}
+
+	return ret;
+}
 static ssize_t led_brightness_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t size)
 {
@@ -58,7 +97,9 @@ static ssize_t led_brightness_store(struct device *dev,
                 
 		/*if (state == LED_OFF)
 			led_trigger_remove(led_cdev);*/
-			
+        if (1 == lcd_force_flag){
+        return ret;
+        }
 		led_set_brightness(led_cdev, state);
 	}
 
@@ -79,6 +120,8 @@ static struct device_attribute led_class_attrs[] = {
 #ifdef CONFIG_LEDS_TRIGGERS
 	__ATTR(trigger, 0644, led_trigger_show, led_trigger_store),
 #endif
+	__ATTR(force_lcd_backlight_flag, 0644, led_force_flag_get, led_force_flag_set),
+
 	__ATTR_NULL,
 };
 
@@ -269,6 +312,8 @@ void led_blink_set(struct led_classdev *led_cdev,
 		   unsigned long *delay_on,
 		   unsigned long *delay_off)
 {
+	del_timer_sync(&led_cdev->blink_timer);
+
 	if (led_cdev->blink_set &&
 	    !led_cdev->blink_set(led_cdev, delay_on, delay_off))
 		return;

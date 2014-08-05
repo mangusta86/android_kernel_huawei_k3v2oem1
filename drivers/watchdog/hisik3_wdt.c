@@ -32,9 +32,11 @@
 #include <linux/slab.h>
 #include <linux/delay.h>
 #include <linux/syscore_ops.h>
+#include <linux/cpu.h>
+#include <linux/err.h>
 
 /* default timeout in seconds */
-#define DEFAULT_TIMEOUT         (5)
+#define DEFAULT_TIMEOUT         (10)
 
 #define MODULE_NAME             "k3v2_watchdog"
 
@@ -80,7 +82,7 @@
         void __iomem                    *base;
         struct clk                      *clk;
         struct platform_device          *pdev;
-	struct delayed_work				k3_wdt_delayed_work;
+//		struct delayed_work				k3_wdt_delayed_work;
         unsigned long                   boot_status;
         unsigned long                   status;
         #define WDT_BUSY                0
@@ -99,8 +101,14 @@ static DECLARE_WAIT_QUEUE_HEAD(wdt_queue);
  static struct hisik3_wdt *wdt;
  static int nowayout = WATCHDOG_NOWAYOUT;
 
+static DEFINE_PER_CPU(struct task_struct *, k3wdt_kick_watchdog_task);
+static int k3_wdt_kick_start_oncpu(int cpu);
+static void k3_wdt_kick_stop_oncpu(int cpu);
+static int k3_wdt_kick_start(void);
+static void k3_wdt_kick_stop(void);
+static struct notifier_block __cpuinitdata k3wdt_cpu_nfb ;
  /* binary search */
- static inline u32 bsearch(u64 var_start, u64 var_end,
+ static inline void bsearch(u32 *var, u32 var_start, u32 var_end,
                  const u64 param, const u32 timeout, u32 rate)
  {
          u64 tmp = 0;
@@ -122,7 +130,7 @@ static DECLARE_WAIT_QUEUE_HEAD(wdt_queue);
                                  var_end = tmp;
                  }
          }
-         return (u32)tmp;
+         *var = tmp;
  }
 
 static void wdt_default_init(unsigned int timeout)
@@ -132,7 +140,7 @@ static void wdt_default_init(unsigned int timeout)
 	u32 rate = 32000;/*wdt timer clock is 32k*/
 
 	/* get appropriate value of psc and load */
-	load = bsearch(LOAD_MIN, LOAD_MAX, psc, timeout, rate);
+	bsearch((u32 *)&load, LOAD_MIN, LOAD_MAX, psc, timeout, rate);
 
 	wdt->prescale = psc;
 	wdt->load_val = load;
@@ -157,13 +165,13 @@ static void wdt_default_config(void)
 	spin_unlock(&wdt->lock);
 }
 
-static void wdt_mond(struct work_struct *work)
-{
-	struct hisik3_wdt *wdt = container_of(work, struct hisik3_wdt, k3_wdt_delayed_work.work);
+//static void wdt_mond(struct work_struct *work)
+//{
+//	struct hisik3_wdt *wdt = container_of(work, struct hisik3_wdt, k3_wdt_delayed_work.work);
 
-	wdt_default_config();
-	schedule_delayed_work(&wdt->k3_wdt_delayed_work, msecs_to_jiffies(DEFAULT_TIMEOUT*1000));
-}
+//	wdt_default_config();
+//	schedule_delayed_work(&wdt->k3_wdt_delayed_work, msecs_to_jiffies(DEFAULT_TIMEOUT*1000));
+//}
 /*
  * This routine finds the most appropriate prescale and load value for input
  * timout value
@@ -207,6 +215,32 @@ static void wdt_enable(void)
 
         spin_unlock(&wdt->lock);
 }
+
+void feed_watdog(void)
+{
+    u32 val;
+
+    if (unlikely(NULL == wdt))
+    {
+        return;
+    }
+
+    if (spin_trylock(&wdt->lock))
+    {
+        /* unlock WDT register */
+        writel(WDTLOCK_ALLWEN, wdt->base + WDTLOCK);
+
+        /*enable WDT output reset signal and output interrupt signal*/
+        val = WDT_INTEN | WDT_RESEN;
+        writel(val, wdt->base + WDTCONTROL);
+
+        /* relock WDT register */
+        writel(0, wdt->base + WDTLOCK);
+
+        spin_unlock(&wdt->lock);
+    }
+}
+EXPROT_SYMBOL(feed_watdog);
 
 static void wdt_disable(void)
 {
@@ -366,6 +400,24 @@ static struct miscdevice hisik3_wdt_miscdev = {
         .fops = &hisik3_wdt_fops,
 };
 
+static int k3wdt_kick_threadfunc(void *data)
+{
+	while(1)
+	{
+//		printk(KERN_ERR "[%d] kick k3 dog\n",(int)data);
+		wdt_default_config();
+
+		if (kthread_should_stop())
+		{
+//			printk(KERN_ERR "exit kick dog thread\n");
+			break;
+		}
+		set_current_state(TASK_INTERRUPTIBLE);
+		schedule_timeout(DEFAULT_TIMEOUT *HZ);
+		set_current_state(TASK_RUNNING);
+	}
+	return 0;
+}
 static int __devinit hisik3_wdt_probe(struct platform_device *pdev)
 {
         int ret = 0;
@@ -416,9 +468,12 @@ static int __devinit hisik3_wdt_probe(struct platform_device *pdev)
 	wdt_default_init(DEFAULT_TIMEOUT);
 	wdt_default_config();
 
-	INIT_DELAYED_WORK(&wdt->k3_wdt_delayed_work, wdt_mond);
-
-	schedule_delayed_work(&wdt->k3_wdt_delayed_work, 0);
+//	INIT_DELAYED_WORK(&wdt->k3_wdt_delayed_work, wdt_mond);
+//	schedule_delayed_work(&wdt->k3_wdt_delayed_work, 0);
+	ret = k3_wdt_kick_start();
+	if(ret)
+		goto err_create_thread;
+	register_cpu_notifier((struct notifier_block *)&k3wdt_cpu_nfb);
 
         ret = misc_register(&hisik3_wdt_miscdev);
         if (ret < 0) {
@@ -432,6 +487,9 @@ static int __devinit hisik3_wdt_probe(struct platform_device *pdev)
         return 0;
 
 err_misc_register:
+	unregister_cpu_notifier((struct notifier_block *)&k3wdt_cpu_nfb);
+err_create_thread:
+	k3_wdt_kick_stop();
 	clk_disable(wdt->clk);
 err_clk_enable:
         iounmap(wdt->base);
@@ -450,6 +508,8 @@ err:
 static int __devexit hisik3_wdt_remove(struct platform_device *pdev)
 {
         struct resource *res;
+		unregister_cpu_notifier((struct notifier_block *)&k3wdt_cpu_nfb);
+		k3_wdt_kick_stop();
 
         misc_deregister(&hisik3_wdt_miscdev);
         iounmap(wdt->base);
@@ -470,7 +530,7 @@ static int hisik3_wdt_suspend(struct platform_device *dev, pm_message_t pm)
 {
 	printk(KERN_INFO "[%s] +\n", __func__);
 
-	cancel_delayed_work(&wdt->k3_wdt_delayed_work);
+//	cancel_delayed_work(&wdt->k3_wdt_delayed_work);
 	wdt_disable();
 	clk_disable(wdt->clk);
 
@@ -489,7 +549,7 @@ static int hisik3_wdt_resume(struct platform_device *dev)
 		dev_warn(&wdt->pdev->dev, "clock enable fail");
 	} else {
 		wdt_enable();
-		schedule_delayed_work(&wdt->k3_wdt_delayed_work, 0);
+//		schedule_delayed_work(&wdt->k3_wdt_delayed_work, 0);
 	}
 
 	printk(KERN_INFO "[%s] -\n", __func__);
@@ -503,6 +563,90 @@ static int hisik3_wdt_resume(struct platform_device *dev)
 #define hisik3_wdt_resume   NULL
 
 #endif
+static int k3_wdt_kick_start_oncpu(int cpu)
+{
+	int err = 0;
+	struct task_struct *p = per_cpu(k3wdt_kick_watchdog_task, cpu);
+	if (!p) {
+		p = kthread_create(k3wdt_kick_threadfunc, (void *)(unsigned long)cpu, "k3wdt_kicktask/%d", cpu);
+		if (IS_ERR(p)) {
+			printk(KERN_ERR "softlockup watchdog for %i failed\n", cpu);
+			err = PTR_ERR(p);
+			goto out;
+		}
+		kthread_bind(p, cpu);
+		per_cpu(k3wdt_kick_watchdog_task, cpu) = p;
+		wake_up_process(p);
+	}
+out:
+	return err;
+}
+
+static void k3_wdt_kick_stop_oncpu(int cpu)
+{
+	struct task_struct *p = per_cpu(k3wdt_kick_watchdog_task, cpu);
+	if (p) {
+		per_cpu(k3wdt_kick_watchdog_task, cpu) = NULL;
+		kthread_stop(p);
+	}
+}
+
+static int k3_wdt_kick_start(void)
+{
+	int cpu = 0;
+	int ret = 0;
+	for_each_online_cpu(cpu)
+		ret |= k3_wdt_kick_start_oncpu(cpu);
+	return ret;
+}
+
+static void k3_wdt_kick_stop(void)
+{
+	int cpu;
+	for_each_online_cpu(cpu)
+		k3_wdt_kick_stop_oncpu(cpu);
+}
+
+/*
+ * Create/destroy watchdog threads as CPUs come and go:
+ */
+static int __cpuinit
+cpu_callback(struct notifier_block *nfb, unsigned long action, void *hcpu)
+{
+	int hotcpu = (unsigned long)hcpu;
+
+	switch (action) {
+	case CPU_UP_PREPARE:
+	case CPU_UP_PREPARE_FROZEN:
+		break;
+	case CPU_ONLINE:
+	case CPU_ONLINE_FROZEN:
+		k3_wdt_kick_start_oncpu(hotcpu);
+		break;
+#ifdef CONFIG_HOTPLUG_CPU
+	case CPU_UP_CANCELED:
+	case CPU_UP_CANCELED_FROZEN:
+		k3_wdt_kick_stop_oncpu(hotcpu);
+		break;
+	case CPU_DEAD:
+	case CPU_DEAD_FROZEN:
+		k3_wdt_kick_stop_oncpu(hotcpu);
+		break;
+#endif /* CONFIG_HOTPLUG_CPU */
+	}
+
+	/*
+	 * hardlockup and softlockup are not important enough
+	 * to block cpu bring up.  Just always succeed and
+	 * rely on printk output to flag problems.
+	 */
+	return NOTIFY_OK;
+}
+
+static struct notifier_block __cpuinitdata k3wdt_cpu_nfb = {
+	.notifier_call = cpu_callback
+};
+
 static struct platform_driver hisik3v2_wdt_driver = {
         .driver = {
                 .name = MODULE_NAME,

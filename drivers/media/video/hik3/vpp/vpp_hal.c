@@ -21,7 +21,7 @@ u8 __iomem *s_xl_mmio = NULL;
 
 void log_reg_value(void)
 {
-#if DEBUG_LEVEL
+#if 1//DEBUG_LEVEL
     printk("\n\n******************* reg list start *******************\n");
     printk("****VOCTRL(0)          : 0x%0x \n\n", VPP_REG(s_xl_mmio,0x0)); 
 
@@ -35,8 +35,11 @@ void log_reg_value(void)
     printk("****VHDCTRL(0x100)     : 0x%0x \n", VPP_REG(s_xl_mmio,0x100)); 
     printk("****VHDUPD(0x104)      : 0x%0x \n", VPP_REG(s_xl_mmio,0x104)); 
     printk("****VHDLADDR(0x108)    : 0x%0x \n", VPP_REG(s_xl_mmio,0x108)); 
+    printk("****VHDLCADDR(0x10C)   : 0x%0x \n", VPP_REG(s_xl_mmio,0x10c));
     printk("****VHDCADDR(0x110)    : 0x%0x \n", VPP_REG(s_xl_mmio,0x110)); 
     printk("****VHDCCADDR(0x114)   : 0x%0x \n\n", VPP_REG(s_xl_mmio,0x114)); 
+    printk("****VHDNADDR(0x118)    : 0x%0x \n", VPP_REG(s_xl_mmio,0x118)); 
+    printk("****VHDNCADDR(0x11C)   : 0x%0x \n\n", VPP_REG(s_xl_mmio,0x11c)); 
 
     printk("****VHDSTRIDE(0x124)   : 0x%0x \n", VPP_REG(s_xl_mmio,0x124)); 
     printk("****VHDIRESO(0x128)    : 0x%0x \n", VPP_REG(s_xl_mmio,0x128)); 
@@ -56,6 +59,12 @@ void log_reg_value(void)
     printk("****VHDVOFFSE(0x1e0)   : 0x%0x \n", VPP_REG(s_xl_mmio,0x1e0)); 
     printk("****VHDZMEORESO(0x1e4) : 0x%0x \n", VPP_REG(s_xl_mmio,0x1e4)); 
     printk("****VHDZMEIRESO(0x1e8) : 0x%0x \n\n", VPP_REG(s_xl_mmio,0x1e8)); 
+
+    printk("****VHDDIESTKADDR(0x3A4)      : 0x%0x \n", VPP_REG(s_xl_mmio,0x3a4)); 
+    printk("****VHDDIESTLADDR(0x3A8)      : 0x%0x \n\n", VPP_REG(s_xl_mmio,0x3a8)); 
+    printk("****VHDDIESTMADDR(0x3AC)      : 0x%0x \n", VPP_REG(s_xl_mmio,0x3ac)); 
+    printk("****VHDDIESTNADDR(0x3B0)      : 0x%0x \n\n", VPP_REG(s_xl_mmio,0x3b0)); 
+    printk("****VHDDIESTSQTRADDR(0x3B4)   : 0x%0x \n\n", VPP_REG(s_xl_mmio,0x3b4));
 
     printk("******************* reg list end *******************\n\n");
 #else
@@ -3461,12 +3470,17 @@ void hal_set_acc_thd(HAL_LAYER_E enLayer, HAL_ACCTHD_S stAccThd)
 
 void hal_set_acc_tab(HAL_LAYER_E enLayer, unsigned int *upTable)
 {
-    U_VHDACCLOWN  VHDACCLOW[3]  = {0};
-    U_VHDACCMEDN  VHDACCMED[3] = {0};
-    U_VHDACCHIGHN VHDACCHIGH[3] = {0};
-    U_VHDACCMLN     VHDACCML[3] = {0};
-    U_VHDACCMHN    VHDACCMH[3] = {0};
+    U_VHDACCLOWN  VHDACCLOW[3];
+    U_VHDACCMEDN  VHDACCMED[3];
+    U_VHDACCHIGHN VHDACCHIGH[3];
+    U_VHDACCMLN   VHDACCML[3];
+    U_VHDACCMHN   VHDACCMH[3];
 
+    memset(VHDACCLOW, 0, sizeof(U_VHDACCLOWN)*3);
+    memset(VHDACCMED, 0, sizeof(U_VHDACCMEDN)*3);
+    memset(VHDACCHIGH, 0, sizeof(U_VHDACCHIGHN)*3);
+    memset(VHDACCML, 0, sizeof(U_VHDACCMLN)*3);
+    memset(VHDACCMH, 0, sizeof(U_VHDACCMHN)*3);
     unsigned int ii = 0;
 
     BUG_ON( enLayer != HAL_LAYER_VIDEO1 );
@@ -4043,84 +4057,4 @@ void  hal_get_layer_out_rect(HAL_LAYER_E enLayer, RECT_S *pstRect)
     return;
 }
 
-void hdate_1080p_30Hz_cfg(void) 
-{
-    //HDATE
-    reg_write(&(pVoReg->HDATE_EN.u32),0x00000001);  //HDATE_EN    
-    reg_write(&(pVoReg->HDATE_POLA_CTRL.u32),0x00000003);  //HDATE_POLA_CTRL
-    reg_write(&(pVoReg->HDATE_VIDEO_FORMAT.u32),0x000000a3);  //HDATE_VIDEO_FORMAT
-    reg_write(&(pVoReg->HDATE_OUT_CTRL.u32),0x000009b0);  //HDATE_OUT_CTRL
-
-    //DHD
-    reg_write(&(pVoReg->DHDCTRL.u32),0xa00000ec);
-    
-    reg_write(&(pVoReg->DHDVSYNC.u32),0x00328437); 
-    reg_write(&(pVoReg->DHDHSYNC1.u32),0x00bf077f); 
-    reg_write(&(pVoReg->DHDHSYNC2.u32),0x00000057); 
-    
-    reg_write(&(pVoReg->VOMUX.u32),0x00000007); 
-
-    return;
-}
-
-void hdate_1080i_60Hz_274m_cfg(void) //1080i@60Hz 274M
-{
-    //HDATE
-    reg_write(&(pVoReg->HDATE_EN.u32),0x00000001);  //HDATE_EN    
-    reg_write(&(pVoReg->HDATE_POLA_CTRL.u32),0x00000003);  //HDATE_POLA_CTRL
-    reg_write(&(pVoReg->HDATE_VIDEO_FORMAT.u32),0x000000a4);  //HDATE_VIDEO_FORMAT
-    reg_write(&(pVoReg->HDATE_OUT_CTRL.u32),0x000001b0);  //HDATE_OUT_CTRL
-
-    //DHD
-    reg_write(&(pVoReg->DHDCTRL.u32),0xa000006c);
-    
-    reg_write(&(pVoReg->DHDVSYNC.u32),0x0011321b); 
-    reg_write(&(pVoReg->DHDHSYNC1.u32),0x00bf077f); 
-    reg_write(&(pVoReg->DHDHSYNC2.u32),0x00000057); 
-    reg_write(&(pVoReg->DHDVPLUS.u32),0x0021321b); 
-    
-    reg_write(&(pVoReg->VOMUX.u32),0x00000007);    
-
-    return;
-}
-
-void hdate_720p_50Hz_cfg(void) 
-{
-    //HDATE
-    reg_write(&(pVoReg->HDATE_EN.u32),0x00000001);  //HDATE_EN    
-    reg_write(&(pVoReg->HDATE_POLA_CTRL.u32),0x00000003);  //HDATE_POLA_CTRL
-    reg_write(&(pVoReg->HDATE_VIDEO_FORMAT.u32),0x000000a2);  //HDATE_VIDEO_FORMAT
-    reg_write(&(pVoReg->HDATE_OUT_CTRL.u32),0x000005b0);  //HDATE_OUT_CTRL
-
-    //DHD
-    reg_write(&(pVoReg->DHDCTRL.u32),0xa00000ec);
-    
-    reg_write(&(pVoReg->DHDVSYNC.u32),0x004182cf); 
-    reg_write(&(pVoReg->DHDHSYNC1.u32),0x010304ff); 
-    reg_write(&(pVoReg->DHDHSYNC2.u32),0x000001b7); 
-    
-    reg_write(&(pVoReg->VOMUX.u32),0x00000007);
-
-    return;
-}
-
-void hdate_720p_60Hz_cfg(void) 
-{
-    //HDATE
-    reg_write(&(pVoReg->HDATE_EN.u32),0x00000001);  //HDATE_EN    
-    reg_write(&(pVoReg->HDATE_POLA_CTRL.u32),0x00000003);  //HDATE_POLA_CTRL
-    reg_write(&(pVoReg->HDATE_VIDEO_FORMAT.u32),0x000000a2);  //HDATE_VIDEO_FORMAT
-    reg_write(&(pVoReg->HDATE_OUT_CTRL.u32),0x000005b0);  //HDATE_OUT_CTRL
-
-    //DHD
-    reg_write(&(pVoReg->DHDCTRL.u32),0xa00000ec);
-    
-    reg_write(&(pVoReg->DHDVSYNC.u32),0x004182cf); 
-    reg_write(&(pVoReg->DHDHSYNC1.u32),0x010304ff); 
-    reg_write(&(pVoReg->DHDHSYNC2.u32),0x0000006d); 
-    
-    reg_write(&(pVoReg->VOMUX.u32),0x00000007);   
-
-    return;
-}
 

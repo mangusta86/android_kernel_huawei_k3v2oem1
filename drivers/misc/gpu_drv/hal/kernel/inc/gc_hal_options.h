@@ -602,7 +602,7 @@
 #endif
 #else
 #ifndef gcdPOWEROFF_TIMEOUT
-#   define gcdPOWEROFF_TIMEOUT                  0 //500
+#   define gcdPOWEROFF_TIMEOUT                  100 //500
 #   define gcvPOWEROFF_TIMEOUT_2D                 1
 #endif
 #endif

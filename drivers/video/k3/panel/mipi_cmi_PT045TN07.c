@@ -44,22 +44,15 @@
 
 #include <linux/lcd_tuning.h>
 
-#define PWM_LEVEL 100
 
-#define TRUE_MIPI  1
-#define FALSE_MIPI 0
-
-static int isCabcVidMode = FALSE_MIPI;
-
-/*----------------Power ON Sequence(sleep mode to Normal mode)---------------------*/
-
-/* set backlight ff */
+/*******************************************************************************
+** Power ON Sequence(sleep mode to Normal mode)
+*/
 static char backlight_51[] = {
 	0x51,
 	0xFF,
 };
 
-/* set backlight ff */
 static char backlight_53[] = {
 	0x53,
 	0x24,
@@ -230,10 +223,6 @@ static char data_page1_44[] = {
 	0x01, 0xE0
 };
 
-static char enter_sleep[] = {
-	0x10,
-};
-
 static char exit_sleep[] = {
 	0x11,
 };
@@ -242,12 +231,18 @@ static char display_on[] = {
 	0x29,
 };
 
+/*******************************************************************************
+** Power OFF Sequence(Normal to power off)
+*/
 static char display_off[] = {
 	0x28,
 };
 
-static struct dsi_cmd_desc cmi_video_on_cmds[] = {
+static char enter_sleep[] = {
+	0x10,
+};
 
+static struct dsi_cmd_desc cmi_display_on_cmds[] = {
         {DTYPE_GEN_LWRITE, 0, 3000, WAIT_TYPE_US,
                 sizeof(data_ff), data_ff},
         {DTYPE_GEN_LWRITE, 0, 30, WAIT_TYPE_US,
@@ -328,64 +323,241 @@ static struct dsi_cmd_desc cmi_video_on_cmds[] = {
                 sizeof(display_on), display_on},
 };
 
-/*-------------------Power OFF Sequence(Normal to power off)----------------------*/
 static struct dsi_cmd_desc cmi_display_off_cmds[] = {
-        {DTYPE_DCS_WRITE, 0, 5, WAIT_TYPE_MS,
-                sizeof(display_off), display_off},
+	{DTYPE_DCS_WRITE, 0, 5, WAIT_TYPE_MS,
+		sizeof(display_off), display_off},
 	{DTYPE_DCS_WRITE, 0, 80, WAIT_TYPE_MS,
 		sizeof(enter_sleep), enter_sleep}
 };
 
+/*******************************************************************************
+** LCD VCC
+*/
+#define VCC_LCDIO_NAME		"lcdio-vcc"
+#define VCC_LCDANALOG_NAME	"lcdanalog-vcc"
+
+static struct regulator *vcc_lcdio;
+static struct regulator *vcc_lcdanalog;
+
+static struct vcc_desc cmi_lcd_vcc_init_cmds[] = {
+	/* vcc get */
+	{DTYPE_VCC_GET, VCC_LCDIO_NAME, &vcc_lcdio, 0, 0},
+	{DTYPE_VCC_GET, VCC_LCDANALOG_NAME, &vcc_lcdanalog, 0, 0},
+
+	/* vcc set voltage */
+	{DTYPE_VCC_SET_VOLTAGE, VCC_LCDIO_NAME, &vcc_lcdio, 1800000, 1800000},
+};
+
+static struct vcc_desc cmi_lcd_vcc_finit_cmds[] = {
+	/* vcc put */
+	{DTYPE_VCC_PUT, VCC_LCDIO_NAME, &vcc_lcdio, 0, 0},
+	{DTYPE_VCC_PUT, VCC_LCDANALOG_NAME, &vcc_lcdanalog, 0, 0},
+};
+
+static struct vcc_desc cmi_lcd_vcc_enable_cmds[] = {
+	/* vcc enable */
+	{DTYPE_VCC_ENABLE, VCC_LCDIO_NAME, &vcc_lcdio, 0, 0},
+	{DTYPE_VCC_ENABLE, VCC_LCDANALOG_NAME, &vcc_lcdanalog, 0, 0},
+};
+
+static struct vcc_desc cmi_lcd_vcc_disable_cmds[] = {
+	/* vcc disable */
+	{DTYPE_VCC_DISABLE, VCC_LCDANALOG_NAME, &vcc_lcdanalog, 0, 0},
+	{DTYPE_VCC_DISABLE, VCC_LCDIO_NAME, &vcc_lcdio, 0, 0},
+};
+
+/*******************************************************************************
+** LCD IOMUX
+*/
+#define IOMUX_LCD_NAME	"block_lcd"
+
+static struct iomux_block **lcd_block;
+static struct block_config **lcd_block_config;
+
+static struct iomux_desc cmi_lcd_iomux_init_cmds[] = {
+	{DTYPE_IOMUX_GET, IOMUX_LCD_NAME,
+		(struct iomux_block **)&lcd_block, (struct block_config **)&lcd_block_config, 0},
+};
+
+static struct iomux_desc cmi_lcd_iomux_normal_cmds[] = {
+	{DTYPE_IOMUX_SET, IOMUX_LCD_NAME,
+		(struct iomux_block **)&lcd_block, (struct block_config **)&lcd_block_config, NORMAL},
+};
+
+static struct iomux_desc cmi_lcd_iomux_lowpower_cmds[] = {
+	{DTYPE_IOMUX_SET, IOMUX_LCD_NAME,
+		(struct iomux_block **)&lcd_block, (struct block_config **)&lcd_block_config, LOWPOWER},
+};
+
+/*******************************************************************************
+** LCD GPIO
+*/
+#define GPIO_LCD_RESET_NAME	"gpio_lcd_reset"
+#define GPIO_LCD_ID0_NAME	"gpio_lcd_id0"
+#define GPIO_LCD_ID1_NAME	"gpio_lcd_id1"
+
+#define GPIO_LCD_RESET	GPIO_0_3
+#define GPIO_LCD_ID0	GPIO_16_7
+#define GPIO_LCD_ID1	GPIO_17_0
+
+static struct gpio_desc cmi_lcd_gpio_request_cmds[] = {
+	/* reset */
+	{DTYPE_GPIO_REQUEST, WAIT_TYPE_MS, 0,
+		GPIO_LCD_RESET_NAME, GPIO_LCD_RESET, 0},
+	/* id0 */
+	{DTYPE_GPIO_REQUEST, WAIT_TYPE_MS, 0,
+		GPIO_LCD_ID0_NAME, GPIO_LCD_ID0, 0},
+	/* id1 */
+	{DTYPE_GPIO_REQUEST, WAIT_TYPE_MS, 0,
+		GPIO_LCD_ID1_NAME, GPIO_LCD_ID1, 0},
+};
+
+static struct gpio_desc cmi_lcd_gpio_free_cmds[] = {
+	/* reset */
+	{DTYPE_GPIO_FREE, WAIT_TYPE_MS, 0,
+		GPIO_LCD_RESET_NAME, GPIO_LCD_RESET, 0},
+	/* id0 */
+	{DTYPE_GPIO_FREE, WAIT_TYPE_MS, 0,
+		GPIO_LCD_ID0_NAME, GPIO_LCD_ID0, 0},
+	/* id1 */
+	{DTYPE_GPIO_FREE, WAIT_TYPE_MS, 0,
+		GPIO_LCD_ID1_NAME, GPIO_LCD_ID1, 0},
+};
+
+static struct gpio_desc cmi_lcd_gpio_normal_cmds[] = {
+	/* id0 */
+	{DTYPE_GPIO_INPUT, WAIT_TYPE_MS, 1,
+		GPIO_LCD_ID0_NAME, GPIO_LCD_ID0, 0},
+	/* id1 */
+	{DTYPE_GPIO_INPUT, WAIT_TYPE_MS, 1,
+		GPIO_LCD_ID1_NAME, GPIO_LCD_ID1, 0},
+	/* reset */
+	{DTYPE_GPIO_OUTPUT, WAIT_TYPE_MS, 15,
+		GPIO_LCD_RESET_NAME, GPIO_LCD_RESET, 0},
+	{DTYPE_GPIO_OUTPUT, WAIT_TYPE_MS, 50,
+		GPIO_LCD_RESET_NAME, GPIO_LCD_RESET, 1},
+};
+
+static struct gpio_desc cmi_lcd_gpio_lowpower_cmds[] = {
+	/* id0 */
+	{DTYPE_GPIO_INPUT, WAIT_TYPE_MS, 1,
+		GPIO_LCD_ID0_NAME, GPIO_LCD_ID0, 0},
+	/* id1 */
+	{DTYPE_GPIO_INPUT, WAIT_TYPE_MS, 1,
+		GPIO_LCD_ID1_NAME, GPIO_LCD_ID1, 0},
+	/* reset */
+	{DTYPE_GPIO_OUTPUT, WAIT_TYPE_MS, 1,
+		GPIO_LCD_RESET_NAME, GPIO_LCD_RESET, 0},
+};
+
+
+static volatile bool g_display_on;
 static struct k3_fb_panel_data cmi_panel_data;
 
 
-/******************************************************************************/
-static ssize_t cmi_lcd_info_show(struct device *dev,
-		struct device_attribute *attr, char *buf)
+/*******************************************************************************
+**
+*/
+static struct lcd_tuning_dev *p_tuning_dev = NULL;
+
+/*y=pow(x,0.6),x=[0,255]*/
+static u32 square_point_six(u32 x)
+{
+	unsigned long t = x * x * x;
+	int i = 0, j = 255, k = 0;
+	unsigned long t0 = 0;
+
+	while (j - i > 1) {
+		k = (i + j) / 2;
+		t0 = k * k * k * k * k;
+		if (t0 < t)
+			i = k;
+		else if (t0 > t)
+			j = k;
+		else
+			return k;
+	}
+
+	return k;
+}
+
+static int cmi_set_gamma(struct lcd_tuning_dev *ltd, enum lcd_gamma gamma)
 {
 	int ret = 0;
-	struct k3_panel_info *pinfo;
+	struct platform_device *pdev = NULL;
+	struct k3_fb_data_type *k3fd = NULL;
+	u32 edc_base = 0;
+
+	BUG_ON(ltd == NULL);
+	pdev = (struct platform_device *)(ltd->data);
+	k3fd = (struct k3_fb_data_type *)platform_get_drvdata(pdev);
+	BUG_ON(k3fd == NULL);
+
+	edc_base = k3fd->edc_base;
+
+	/* Fix me: Implement it */
+
+	return ret;
+}
+
+static int cmi_set_cabc(struct lcd_tuning_dev *ltd, enum  tft_cabc cabc)
+{
+	int ret = 0;
+	struct platform_device *pdev = NULL;
+	struct k3_fb_data_type *k3fd = NULL;
+	u32 edc_base = 0;
+
+	BUG_ON(ltd == NULL);
+	pdev = (struct platform_device *)(ltd->data);
+	k3fd = (struct k3_fb_data_type *)platform_get_drvdata(pdev);
+	BUG_ON(k3fd == NULL);
+
+	edc_base = k3fd->edc_base;
+
+	/* Fix me: Implement it */
+
+	return ret;
+}
+
+static struct lcd_tuning_ops sp_tuning_ops = {
+	.set_gamma = cmi_set_gamma,
+	.set_cabc = cmi_set_cabc,
+};
+
+static ssize_t cmi_lcd_info_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	int ret = 0;
+	struct k3_panel_info *pinfo = NULL;
+
 	pinfo = cmi_panel_data.panel_info;
 	sprintf(buf, "CHIMEI_Innolux 4.5'TFT %d x %d\n",
 		pinfo->xres, pinfo->yres);
 	ret = strlen(buf) + 1;
+
 	return ret;
-}
-static struct lcd_tuning_dev *p_tuning_dev = NULL;
-static int cabc_mode = 1;	//allow application to set cabc mode to ui mode
-static ssize_t show_cabc_mode(struct device *dev,
-        struct device_attribute *attr,
-        char *buf)
-{
-	return sprintf(buf, "%d\n", cabc_mode);
-}
-static int cmi_set_cabc(struct lcd_tuning_dev *ltd, enum tft_cabc cabc);
-static ssize_t store_cabc_mode(struct device *dev,
-        struct device_attribute *attr,
-        char *buf)
-{
-	return 0;
 }
 
 static DEVICE_ATTR(lcd_info, S_IRUGO, cmi_lcd_info_show, NULL);
-static DEVICE_ATTR(cabc_mode, 0644, show_cabc_mode, store_cabc_mode);
 static struct attribute *cmi_attrs[] = {
 	&dev_attr_lcd_info,
-	&dev_attr_cabc_mode,
 	NULL,
 };
+
 static struct attribute_group cmi_attr_group = {
 	.attrs = cmi_attrs,
 };
 
 static int cmi_sysfs_init(struct platform_device *pdev)
 {
-	int ret;
+	int ret = 0;
+
 	ret = sysfs_create_group(&pdev->dev.kobj, &cmi_attr_group);
 	if (ret) {
 		k3fb_loge("create sysfs file failed!\n");
 		return ret;
 	}
+
 	return 0;
 }
 
@@ -394,49 +566,10 @@ static void cmi_sysfs_deinit(struct platform_device *pdev)
 	sysfs_remove_group(&pdev->dev.kobj, &cmi_attr_group);
 }
 
-static int cmi_set_gamma(struct lcd_tuning_dev *ltd, enum lcd_gamma gamma)
-{
-	/*No implementation*/
-	return 0;
-}
 
-static int cmi_set_cabc(struct lcd_tuning_dev *ltd, enum  tft_cabc cabc)
-{
-	/*No implementation*/
-	return 0;
-}
-
-/******************************************************************************/
-static int cmi_pwm_on(struct k3_fb_data_type *k3fd)
-{
-	BUG_ON(k3fd == NULL);
-
-	/* backlight on */
-	PWM_IOMUX_SET(&(k3fd->panel_info), NORMAL);
-	PWM_GPIO_REQUEST(&(k3fd->panel_info));
-	gpio_direction_input(k3fd->panel_info.gpio_pwm1);
-	mdelay(1);
-	pwm_set_backlight(k3fd->bl_level, &(k3fd->panel_info));
-
-	return 0;
-}
-
-static int cmi_pwm_off(struct k3_fb_data_type *k3fd)
-{
-	BUG_ON(k3fd == NULL);
-
-	/* backlight off */
-	pwm_set_backlight(0, &(k3fd->panel_info));
-	gpio_direction_output(k3fd->panel_info.gpio_pwm0, 0);
-	mdelay(1);
-	gpio_direction_input(k3fd->panel_info.gpio_pwm1);
-	mdelay(1);
-	PWM_GPIO_FREE(&(k3fd->panel_info));
-	PWM_IOMUX_SET(&(k3fd->panel_info), LOWPOWER);
-
-	return 0;
-}
-
+/*******************************************************************************
+**
+*/
 static void cmi_disp_on(struct k3_fb_data_type *k3fd)
 {
 	u32 edc_base = 0;
@@ -445,20 +578,21 @@ static void cmi_disp_on(struct k3_fb_data_type *k3fd)
 	BUG_ON(k3fd == NULL);
 	edc_base = k3fd->edc_base;
 	pinfo = &(k3fd->panel_info);
-	LCD_IOMUX_SET(pinfo, NORMAL);
-	LCD_GPIO_REQUEST(pinfo);
-	gpio_direction_input(pinfo->gpio_lcd_id0);
-	mdelay(1);
-	gpio_direction_input(pinfo->gpio_lcd_id1);
-	mdelay(1);
-	gpio_direction_output(pinfo->gpio_reset, 0);
-	mdelay(15);
-	gpio_direction_output(pinfo->gpio_reset, 1);
-	mdelay(50);
 
-	mipi_dsi_cmds_tx(cmi_video_on_cmds, \
-		ARRAY_SIZE(cmi_video_on_cmds), edc_base);
+	/* lcd iomux normal */
+	iomux_cmds_tx(cmi_lcd_iomux_normal_cmds, \
+		ARRAY_SIZE(cmi_lcd_iomux_normal_cmds));
 
+	/* lcd gpio request */
+	gpio_cmds_tx(cmi_lcd_gpio_request_cmds, \
+		ARRAY_SIZE(cmi_lcd_gpio_request_cmds));
+	/* lcd gpio normal */
+	gpio_cmds_tx(cmi_lcd_gpio_normal_cmds, \
+		ARRAY_SIZE(cmi_lcd_gpio_normal_cmds));
+
+	/* lcd display on sequence */
+	mipi_dsi_cmds_tx(cmi_display_on_cmds, \
+		ARRAY_SIZE(cmi_display_on_cmds), edc_base);
 }
 
 static void cmi_disp_off(struct k3_fb_data_type *k3fd)
@@ -470,18 +604,24 @@ static void cmi_disp_off(struct k3_fb_data_type *k3fd)
 	edc_base = k3fd->edc_base;
 	pinfo = &(k3fd->panel_info);
 
-	mipi_dsi_cmds_tx(cmi_display_off_cmds,
+	/* lcd display off sequence */
+	mipi_dsi_cmds_tx(cmi_display_off_cmds, \
 		ARRAY_SIZE(cmi_display_off_cmds), edc_base);
 
-	gpio_direction_input(pinfo->gpio_lcd_id0);
-	mdelay(1);
-	gpio_direction_input(pinfo->gpio_lcd_id1);
-	mdelay(1);
-	gpio_direction_output(pinfo->gpio_reset, 0);
-	mdelay(1);
-	LCD_GPIO_FREE(pinfo);
-	LCD_IOMUX_SET(pinfo, LOWPOWER);
-	LCD_VCC_DISABLE(pinfo);
+	/* lcd gpio lowpower */
+	gpio_cmds_tx(cmi_lcd_gpio_lowpower_cmds, \
+		ARRAY_SIZE(cmi_lcd_gpio_lowpower_cmds));
+	/* lcd gpio free */
+	gpio_cmds_tx(cmi_lcd_gpio_free_cmds, \
+		ARRAY_SIZE(cmi_lcd_gpio_free_cmds));
+
+	/* lcd iomux lowpower */
+	iomux_cmds_tx(cmi_lcd_iomux_lowpower_cmds, \
+		ARRAY_SIZE(cmi_lcd_iomux_lowpower_cmds));
+
+	/* lcd vcc disable */
+	vcc_cmds_tx(NULL, cmi_lcd_vcc_disable_cmds, \
+		ARRAY_SIZE(cmi_lcd_vcc_disable_cmds));
 }
 
 static int mipi_cmi_panel_on(struct platform_device *pdev)
@@ -496,19 +636,22 @@ static int mipi_cmi_panel_on(struct platform_device *pdev)
 
 	pinfo = &(k3fd->panel_info);
 	if (pinfo->lcd_init_step == LCD_INIT_POWER_ON) {
-		LCD_VCC_ENABLE(pinfo);
-		pinfo->lcd_init_step = LCD_INIT_SEND_SEQUENCE;
-		return 0;
-	}
+		/* lcd vcc enable */
+		vcc_cmds_tx(NULL, cmi_lcd_vcc_enable_cmds, \
+			ARRAY_SIZE(cmi_lcd_vcc_enable_cmds));
 
-	if (!k3fd->panel_info.display_on) {
-		/* lcd display on */
-		cmi_disp_on(k3fd);
-		k3fd->panel_info.display_on = true;
-		if (k3fd->panel_info.bl_set_type & BL_SET_BY_PWM) {
-			/* backlight on */
-			cmi_pwm_on(k3fd);
+		pinfo->lcd_init_step = 	LCD_INIT_MIPI_LP_SEND_SEQUENCE;
+	} else if (pinfo->lcd_init_step == LCD_INIT_MIPI_LP_SEND_SEQUENCE) {
+		if (!g_display_on) {
+			/* lcd display on */
+			cmi_disp_on(k3fd);
 		}
+		pinfo->lcd_init_step = LCD_INIT_MIPI_HS_SEND_SEQUENCE;
+	} else if (pinfo->lcd_init_step == LCD_INIT_MIPI_HS_SEND_SEQUENCE) {
+
+		g_display_on = true;
+	} else {
+		k3fb_loge("failed to init lcd!\n");
 	}
 
 	return 0;
@@ -523,12 +666,8 @@ static int mipi_cmi_panel_off(struct platform_device *pdev)
 	k3fd = (struct k3_fb_data_type *)platform_get_drvdata(pdev);
 	BUG_ON(k3fd == NULL);
 
-	if (k3fd->panel_info.display_on) {
-		k3fd->panel_info.display_on = false;
-		if (k3fd->panel_info.bl_set_type & BL_SET_BY_PWM) {
-			/* backlight off */
-			cmi_pwm_off(k3fd);
-		}
+	if (g_display_on) {
+		g_display_on = false;
 		/* lcd display off */
 		cmi_disp_off(k3fd);
 	}
@@ -536,10 +675,30 @@ static int mipi_cmi_panel_off(struct platform_device *pdev)
 	return 0;
 }
 
+static int mipi_cmi_panel_remove(struct platform_device *pdev)
+{
+	struct k3_fb_data_type *k3fd = NULL;
 
+	BUG_ON(pdev == NULL);
+
+	k3fd = (struct k3_fb_data_type *)platform_get_drvdata(pdev);
+	/*BUG_ON(k3fd == NULL);*/
+	if (!k3fd) {
+		return 0;
+	}
+
+	/* lcd vcc finit */
+	vcc_cmds_tx(pdev, cmi_lcd_vcc_finit_cmds, \
+		ARRAY_SIZE(cmi_lcd_vcc_finit_cmds));
+
+	cmi_sysfs_deinit(pdev);
+
+	return 0;
+}
 
 static int mipi_cmi_panel_set_backlight(struct platform_device *pdev)
 {
+	int ret = 0;
 	struct k3_fb_data_type *k3fd = NULL;
 	u32 edc_base = 0;
 	u32 level = 0;
@@ -551,19 +710,14 @@ static int mipi_cmi_panel_set_backlight(struct platform_device *pdev)
 
 	/*Our eyes are more sensitive to small brightness.
 	So we adjust the brightness of lcd following iphone4 */
-	level = (k3fd->bl_level * square_point_six(k3fd->bl_level) * 100) / 2779;  //Y=(X/255)^1.6*255
+	/* Y=(X/255)^1.6*255 */
+	level = (k3fd->bl_level * square_point_six(k3fd->bl_level) * 100) / 2779;
 	if (level > 255)
 		level = 255;
 
-	if (k3fd->panel_info.bl_set_type & BL_SET_BY_PWM) {
-		return pwm_set_backlight(level, &(k3fd->panel_info));
-	} else {
-		//if (!k3fd->cmd_mode_refresh) {
-			outp32(edc_base + MIPIDSI_GEN_HDR_OFFSET, (level << 16) | (0x51 << 8) | 0x15);
-		//	k3fd->bl_level_old = k3fd->bl_level;
-		//}
-		return 0;
-	}
+	outp32(edc_base + MIPIDSI_GEN_HDR_OFFSET, (level << 16) | (0x51 << 8) | 0x15);
+
+	return ret;
 }
 
 static int mipi_cmi_panel_set_fastboot(struct platform_device *pdev)
@@ -575,22 +729,35 @@ static int mipi_cmi_panel_set_fastboot(struct platform_device *pdev)
 	k3fd = (struct k3_fb_data_type *)platform_get_drvdata(pdev);
 	BUG_ON(k3fd == NULL);
 
-	LCD_VCC_ENABLE(&(k3fd->panel_info));
-	LCD_IOMUX_SET(&(k3fd->panel_info), NORMAL);
-	LCD_GPIO_REQUEST(&(k3fd->panel_info));
+	/* lcd vcc enable */
+	vcc_cmds_tx(pdev, cmi_lcd_vcc_enable_cmds, \
+		ARRAY_SIZE(cmi_lcd_vcc_enable_cmds));
 
-	if (k3fd->panel_info.bl_set_type & BL_SET_BY_PWM) {
-		PWM_IOMUX_SET(&(k3fd->panel_info), NORMAL);
-		PWM_GPIO_REQUEST(&(k3fd->panel_info));
-	}
+	/* lcd iomux normal */
+	iomux_cmds_tx(cmi_lcd_iomux_normal_cmds, \
+		ARRAY_SIZE(cmi_lcd_iomux_normal_cmds));
 
-	k3fd->panel_info.display_on = true;
+	/* lcd gpio request */
+	gpio_cmds_tx(cmi_lcd_gpio_request_cmds, \
+		ARRAY_SIZE(cmi_lcd_gpio_request_cmds));
+
+	g_display_on = true;
 
 	return 0;
 }
 
 static int mipi_cmi_panel_set_cabc(struct platform_device *pdev, int value)
 {
+	u32 edc_base = 0;
+	struct k3_fb_data_type *k3fd = NULL;
+
+	BUG_ON(pdev == NULL);
+	k3fd = (struct k3_fb_data_type *)platform_get_drvdata(pdev);
+	BUG_ON(k3fd == NULL);
+	edc_base = k3fd->edc_base;
+
+	/* Fix me: Implement it */
+
 	return 0;
 }
 
@@ -599,27 +766,26 @@ static struct k3_fb_panel_data cmi_panel_data = {
 	.panel_info = &cmi_panel_info,
 	.on = mipi_cmi_panel_on,
 	.off = mipi_cmi_panel_off,
+	.remove = mipi_cmi_panel_remove,
 	.set_backlight = mipi_cmi_panel_set_backlight,
 	.set_fastboot = mipi_cmi_panel_set_fastboot,
-	.set_cabc = NULL,//mipi_cmi_panel_set_cabc,
+	.set_cabc = mipi_cmi_panel_set_cabc,
 };
 
-static struct lcd_tuning_ops sp_tuning_ops = {
-	.set_gamma = NULL,
-	.set_cabc = NULL,//cmi_set_cabc
-};
 
+/*******************************************************************************
+**
+*/
 static int __devinit cmi_probe(struct platform_device *pdev)
 {
 	struct k3_panel_info *pinfo = NULL;
-	struct resource *res = NULL;
-	struct platform_device *reg_pdev;
-	struct lcd_tuning_dev *ltd;
+	struct platform_device *reg_pdev = NULL;
 	struct lcd_properities lcd_props;
+
+	g_display_on = false;
 
 	pinfo = cmi_panel_data.panel_info;
 	/* init lcd panel info */
-	pinfo->display_on = false;
 	pinfo->xres = 540;
 	pinfo->yres = 960;
 	pinfo->type = PANEL_MIPI_CMD;
@@ -628,10 +794,10 @@ static int __devinit cmi_probe(struct platform_device *pdev)
 	pinfo->s3d_frm = EDC_FRM_FMT_2D;
 	pinfo->bgr_fmt = EDC_RGB;
 	pinfo->bl_set_type = BL_SET_BY_MIPI;
-	pinfo->bl_max = PWM_LEVEL;
 	pinfo->bl_min = 1;
+	pinfo->bl_max = 100;
 
-	pinfo->frc_enable = 0;
+	pinfo->frc_enable = 1;
 	pinfo->esd_enable = 1;
 	pinfo->sbl_enable = 0;
 
@@ -656,30 +822,20 @@ static int __devinit cmi_probe(struct platform_device *pdev)
 
 	/* Note: must init here */
 	pinfo->frame_rate = 60;
-	/*pinfo->clk_rate = LCD_GET_CLK_RATE(pinfo);*/
 	pinfo->clk_rate = 32000000;
 
 	pinfo->mipi.lane_nums = DSI_2_LANES;
 	pinfo->mipi.color_mode = DSI_24BITS_1;
 	pinfo->mipi.vc = 0;
-	pinfo->mipi.dsi_bit_clk = 216; /*482; clock lane(p/n) */
+	pinfo->mipi.dsi_bit_clk = 216;
 
-	/* lcd vcc */
-	LCD_VCC_GET(pdev, pinfo);
-	LCDIO_SET_VOLTAGE(pinfo, 1800000, 1800000);
-	/* lcd iomux */
-	LCD_IOMUX_GET(pinfo);
-	/* lcd resource */
-	LCD_RESOURCE(pdev, pinfo, res);
+	/* lcd vcc init */
+	vcc_cmds_tx(pdev, cmi_lcd_vcc_init_cmds, \
+		ARRAY_SIZE(cmi_lcd_vcc_init_cmds));
 
-	if (pinfo->bl_set_type & BL_SET_BY_PWM) {
-		/* pwm clock*/
-		PWM_CLK_GET(pinfo);
-		/* pwm iomux */
-		PWM_IOMUX_GET(pinfo);
-		/* pwm resource */
-		PWM_RESOUTCE(pdev, pinfo, res);
-	}
+	/* lcd iomux init */
+	iomux_cmds_tx(cmi_lcd_iomux_init_cmds, \
+		ARRAY_SIZE(cmi_lcd_iomux_init_cmds));
 
 	/* alloc panel device data */
 	if (platform_device_add_data(pdev, &cmi_panel_data,
@@ -693,9 +849,8 @@ static int __devinit cmi_probe(struct platform_device *pdev)
 	lcd_props.type = TFT;
 	lcd_props.default_gamma = GAMMA25;
 
-	ltd = lcd_tuning_dev_register(&lcd_props, &sp_tuning_ops, (void *)reg_pdev);
-	p_tuning_dev=ltd;
-	if (IS_ERR(ltd)) {
+	p_tuning_dev = lcd_tuning_dev_register(&lcd_props, &sp_tuning_ops, (void *)reg_pdev);
+	if (IS_ERR(p_tuning_dev)) {
 		k3fb_loge("lcd_tuning_dev_register failed!\n");
 		return -1;
 	}
@@ -705,41 +860,12 @@ static int __devinit cmi_probe(struct platform_device *pdev)
 	return 0;
 }
 
-static int cmi_remove(struct platform_device *pdev)
-{
-	struct k3_fb_data_type *k3fd = NULL;
-
-	BUG_ON(pdev == NULL);
-
-	k3fd = (struct k3_fb_data_type *)platform_get_drvdata(pdev);
-	/*BUG_ON(k3fd == NULL);*/
-	if (!k3fd) {
-		return 0;
-	}
-
-	if (k3fd->panel_info.bl_set_type & BL_SET_BY_PWM) {
-		PWM_CLK_PUT(&(k3fd->panel_info));
-	}
-	LCD_VCC_PUT(&(k3fd->panel_info));
-
-	cmi_sysfs_deinit(pdev);
-
-	return 0;
-}
-
-static void cmi_shutdown(struct platform_device *pdev)
-{
-	if (cmi_remove(pdev) != 0) {
-		k3fb_loge("failed to shutdown!\n");
-	}
-}
-
 static struct platform_driver this_driver = {
 	.probe = cmi_probe,
-	.remove = cmi_remove,
+	.remove = NULL,
 	.suspend = NULL,
 	.resume = NULL,
-	.shutdown = cmi_shutdown,
+	.shutdown = NULL,
 	.driver = {
 		.name = "mipi_cmi_PT045TN07",
 	},

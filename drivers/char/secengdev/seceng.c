@@ -97,7 +97,7 @@ static void seceng_get_task_name(char *name)
 
     ptr = d_path(&f_path, path, MAX_PROCESS_LEN);
     printk(KERN_ERR "seceng_get_task_name: get process name %s\n", ptr);
-    strncpy(name, ptr, MAX_PROCESS_LEN - 1);
+    strncpy(name, ptr, MAX_PROCESS_LEN-1);
 
     kfree(path);
     return;
@@ -190,17 +190,17 @@ static long seceng_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
             /* if (! capable (CAP_SYS_ADMIN)) return -EPERM; */
             //printk("seceng_ioctl: previous pid = %d\n", g_secpid);
             tmppid = g_secpid;
-            if (__get_user(g_secpid, (pid_t __user *)arg)) {
+            retval = __get_user(g_secpid, (pid_t __user *)arg);
+            if (retval != 0) {
                 printk(KERN_ERR "seceng_ioctl: __get_user error\n");
                 g_secpid = 0;
-                retval = -EFAULT;
                 break;
             }
             //printk("seceng_ioctl: current pid = %d\n", g_secpid);
-            if (__put_user(tmppid, (pid_t __user *)arg)) {
+            retval = __put_user(tmppid, (pid_t __user *)arg);
+            if (retval != 0) {
                 printk(KERN_ERR "seceng_ioctl: __put_user error\n");
                 g_secpid = 0;
-                retval = -EFAULT;
                 break;
             }
             break;
@@ -208,17 +208,17 @@ static long seceng_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
             /* if (! capable (CAP_SYS_ADMIN)) return -EPERM; */
             //printk("seceng_ioctl: previous tid = %d\n", g_sectid);
             tmppid = g_sectid;
-            if (__get_user(g_sectid, (pid_t __user *)arg)) {
+            retval = __get_user(g_sectid, (pid_t __user *)arg);
+            if (retval != 0) {
                 printk(KERN_ERR "seceng_ioctl: __get_user error\n");
                 g_sectid = 0;
-                retval = -EFAULT;
                 break;
             }
             //printk("seceng_ioctl: current tid = %d\n", g_sectid);
-            if (__put_user(tmppid, (pid_t __user *)arg)) {
+            retval = __put_user(tmppid, (pid_t __user *)arg);
+            if (retval != 0) {
                 printk(KERN_ERR "seceng_ioctl: __put_user error\n");
                 g_sectid = 0;
-                retval = -EFAULT;
                 break;
             }
             break;
@@ -237,28 +237,28 @@ static long seceng_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
             }
             seceng_get_task_name(pname);
             //printk("========process name:%s\n", pname);
-            if (copy_to_user((void *)arg, pname, strlen(pname))) {
+            retval = copy_to_user((void *)arg, pname, strlen(pname));
+            if (retval != 0) {
                 printk(KERN_ERR "seceng_ioctl: copy_to_user error\n");
-                retval = -EFAULT;
             }
             kfree(pname);
             break;
         case SECENG_IOCGET_SECDATA:
-            if (copy_to_user((void *)arg, g_secdata, sizeof(g_secdata))) {
+            retval = copy_to_user((void *)arg, g_secdata, sizeof(g_secdata));
+            if (retval != 0) {
                 printk(KERN_ERR "seceng_ioctl: copy_to_user error\n");
-                retval = -EFAULT;
             }
             break;
         case SECENG_IOCSET_SECDATA:
-            if (copy_from_user(g_secdata, (void *)arg, sizeof(g_secdata))) {
+            retval = copy_from_user(g_secdata, (void *)arg, sizeof(g_secdata));
+            if (retval != 0) {
                 printk(KERN_ERR "seceng_ioctl: copy_from_user error\n");
-                retval = -EFAULT;
             }
             break;
         case SECENG_IOCGET_SECCLK:
-            if (copy_from_user(&clkdata, (void *)arg, sizeof(clkdata))) {
+            retval = copy_from_user(&clkdata, (void *)arg, sizeof(clkdata));
+            if (retval != 0) {
                 printk(KERN_ERR "seceng_ioctl: copy_from_user error\n");
-                retval = -EFAULT;
                 break;
             }
 
@@ -276,16 +276,16 @@ static long seceng_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
                     printk(KERN_ERR "seceng_ioctl: input item error!\n");
                     return -ENOTTY;
             }
-            if (copy_to_user((void *)arg, &clkdata, sizeof(clkdata))) {
+            retval = copy_to_user((void *)arg, &clkdata, sizeof(clkdata));
+            if (retval != 0) {
                 printk(KERN_ERR "seceng_ioctl: copy_to_user error\n");
-                retval = -EFAULT;
             }
 
             break;
         case SECENG_IOCSET_SECCLK:
-            if (copy_from_user(&clkdata, (void *)arg, sizeof(clkdata))) {
+            retval = copy_from_user(&clkdata, (void *)arg, sizeof(clkdata));
+            if (retval != 0) {
                 printk(KERN_ERR "seceng_ioctl: copy_from_user error\n");
-                retval = -EFAULT;
                 break;
             }
 

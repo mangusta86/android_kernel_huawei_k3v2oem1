@@ -40,11 +40,11 @@
 #define SENSOR_TYPE (3)
 
 #if SENSOR_TYPE == 1
-#define YAMAHA_SENSOR_NAME "accelerometer"
+#define YAMAHA_SENSOR_NAME "acc_input"
 #elif SENSOR_TYPE == 2
-#define YAMAHA_SENSOR_NAME "geomagnetic"
+#define YAMAHA_SENSOR_NAME "akm_input"
 #elif SENSOR_TYPE == 3
-#define YAMAHA_SENSOR_NAME "yamaha_orientation"
+#define YAMAHA_SENSOR_NAME "ori_input"
 #elif SENSOR_TYPE == 4
 #define YAMAHA_SENSOR_NAME "gyroscope"
 #elif SENSOR_TYPE == 5

@@ -55,6 +55,7 @@
 /* #define DEBUG_DEBUG 1 */
 #include "../isp/cam_log.h"
 #include "../isp/cam_dbg.h"
+#include <hsad/config_interface.h>
 
 #define QCIF_WIDTH		176
 #define MT9M114_APERTURE_FACTOR		240 // F2.4
@@ -75,6 +76,7 @@
 #define MT9M114_EXPOSURE_REG	0x3012
 #define MT9M114_GAIN_REG		0x305e
 
+#define MT9M114_FLASH_TRIGGER_GAIN	255
 
 #define MT9M114_HFLIP		((1 << CAMERA_H_FLIP) |\
 					(1 << CAMERA_V_FLIP))
@@ -83,6 +85,10 @@
 					(1 << CAMERA_NO_FLIP) | \
 					(1 << CAMERA_H_FLIP) \
 				)
+
+#define MT9M114_EFL_BYD		(223)
+#define MT9M114_EFL_SUNNY		(214)
+#define MT9M114_EFL_FOXCONN		(222)
 
 static camera_capability mt9m114_cap[] = {
 	{V4L2_CID_AUTO_WHITE_BALANCE, THIS_AUTO_WHITE_BALANCE},
@@ -132,6 +138,9 @@ static camera_white_balance sensor_awb_mode = CAMERA_WHITEBALANCE_AUTO;
 static camera_frame_rate_mode sensor_framerate_mode = CAMERA_FRAME_RATE_AUTO;
 static void mt9m114_set_default(void);
 static void mt9m114_update_frame_rate(camera_frame_rate_mode fps_mode);
+#ifdef CONFIG_DEBUG_FS
+extern u32 get_slave_sensor_id(void);
+#endif
 /*
  **************************************************************************
  * FunctionName: mt9m114_read_reg;
@@ -561,8 +570,16 @@ static int mt9m114_init_reg(void)
 				break;
 			case 2:
 				if (mt9m114_sensor_module[index].preg[i].subaddr == MT9M114REG_FLIP) {
-					mt9m114_write_reg(MT9M114REG_FLIP,
-					~(mt9m114_sensor.hflip | mt9m114_sensor.vflip<<1) & 0x03, I2C_16BIT, 0x00);
+					if(E_CAMERA_SENSOR_FLIP_TYPE_NONE == get_secondary_sensor_flip_type())
+					{
+						mt9m114_write_reg(MT9M114REG_FLIP,
+							(mt9m114_sensor.hflip | mt9m114_sensor.vflip<<1) & 0x03, I2C_16BIT, 0x00);
+					}
+					else
+					{
+						mt9m114_write_reg(MT9M114REG_FLIP,
+							~(mt9m114_sensor.hflip | mt9m114_sensor.vflip<<1) & 0x03, I2C_16BIT, 0x00);
+					}
 				} else {
 					mt9m114_write_reg(mt9m114_sensor_module[index].preg[i].subaddr, mt9m114_sensor_module[index].preg[i].value & 0xffff, I2C_16BIT, 0x00);
 				}
@@ -594,6 +611,23 @@ static int mt9m114_get_capability(u32 id, u32 *value)
 			break;
 		}
 	}
+
+	if(V4L2_CID_FOCAL_LENGTH==id){
+		switch(camera_index){
+		case 0:
+			*value = MT9M114_EFL_BYD;
+			break;
+		case 1:
+			*value = MT9M114_EFL_SUNNY;
+			break;
+		case 2:
+			*value = MT9M114_EFL_FOXCONN;
+			break;
+		default:
+			break;
+		}
+	}
+
 	return 0;
 }
 
@@ -611,7 +645,14 @@ static int mt9m114_update_flip(u16 width, u16 height)
 		if (mt9m114_sensor.vflip)
 			reg |= 0x02;
 		mt9m114_sensor.old_flip = new_flip;
-		reg = ~reg & 0x03;
+		if(E_CAMERA_SENSOR_FLIP_TYPE_NONE == get_secondary_sensor_flip_type())
+		{ 
+			reg = reg & 0x03;
+		}
+		else
+		{
+			reg = ~reg & 0x03;
+		}
 		mt9m114_write_reg(MT9M114REG_FLIP, reg, I2C_16BIT, 0x00);
 		mt9m114_write_reg(0x098e, 0xdc00, I2C_16BIT, 0x00);
 		mt9m114_write_reg(0xdc00, 0x28, I2C_8BIT, 0x00);
@@ -703,6 +744,13 @@ static int mt9m114_find_sensor(sensor_module fix_sensor, int index)
 	mt9m114_check_sensor_stable();
 
 	mt9m114_read_reg(0x0000, &id);
+	print_info("mt9m114 product id:0x%x", id);
+#ifdef CONFIG_DEBUG_FS
+	if (fix_sensor.chip_id != id) {
+		id = (u16)get_slave_sensor_id();
+		print_info("mt9m114 debugfs product id:0x%x", id);
+	}
+#endif
 	if (fix_sensor.chip_id == id) {
 		camera_index = index;
 		memset(mt9m114_sensor.info.name, 0, sizeof(mt9m114_sensor.info.name));
@@ -852,7 +900,18 @@ static int mt9m114_reset(camera_power_state power_state)
 */
 static int mt9m114_init(void)
 {
+	static bool mt9m114_check = false;
 	print_debug("%s  ", __func__);
+
+	if (false == mt9m114_check)
+	{
+		if (check_suspensory_camera("MT9M114") != 1)
+		{
+			return -ENODEV;
+		}
+		mt9m114_check = true;
+	}
+	
 	if (mt9m114_sensor.owner && !try_module_get(mt9m114_sensor.owner)) {
 		print_error("%s: try_module_get fail", __func__);
 		return -ENOENT;
@@ -942,6 +1001,21 @@ static int mt9m114_get_equivalent_focus()
 	return MT9M114_EQUIVALENT_FOCUS;
 }
 
+static u32 mt9m114_get_override_param(camera_override_type_t type)
+{
+	u32 ret_val = sensor_override_params[type];
+
+	switch (type) {
+	case OVERRIDE_FLASH_TRIGGER_GAIN:
+		ret_val = MT9M114_FLASH_TRIGGER_GAIN;
+		break;
+	default:
+		//print_error("%s:not override or invalid type %d, use default",__func__, type);
+		break;
+	}
+
+	return ret_val;
+}
 /*
  **************************************************************************
  * FunctionName: mt9m114_set_default;
@@ -1029,9 +1103,13 @@ static void mt9m114_set_default(void)
 	mt9m114_sensor.sensor_gain_to_iso = NULL;
 	mt9m114_sensor.sensor_iso_to_gain = NULL;
 
+	mt9m114_sensor.set_effect = mt9m114_set_effect;
+	mt9m114_sensor.set_awb = mt9m114_set_awb;
+
+	mt9m114_sensor.set_anti_banding = mt9m114_set_anti_banding;
 	mt9m114_sensor.get_sensor_aperture = mt9m114_get_sensor_aperture;
 	mt9m114_sensor.get_equivalent_focus = mt9m114_get_equivalent_focus;
-
+	mt9m114_sensor.get_override_param = mt9m114_get_override_param;
 	mt9m114_sensor.isp_location = CAMERA_USE_SENSORISP;
 	mt9m114_sensor.sensor_tune_ops = (isp_tune_ops *)kmalloc(sizeof(isp_tune_ops), GFP_KERNEL);
 	if (mt9m114_sensor.sensor_tune_ops == NULL) {
@@ -1062,6 +1140,8 @@ static void mt9m114_set_default(void)
 	mt9m114_sensor.sensor_tune_ops->set_effect 	= mt9m114_set_effect;
 	mt9m114_sensor.sensor_tune_ops->set_awb		= mt9m114_set_awb;
 	mt9m114_sensor.sensor_tune_ops->set_anti_banding = NULL;
+
+	mt9m114_sensor.lcd_compensation_supported = 0;
 }
 
 /*

@@ -16,9 +16,23 @@ config BATTERY_K3
 	depends on BATTERY_K3_BQ24161
 	depends on K3_ADC
 
+config BATTERY_BQ27510
+        tristate "Power supply class support"
+        depends on I2C_DESIGNWARE
+
+config CHARGER_BQ2419x
+        tristate "Power supply class support"
+        depends on I2C_DESIGNWARE
+
+config BQ_BCI_BATTERY
+        tristate "Power supply class support"
+        depends on BATTERY_BQ27510
+        depends on CHARGER_BQ2419x
+        depends on K3_ADC
+
 config BATTERY_K3_USB_TEST
 	tristate "Power supply class support"
-	depends on BATTERY_K3
+	depends on BQ_BCI_BATTERY
 menuconfig POWER_SUPPLY
 	tristate "Power supply class support"
 	help
@@ -256,4 +270,9 @@ config CHARGER_GPIO
 	  This driver can be build as a module. If so, the module will be
 	  called gpio-charger.
 
+config EXTRAL_DYNAMIC_DCDC
+	tristate "extral dynamic dcdc driver"
+	default n
+	help
+	  Say Y here to enable extral dynamic dcdc driver for PDAs and phones .
 endif # POWER_SUPPLY

@@ -78,6 +78,11 @@ struct pmem_data {
 #if PMEM_DEBUG
 	int ref;
 #endif
+/* < chendong 00110364 add to enable/disable cache by manual begin */
+#ifdef CONFIG_PMEM_CACHED
+    unsigned int  cache_manual;
+#endif
+/* chendong 00110364 add to enable/disable cache by manual end > */
 };
 
 struct pmem_bits {
@@ -378,6 +383,11 @@ static int pmem_open(struct inode *inode, struct file *file)
 #if PMEM_DEBUG
 	data->ref = 0;
 #endif
+/* < chendong 00110364 add to enable/disable cache by manual begin */
+#ifdef CONFIG_PMEM_CACHED
+    data->cache_manual = 0;  //chendong 00110364 add
+#endif
+/* chendong 00110364 add to enable/disable cache by manual end > */
 	INIT_LIST_HEAD(&data->region_list);
 	init_rwsem(&data->sem);
 
@@ -819,6 +829,38 @@ static struct vm_operations_struct vm_ops = {
 	.close = pmem_vma_close,
 };
 
+/* < chendong 00110364 add to enable/disable cache by manual begin */
+#ifdef CONFIG_PMEM_CACHED
+static int is_cached_manual(struct file *file)
+{
+	struct pmem_data *data;
+	/* check is_pmem_file first if not accessed via pmem_file_ops */
+
+	if (unlikely(!file->private_data))
+		return 0;
+	data = (struct pmem_data *)file->private_data;
+	if (unlikely(data->cache_manual == 1))
+		return 1;
+	return 0;
+}
+
+static int set_cached_manual(struct file *file,int val)
+{
+	struct pmem_data *data;
+	/* check is_pmem_file first if not accessed via pmem_file_ops */
+
+	if (unlikely(!file->private_data))
+		return -1;
+	data = (struct pmem_data *)file->private_data;
+	
+	down_write(&data->sem);
+	data->cache_manual = val;
+	up_write(&data->sem);
+	return 0;
+}
+#endif
+/* chendong 00110364 add to enable/disable cache by manual end > */
+
 static int pmem_mmap(struct file *file, struct vm_area_struct *vma)
 {
 	struct pmem_data *data;
@@ -877,8 +919,25 @@ static int pmem_mmap(struct file *file, struct vm_area_struct *vma)
 	}
 
 	vma->vm_pgoff = pmem[id].pmem_start_addr(id, data) >> PAGE_SHIFT;
+/* < chendong 00110364 add to enable/disable cache by manual begin */
+#ifndef CONFIG_PMEM_CACHED
 	vma->vm_page_prot = pmem_access_prot(file, vma->vm_page_prot);
-
+#else
+    if(is_cached_manual(file))
+    {
+        #if PMEM_DEBUG
+        printk(KERN_WARNING "pmem: %s:does nothing on vm_page_prot\n",__func__);
+        #endif
+    }
+    else
+    {
+        #if PMEM_DEBUG
+        //printk(KERN_WARNING "pmem: %s:we should do on vm_page_prot\n",__func__);
+        #endif
+        vma->vm_page_prot = pmem_access_prot(file, vma->vm_page_prot);
+    }
+#endif
+/* chendong 00110364 add to enable/disable cache by manual end > */
 	if (data->flags & PMEM_FLAGS_CONNECTED) {
 		struct pmem_region_node *region_node;
 		struct list_head *elt;
@@ -1042,17 +1101,64 @@ void flush_pmem_file(struct file *file, unsigned long offset, unsigned long len)
     unsigned long phys_addr;
     unsigned long l2_flush_start, l2_flush_end;
 #endif
+/* < chendong 00110364 add to enable/disable cache by manual begin */
+#ifdef  CONFIG_PMEM_CACHED
+    int flag = 0;
+    unsigned char __iomem *vbase;
+#endif
+/* chendong 00110364 add to enable/disable cache by manual end > */
     if (!is_pmem_file(file) || !has_allocation(file)) {
         return;
     }
 
     id = get_id(file);
     data = (struct pmem_data *)file->private_data;
+
+/* < chendong 00110364 add to enable/disable cache by manual begin */
+#ifndef CONFIG_PMEM_CACHED	
     if (!pmem[id].cached || file->f_flags & O_SYNC)
         return;
+#else
+    if (!pmem[id].cached || file->f_flags & O_SYNC)
+    {
+        if(is_cached_manual(file))
+        {
+            #if PMEM_DEBUG
+            printk(KERN_WARNING "pmem: %s:we go through to flush pmem cache\n",__func__);
+            #endif
+            flag = 1;
+        }
+        else
+            return;
+    }
+    else
+    {
+        flag = 0;
+    }
+#endif
+/* chendong 00110364 add to enable/disable cache by manual end > */
 
     down_read(&data->sem);
+
+/* < chendong 00110364 add to enable/disable cache by manual begin */
+#ifndef CONFIG_PMEM_CACHED
     vaddr = pmem_start_vaddr(id, data);
+#else
+    if  (0 == flag)
+    {
+        vaddr = pmem_start_vaddr(id, data);
+    }
+    else if(1==flag)
+    {
+        // printk("1   pmem:  id = %d, offset =0x%lx,size =0x%lx\n",id,offset,len);
+        if(pmem[id].pmem_len(id, data) < K3_L2_CACHE_LEN)
+        {
+            printk("pmem::pmem[%d] pmem lenth <  K3_L2_CACHE_LEN\n",id);
+            goto end;
+        }
+    }
+#endif
+/* chendong 00110364 add to enable/disable cache by manual end > */
 
     length =  pmem[id].pmem_len(id, data);
 #if defined(CONFIG_OVERLAY_COMPOSE)
@@ -1358,6 +1464,7 @@ static long pmem_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct pmem_data *data;
 	int id = get_id(file);
+	int result;  //chendong 00110364 add
 
 	switch (cmd) {
 	case PMEM_GET_PHYS:
@@ -1461,6 +1568,22 @@ static long pmem_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			break;
             }
 #endif //CONFIG_OVERLAY_COMPOSE
+
+/* < chendong 00110364 add to enable/disable cache by manual begin */
+#ifdef CONFIG_PMEM_CACHED
+    case PMEM_MAP_CACHED:
+    {
+        printk("cd:PMEM_MAP_CACHED\n");
+        int cache_flagl;
+        if (copy_from_user(&cache_flagl, (void __user *)arg, sizeof(int)))
+            return -EFAULT;
+        result = set_cached_manual(file, cache_flagl);
+        return  result;
+
+    }
+    break;
+#endif
+/* chendong 00110364 add to enable/disable cache by manual end > */
 
 	default:
 		if (pmem[id].ioctl)

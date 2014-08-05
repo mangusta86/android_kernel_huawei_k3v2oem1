@@ -1045,7 +1045,7 @@ static int __devinit gpu_suspend(struct platform_device *dev, pm_message_t state
     gctINT i, j;
 
     device = platform_get_drvdata(dev);
-	printk("gpu_suspend +\n");
+    printk("gpu_suspend +\n");
     for (i = 0; i < gcdCORE_COUNT; i++)
     {
         if (device->kernels[i] != gcvNULL)
@@ -1080,11 +1080,11 @@ static int __devinit gpu_suspend(struct platform_device *dev, pm_message_t state
 
             if (gcmIS_ERROR(status))
             {
-				printk("gpu_suspend error[%d status=%d] -\n", i, status);
-            	for (j = 0; j < i; i++)
-        		{
-					(void)gckHARDWARE_SetPowerManagementState(device->kernels[j]->hardware, gcvPOWER_ON);
-        		}
+                printk("gpu_suspend error[%d status=%d] -\n", i, status);
+                for (j = 0; j < i; i++)
+                {
+                    (void)gckHARDWARE_SetPowerManagementState(device->kernels[j]->hardware, gcvPOWER_ON);
+                }
                 return -1;
             }
 
@@ -1107,7 +1107,7 @@ static int __devinit gpu_resume(struct platform_device *dev)
 
     device = platform_get_drvdata(dev);
 
-    os = device->os;
+    os = device->os;	
 
     printk("gpu_resume +\n");
 

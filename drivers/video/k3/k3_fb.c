@@ -43,6 +43,7 @@
 
 #ifdef HDMI_DISPLAY
 #include "hdmi/k3_hdmi.h"
+#define ALWAYS_USE_BUFFER 1
 #endif
 
 #if defined(CONFIG_OVERLAY_COMPOSE)
@@ -52,13 +53,14 @@
 #ifdef CONFIG_IPPS_SUPPORT
 #include <linux/ipps.h>
 #endif
-#endif /* CONFIG_CPU_FREQ_GOV_K3HOTPLUG */
+#endif
+//extern int nct203_temp_report(void);
 
 #define BUFFER_IS_USED(display_addr, addr, addr_size)  ((display_addr >= addr) && (display_addr < addr + addr_size))
 #define OVC_BUFFER_SYNC_FILE "gralloc_overlay_state"
 static DEFINE_SPINLOCK(gralloc_overlay_slock);
 static DECLARE_WAIT_QUEUE_HEAD(gralloc_overlay_wait_queue);
-#endif //CONFIG_OVERLAY_COMPOSE
+#endif
 
 #define K3_FB_MAX_DEV_LIST 32
 #define MAX_FBI_LIST 32
@@ -75,11 +77,25 @@ static int k3fd_list_index;
 
 u32 k3fd_reg_base_edc0;
 u32 k3fd_reg_base_edc1;
+u32 k3fd_reg_base_pwm0;
+u32 k3fd_reg_base_pwm1;
+
 static u32 k3fd_irq_edc0;
 static u32 k3fd_irq_edc1;
 static u32 k3fd_irq_ldi0;
 static u32 k3fd_irq_ldi1;
 static bool hdmi_is_connected = false;
+
+/* 0: g2d_clk_rate enable 1: 60MHz 2: 120MHz 3: 240MHz 4: 360MHz 5: 480MHz */
+static int k3fb_debug_g2d_clk_rate = 0;
+/* 0: not print g2d log 1: print g2d log */
+static int k3fb_debug_g2d = 0;
+/* 0: frc enable  1: frc disable 2: print frc log */
+static int k3fb_debug_frc = 0;
+/* 0: esd enable 1: esd disable */
+static int k3fb_debug_esd = 0;
+/* 0: not print vsync log 1: print vsync log */
+static int k3fb_debug_vsync = 0;
 
 static u32 k3_fb_pseudo_palette[16] = {
 	0x00000000, 0xffffffff, 0xffffffff, 0xffffffff,
@@ -90,6 +106,9 @@ static u32 k3_fb_pseudo_palette[16] = {
 
 #define MAX_BACKLIGHT_BRIGHTNESS 255
 
+#define APICAL_INDOOR_UI       0x1
+#define APICAL_OUTDOOR_UI      0x2   
+#define APICAL_CAMERA_UI       0x3
 DEFINE_SEMAPHORE(k3_fb_overlay_sem);
 DEFINE_SEMAPHORE(k3_fb_backlight_sem);
 DEFINE_SEMAPHORE(k3_fb_blank_sem);
@@ -100,7 +119,12 @@ DEFINE_SEMAPHORE(k3_fb_blank_sem);
 */
 static void k3_fb_set_backlight_cmd_mode(struct k3_fb_data_type *k3fd, u32 bkl_lvl);
 static int k3_fb_blank_sub(int blank_mode, struct fb_info *info);
-static int k3fb_esd_set(struct k3_fb_data_type *k3fd);
+static int k3_fb_esd_set(struct k3_fb_data_type *k3fd);
+static int k3_fb_esd_set_cmd_mode(struct fb_info *info);
+static int k3fb_frc_get_fps(struct k3_fb_data_type *k3fd);
+
+static void k3fb_te_inc(struct k3_fb_data_type *k3fd, bool te_should_enable, bool in_isr);
+static void k3fb_te_dec(struct k3_fb_data_type *k3fd, bool te_should_disable, bool in_isr);
 
 
 /******************************************************************************
@@ -108,11 +132,15 @@ static int k3fb_esd_set(struct k3_fb_data_type *k3fd);
 */
 static bool should_use_videobuf(struct fb_info *info)
 {
+#if !ALWAYS_USE_BUFFER
     int timing_code = info->var.reserved[3];
     if (timing_code == 32 || timing_code == 33 || timing_code == 34) {
         return true;
     }
     return false;
+#else
+    return true;
+#endif
 }
 
 #if K3_FB_OVERLAY_USE_BUF
@@ -156,14 +184,13 @@ static void overlay_play_work_queue(struct work_struct *ws)
 	int free_count = 0;
 	int min_count  = 0;
 	int null_count = 0;
-	int timing_code = 0;
 
 	BUG_ON(info == NULL);
 	k3fd = (struct k3_fb_data_type *)info->par;
 	BUG_ON(k3fd == NULL);
 
 	while (!video_buf.exit_work) {
-		if (video_buf.is_video && hdmi_is_connected) {	
+		if (video_buf.is_video && hdmi_is_connected) {
 			if (wait_event_interruptible_timeout(k3fd->frame_wq, k3fd->update_frame, HZ) <= 0) {
 				k3fb_logw("wait_event_interruptible_timeout !\n");
 				k3fd->update_frame = 0;
@@ -266,10 +293,10 @@ int k3_fb1_blank(int blank_mode)
 
 int k3fb_buf_isfree(int phys)
 {
-	int i = 0;
 	int ret = 1;
 
 #if K3_FB_OVERLAY_USE_BUF
+	int i = 0;
 	struct fb_info *info = fbi_list[1];
 	struct k3_fb_data_type *k3fd = NULL;
 
@@ -365,7 +392,8 @@ static int k3fb_frc_set_state(struct fb_info *info, unsigned long *argp)
 	  *  3) 3:1 or 3:0 mean Benchmark is runing or stop running.
 	  *  4) 4:1 or 4:0 mean Webkit is running or stop running.
 	  *  5) 5:1 or 5:0 mean Special Game is playing or stop playing.
-	  *  6) ......
+         *  6) 7:1 or 7:0 mean game 30 fps playing or stop playing.
+	  *  7) ......
 	  */
 
 	switch (buffer[0]-'0') {
@@ -373,7 +401,8 @@ static int k3fb_frc_set_state(struct fb_info *info, unsigned long *argp)
 	case 2:
 	case 3:
 	case 4:
-	case 5:
+    case 5:
+    case 7:
 		{
 			if (buffer[2] == '0') {
 				k3fd->frc_state &= ~(1 << (buffer[0] - '0'));
@@ -404,6 +433,10 @@ static void k3_fb_set_g2d_clk_rate(int level)
 		return;
 	}
 
+	if (k3fb_debug_g2d_clk_rate > 0) {
+		level = k3fb_debug_g2d_clk_rate;
+	}
+
 	switch (level) {
 	case 1:
 		rate = G2D_CLK_60MHz;
@@ -430,7 +463,8 @@ static void k3_fb_set_g2d_clk_rate(int level)
 		if (ret != 0) {
 			k3fb_loge("%d, error = %d.\n", rate, ret);
 		} else {
-			k3fb_logi("%d.\n", rate);
+			if (k3fb_debug_g2d)
+				k3fb_logi("%d.\n", rate);
 		}
 	}
 }
@@ -479,25 +513,43 @@ static int k3fb_g2d_set_freq(struct fb_info *info, unsigned long *argp)
 	return 0;
 }
 
+int apical_flags = 0x0;
 static int k3fb_sbl_set_value(struct fb_info *info, unsigned long *argp)
 {
-	int ret = 0;
-	int val = 0;
-	struct k3_fb_data_type *k3fd = NULL;
+    int ret = 0;
+    int val = 0;
+    struct k3_fb_data_type *k3fd = NULL;
 
-	BUG_ON(info == NULL);
-	k3fd = (struct k3_fb_data_type *)info->par;
-	BUG_ON(k3fd == NULL);
+    int value_flags;
+    u32 edc_base = 0;
+    BUG_ON(info == NULL);
+    k3fd = (struct k3_fb_data_type *)info->par;
+    BUG_ON(k3fd == NULL);
+    edc_base = k3fd->edc_base;
 
-	if (copy_from_user(&val, argp, sizeof(val))) {
-		k3fb_loge("copy from user failed!\n");
-		return -EFAULT;
-	}
+    if (copy_from_user(&val, argp, sizeof(val))) {
+        k3fb_loge("copy from user failed!\n");
+        return -EFAULT;
+    }
 
-	if (k3fd->panel_info.sbl_enable) {
-		down(&k3_fb_blank_sem);
-		k3fd->sbl_lsensor_value =  val & 0xffff;
-		k3fd->sbl_enable = (val >> 16) & 0xf;
+    if (k3fd->panel_info.sbl_enable) {
+        down(&k3_fb_blank_sem);
+        k3fd->sbl_lsensor_value = val & 0xffff;
+        k3fd->sbl_enable = (val >> 16) & 0x1;
+        value_flags = (val >> 17) & 0x3;
+                
+        if (value_flags && k3fd->sbl_enable) {
+            if (value_flags == APICAL_OUTDOOR_UI) {
+                set_reg(edc_base + SBL_STRENGTH_MANUAL_OFFSET, 0x80, 8, 0);
+                apical_flags = 0x80;
+            } else if (value_flags == APICAL_CAMERA_UI) {
+                set_reg(edc_base + SBL_STRENGTH_MANUAL_OFFSET, 0x20, 8, 0);
+                apical_flags = 0x20;
+            } else {
+                set_reg(edc_base + SBL_STRENGTH_MANUAL_OFFSET, 0x0, 8, 0);
+                apical_flags = 0x0;
+            }
+        }
 
 		if (!k3fd->panel_power_on) {
 			k3fb_logw("panel power is not on.\n");
@@ -512,50 +564,6 @@ static int k3fb_sbl_set_value(struct fb_info *info, unsigned long *argp)
 	return ret;
 }
 
-void k3_fb_clk_enable_cmd_mode(struct k3_fb_data_type *k3fd)
-{
-	BUG_ON(k3fd == NULL);
-#if CLK_SWITCH
-	if (k3fd->panel_info.type == PANEL_MIPI_CMD) {
-		/* enable edc clk */
-		if (clk_enable(k3fd->edc_clk) != 0) {
-			k3fb_loge("failed to enable edc clk!\n");
-		}
-
-		/*enable ldi clk*/
-		if (clk_enable(k3fd->ldi_clk) != 0) {
-			k3fb_loge("failed to enable ldi clk!\n");
-		}
-	}
-#endif
-}
-
-void k3_fb_clk_disable_cmd_mode(struct k3_fb_data_type *k3fd)
-{
-	BUG_ON(k3fd == NULL);
-
-#if CLK_SWITCH
-	if (k3fd->panel_info.type == PANEL_MIPI_CMD) {
-		/* disable ldi clk */
-		clk_disable(k3fd->ldi_clk);
-		/* disable edc clk */
-		clk_disable(k3fd->edc_clk);
-	}
-#endif
-}
-
-void k3_fb_esd_recovery(struct k3_fb_data_type *k3fd, struct fb_info *info)
-{
-	if (k3fd->panel_info.esd_enable) {
-		if (k3_fb_blank_sub(FB_BLANK_POWERDOWN, info) != 0) {
-			k3fb_loge("blank mode %d failed!\n", FB_BLANK_POWERDOWN);
-		}
-		if (k3_fb_blank_sub(FB_BLANK_UNBLANK, info) != 0) {
-			k3fb_loge("blank mode %d failed!\n", FB_BLANK_UNBLANK);
-		}
-		k3fb_loge("ESD recover!\n");
-	}
-}
 
 /*******************************************************************************
 ** for overlay compose
@@ -810,6 +818,7 @@ void k3_fb_overlay_compose_data_clear(struct k3_fb_data_type *k3fd)
     k3fd->ddr_min_freq_saved = 0;
     k3fd->ddr_curr_freq = 0;
     k3fd->ovc_ddr_failed = 0;
+    k3fd->ovcIdleCount = 0;
 #endif /* CONFIG_CPU_FREQ_GOV_K3HOTPLUG */
 }
 
@@ -926,8 +935,8 @@ static int k3_fb_gralloc_overlay_write_proc(struct file *file, const char *buffe
         printk("%s:copy_from_user Error\n", __func__);
         return 0;
     }
-    buf[buf_len] = '\0';
 
+    buf[buf_len] = '\0';
     k3_fb_overlay_compose_parse_buffer(buf, &buf_addr, &buf_size);
     //printk("parse buffer:addr=0x%x, size=%d\n", buf_addr, buf_size);
 
@@ -1062,7 +1071,7 @@ static int k3_fb_overlay_compose_play(struct fb_info *info, struct overlay_data 
 
         cmd_mode = (k3fd->panel_info.type == PANEL_MIPI_CMD);
         if (cmd_mode) {
-            k3_fb_clk_enable_cmd_mode(k3fd);
+		k3_fb_clk_enable_cmd_mode(k3fd);
         } else {
             //normal mode
             wait_ret = k3_fb_overlay_compose_wait_event(k3fd);
@@ -1083,20 +1092,37 @@ static int k3_fb_overlay_compose_play(struct fb_info *info, struct overlay_data 
         /*up(&k3fd->sem);*/
 
         if (cmd_mode) {
-            set_LDI_CTRL_ldi_en(k3fd->edc_base, K3_ENABLE);
-            set_MIPIDSI_TE_CTRL_te_mask_en(k3fd->edc_base, 0);
+		// Clear idle count
+		k3fd->ovcIdleCount = 0;
 
-            if (k3fd->frame_count == 0) {
-                k3fd->frame_count = 1;
-            }
+		k3fb_te_inc(k3fd, true, false);
+
+		if (k3fd->frc_state != K3_FB_FRC_IDLE_PLAYING)
+			k3fd->use_fake_vsync = k3fb_frc_get_fps(k3fd) < K3_FB_FRC_NORMAL_FPS ? true : false;
 
             wait_ret = k3_fb_overlay_compose_wait_event(k3fd);
             if (wait_ret < 0) {
-                k3_fb_esd_recovery(k3fd, info);
+                if (k3fd->panel_info.esd_enable) {
+                    if (k3_fb_blank_sub(FB_BLANK_POWERDOWN, info) != 0) {
+                        k3fb_loge("blank mode %d failed!\n", FB_BLANK_POWERDOWN);
+                    }
+                    if (k3_fb_blank_sub(FB_BLANK_UNBLANK, info) != 0) {
+                        k3fb_loge("blank mode %d failed!\n", FB_BLANK_UNBLANK);
+                    }
+                    k3fb_loge("ESD recover!\n");
+                }
+
+		k3fb_te_dec(k3fd, false, false);
                 return wait_ret;
             }
+
+	    k3fb_te_dec(k3fd, false, false);
         }
     }
+
+    if (k3fd->temp_wq)
+        queue_work(k3fd->temp_wq, &k3fd->temp_work);
+
     return ret;
 }
 
@@ -1140,7 +1166,7 @@ static int k3_fb_overlay_compose_partial_play(struct fb_var_screeninfo *var, str
 
     cmd_mode = (k3fd->panel_info.type == PANEL_MIPI_CMD);
     if (cmd_mode) {
-        k3_fb_clk_enable_cmd_mode(k3fd);
+	k3_fb_clk_enable_cmd_mode(k3fd);
     } else {
         wait_ret = k3_fb_overlay_compose_wait_event(k3fd);
         if (wait_ret < 0) {
@@ -1164,23 +1190,39 @@ static int k3_fb_overlay_compose_partial_play(struct fb_var_screeninfo *var, str
     spin_unlock_irqrestore(&gralloc_overlay_slock, flags);
 
     if (cmd_mode) {
-        set_LDI_CTRL_ldi_en(k3fd->edc_base, K3_ENABLE);
-        set_MIPIDSI_TE_CTRL_te_mask_en(k3fd->edc_base, 0);
 
-        if (k3fd->frame_count == 0) {
-            k3fd->frame_count = 1;
-        }
+	// Clear idle count
+	k3fd->ovcIdleCount = 0;
+
+	k3fb_te_inc(k3fd, true, false);
+
+	if (k3fd->frc_state != K3_FB_FRC_IDLE_PLAYING)
+		k3fd->use_fake_vsync = k3fb_frc_get_fps(k3fd) < K3_FB_FRC_NORMAL_FPS ? true : false;
 
         wait_ret = k3_fb_overlay_compose_wait_event(k3fd);
         if (wait_ret < 0) {
-            k3_fb_esd_recovery(k3fd, info);
+            if (k3fd->panel_info.esd_enable) {
+                if (k3_fb_blank_sub(FB_BLANK_POWERDOWN, info) != 0) {
+                    k3fb_loge("blank mode %d failed!\n", FB_BLANK_POWERDOWN);
+                }
+                if (k3_fb_blank_sub(FB_BLANK_UNBLANK, info) != 0) {
+                    k3fb_loge("blank mode %d failed!\n", FB_BLANK_UNBLANK);
+                }
+                k3fb_loge("ESD recover!\n");
+            }
+
+	    k3fb_te_dec(k3fd, false, false);
             return wait_ret;
         }
+
+	k3fb_te_dec(k3fd, false, false);
     }
+
+    if (k3fd->temp_wq)
+        queue_work(k3fd->temp_wq, &k3fd->temp_work);
+
     return ret;
 }
-
-
 
 static int k3fb_ovc_check_ddr_freq(struct fb_info *info, unsigned long *argp)
 {
@@ -1204,8 +1246,8 @@ static int k3fb_ovc_check_ddr_freq(struct fb_info *info, unsigned long *argp)
         k3fb_loge("copy from user failed \n");
         return -EFAULT;
     }
-    buf[buf_len] = '\0';
 
+    buf[buf_len] = '\0';
 #if defined(CONFIG_CPU_FREQ_GOV_K3HOTPLUG)
     k3_fb_overlay_compose_parse_buffer(buf, &hwc_count, &hwc_rotate);
     /* printk("%s: count = %d, rotate = %d \n", __func__, hwc_count, hwc_rotate); */
@@ -1275,24 +1317,69 @@ static void k3_fb_overlay_compose_reset_pipe(struct fb_info *info)
     }
 }
 
-#endif //CONFIG_OVERLAY_COMPOSE
-
-#if defined(CONFIG_OVERLAY_COMPOSE)
 static DEVICE_ATTR(overlay_idle_state, (S_IRUGO | S_IWUSR | S_IWGRP),
 	k3_fb_overlay_idle_show, 0);
 #endif //CONFIG_OVERLAY_COMPOSE
 
-static struct attribute *k3_fb_attrs[] = {
-#if defined(CONFIG_OVERLAY_COMPOSE)
-	&dev_attr_overlay_idle_state.attr,
-#endif //CONFIG_OVERLAY_COMPOSE
-	NULL
-};
+
+/*******************************************************************************
+** for debug
+*/
+static ssize_t k3_fb_debug_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	sprintf(buf,
+		"debug_g2d=%d\n"\
+		"debug_g2d_clk_rate=%d\n"\
+		"debug_frc=%d\n"\
+		"debug_esd=%d\n"\
+		"debug_vsync=%d\n",
+		k3fb_debug_g2d,
+		k3fb_debug_g2d_clk_rate,
+		k3fb_debug_frc,
+		k3fb_debug_esd,
+		k3fb_debug_vsync);
+
+	return strlen(buf);
+}
+
+static ssize_t k3_fb_debug_store(struct device *dev, struct device_attribute *attr, char *buf, size_t size)
+{
+	int ret = 0;
+
+	if (strstr(buf, "debug_g2d_clk_rate")) {
+		ret = sscanf(buf, "debug_g2d_clk_rate=%d\n", &k3fb_debug_g2d_clk_rate);
+		if ((ret != 0) && (k3fb_debug_g2d_clk_rate > 0)) {
+			k3_fb_set_g2d_clk_rate(k3fb_debug_g2d_clk_rate);
+		}
+	} else if (strstr(buf, "debug_g2d")) {
+		ret = sscanf(buf, "debug_g2d=%d\n", &k3fb_debug_g2d);
+	} else if (strstr(buf, "debug_frc")) {
+		ret = sscanf(buf, "debug_frc=%d\n", &k3fb_debug_frc);
+	} else if (strstr(buf, "debug_esd")){
+		ret = sscanf(buf, "debug_esd=%d\n", &k3fb_debug_esd);
+	} else if (strstr(buf, "debug_vsync")) {
+		ret = sscanf(buf, "debug_vsync=%d\n", &k3fb_debug_vsync);
+	} else {
+		k3fb_loge("Error input\n");
+	}
+
+	return size;
+}
+
+static DEVICE_ATTR(debug, (S_IRUGO | S_IWUSR | S_IWGRP),
+	k3_fb_debug_show, k3_fb_debug_store);
 
 
 /*******************************************************************************
 **
 */
+static struct attribute *k3_fb_attrs[] = {
+#if defined(CONFIG_OVERLAY_COMPOSE)
+	&dev_attr_overlay_idle_state.attr,
+#endif
+	&dev_attr_debug.attr,
+	NULL
+};
 
 static struct attribute_group k3_fb_attr_group = {
 	.attrs = k3_fb_attrs,
@@ -1335,6 +1422,8 @@ static void sbl_workqueue(struct work_struct *ws)
 		return;
 	}
 
+	k3_fb_clk_enable_cmd_mode(k3fd);
+
 	tmp_sbl = inp32(k3fd->edc_base + EDC_DISP_DPD_OFFSET);
 	if ((tmp_sbl & REG_SBL_EN) == REG_SBL_EN) {
 		res = ((ALold << m) + ((int)k3fd->sbl_lsensor_value << 14) - ALold) >> m;
@@ -1346,6 +1435,9 @@ static void sbl_workqueue(struct work_struct *ws)
 			set_SBL_AMBIENT_LIGHT_H_ambient_light_h(k3fd->edc_base, lsensor_h);
 		}
 	}
+
+	k3_fb_clk_disable_cmd_mode(k3fd);
+
 	up(&k3_fb_blank_sem);
 
 }
@@ -1361,6 +1453,38 @@ static int init_sbl_workqueue(struct k3_fb_data_type *k3fd)
 	}
 
 	INIT_WORK(&k3fd->sbl_work, sbl_workqueue);
+
+	return 0;
+}
+
+
+static void temp_workqueue(struct work_struct *ws)
+{
+	struct k3_fb_data_type *k3fd = NULL;
+
+	k3fd = container_of(ws, struct k3_fb_data_type, temp_work);
+	BUG_ON(k3fd == NULL);
+
+	if (!k3fd->panel_power_on) {
+		return;
+	}
+
+//    k3fd->ambient_temperature = nct203_temp_report(); /* U9508 hasn't got NCT203!!!! */
+	k3fd->ambient_temperature = getcalctemperature(ADC_RTMP_FOR_SIM);
+
+}
+
+static int init_temperature_workqueue(struct k3_fb_data_type *k3fd)
+{
+	BUG_ON(k3fd == NULL);
+
+	k3fd->temp_wq = create_singlethread_workqueue("temp_workqueue");
+	if (!k3fd->temp_wq) {
+		k3fb_loge("failed to create sbl workqueue!\n");
+		return -1;
+	}
+
+	INIT_WORK(&k3fd->temp_work, temp_workqueue);
 
 	return 0;
 }
@@ -1393,6 +1517,9 @@ static void frame_end_workqueue(struct work_struct *ws)
 	}
 
 	if (k3fd->panel_info.esd_enable) {
+		if (k3fb_debug_esd)
+			goto error;
+
 		if (k3fd->esd_hrtimer_enable) {
 			/* check dsi stop state */
 			while (1) {
@@ -1405,7 +1532,7 @@ static void frame_end_workqueue(struct work_struct *ws)
 					udelay(1);
 					++delay_count;
 				}
-			};
+			}
 
 			if (is_timeout) {
 				k3fb_loge("ESD check dsi stop state timeout\n");
@@ -1416,6 +1543,12 @@ static void frame_end_workqueue(struct work_struct *ws)
 			set_reg(k3fd->edc_base + MIPIDSI_PHY_IF_CTRL_OFFSET, 0x0, 1, 0);
 			/* check panel power status*/
 			ret = pdata->check_esd(k3fd->pdev);
+		        //k3fb_loge("--------ESD READ = 0x%x--------------\n", ret);
+			if (ret != 0x00) {
+				k3fd->esd_recover = true;
+			}
+
+
 			/* enable generate High Speed clock */
 			set_reg(k3fd->edc_base + MIPIDSI_PHY_IF_CTRL_OFFSET, 0x1, 1, 0);
 
@@ -1425,7 +1558,7 @@ static void frame_end_workqueue(struct work_struct *ws)
 
 error:
 	k3_fb_clk_disable_cmd_mode(k3fd);
-	k3fd->frame_count--;
+
 	up(&k3_fb_blank_sem);
 }
 
@@ -1444,22 +1577,29 @@ static int init_frame_end_workqueue(struct k3_fb_data_type *k3fd)
 	return 0;
 }
 
+static int k3fb_vsync_timestamp_changed(struct k3_fb_data_type *k3fd,
+	ktime_t prev_timestamp)
+{
+	BUG_ON(k3fd == NULL);
+	return !ktime_equal(prev_timestamp, k3fd->vsync_info.timestamp);
+}
 
 static int k3fb_wait_for_vsync_thread(void *data)
 {
 	struct k3_fb_data_type *k3fd = (struct k3_fb_data_type *)data;
-	struct sched_param param = {.sched_priority = 99};
+	ktime_t prev_timestamp;
+	int ret = 0;
 
+	struct sched_param param = {.sched_priority = 99};
 	sched_setscheduler(current, SCHED_RR, &param);
 
 	while (!kthread_should_stop()) {
-		ktime_t timestamp = k3fd->vsync_info.timestamp;
-		int ret = wait_event_interruptible_timeout(
-						k3fd->vsync_info.wait,
-						!ktime_equal(timestamp,
-						k3fd->vsync_info.timestamp) &&
-						k3fd->vsync_info.active,
-						msecs_to_jiffies(VSYNC_TIMEOUT_MSEC));
+		prev_timestamp = k3fd->vsync_info.timestamp;
+		ret = wait_event_interruptible_timeout(
+					k3fd->vsync_info.wait,
+					k3fb_vsync_timestamp_changed(k3fd, prev_timestamp) &&
+					k3fd->vsync_info.active,
+					msecs_to_jiffies(VSYNC_TIMEOUT_MSEC));
 
 		if (ret > 0) {
 			char *envp[2];
@@ -1469,10 +1609,72 @@ static int k3fb_wait_for_vsync_thread(void *data)
 			envp[0] = buf;
 			envp[1] = NULL;
 			kobject_uevent_env(&k3fd->pdev->dev.kobj, KOBJ_CHANGE, envp);
+
+			if (k3fb_debug_vsync) {
+				k3fb_logi("%s\n", buf);
+			}
 		}
 	}
 
 	return 0;
+}
+
+
+static void k3fb_te_inc(struct k3_fb_data_type *k3fd, bool te_should_enable, bool in_isr)
+{
+	struct k3_fb_panel_data *pdata = NULL;
+	unsigned long flag;
+
+	BUG_ON(k3fd == NULL);
+	pdata = dev_get_platdata(&k3fd->pdev->dev);
+	BUG_ON(pdata == NULL);
+
+	if (in_isr) {
+		spin_lock(&k3fd->vsync_info.irq_lock);
+	} else {
+		spin_lock_irqsave(&k3fd->vsync_info.irq_lock, flag);
+	}
+
+	k3fd->vsync_info.te_refcount++;
+
+	if (te_should_enable)
+		set_MIPIDSI_TE_CTRL_te_mask_en(k3fd->edc_base, 0);
+
+	if (in_isr) {
+		spin_unlock(&k3fd->vsync_info.irq_lock);
+	} else {
+		spin_unlock_irqrestore(&k3fd->vsync_info.irq_lock, flag);
+	}
+}
+
+static void k3fb_te_dec(struct k3_fb_data_type *k3fd, bool te_should_disable, bool in_isr)
+{
+	struct k3_fb_panel_data *pdata = NULL;
+	unsigned long flag;
+
+	BUG_ON(k3fd == NULL);
+	pdata = dev_get_platdata(&k3fd->pdev->dev);
+	BUG_ON(pdata == NULL);
+
+	if (in_isr) {
+		spin_lock(&k3fd->vsync_info.irq_lock);
+	} else {
+		spin_lock_irqsave(&k3fd->vsync_info.irq_lock, flag);
+	}
+
+	if (k3fd->vsync_info.te_refcount > 0)
+		k3fd->vsync_info.te_refcount--;
+
+	if (k3fd->vsync_info.te_refcount <= 0 && te_should_disable) {
+		set_MIPIDSI_TE_CTRL_te_mask_en(k3fd->edc_base, 1);
+	}
+
+	if (in_isr) {
+		spin_unlock(&k3fd->vsync_info.irq_lock);
+	} else {
+		spin_unlock_irqrestore(&k3fd->vsync_info.irq_lock, flag);
+	}
+
 }
 
 
@@ -1487,13 +1689,24 @@ static int k3fb_frc_get_fps(struct k3_fb_data_type *k3fd)
 		switch (k3fd->frc_state) {
 		case K3_FB_FRC_GAME_PLAYING:
 		case K3_FB_FRC_GAME_PLAYING | K3_FB_FRC_IDLE_PLAYING:
-			fps = K3_FB_FRC_GAME_FPS_CMD;
+			fps = K3_FB_FRC_GAME_FPS;
 			break;
 		case K3_FB_FRC_SPECIAL_GAME_PLAYING:
 		case K3_FB_FRC_SPECIAL_GAME_PLAYING | K3_FB_FRC_IDLE_PLAYING:
 			fps = K3_FB_FRC_SPECIAL_GAME_FPS;
 			break;
-		default:
+                   
+        case K3_FB_FRC_WEBKIT_PLAYING:  
+        case K3_FB_FRC_WEBKIT_PLAYING | K3_FB_FRC_IDLE_PLAYING:  
+             fps = K3_FB_FRC_WEBKIT_FPS;
+            break;  
+
+        case K3_FB_FRC_GAME_30_PLAYING:
+        case K3_FB_FRC_GAME_30_PLAYING | K3_FB_FRC_IDLE_PLAYING:
+             fps = K3_FB_FRC_GAME_30_FPS;
+             break;
+     
+         default:
 			fps = K3_FB_FRC_NORMAL_FPS;
 			break;
 		}
@@ -1505,7 +1718,7 @@ static int k3fb_frc_get_fps(struct k3_fb_data_type *k3fd)
 		case K3_FB_FRC_GAME_PLAYING:
 		case K3_FB_FRC_GAME_PLAYING | K3_FB_FRC_IDLE_PLAYING:
 			fps = K3_FB_FRC_GAME_FPS;
-			break;
+		    break;
 		case K3_FB_FRC_SPECIAL_GAME_PLAYING:
 		case K3_FB_FRC_SPECIAL_GAME_PLAYING | K3_FB_FRC_IDLE_PLAYING:
 			fps = K3_FB_FRC_SPECIAL_GAME_FPS;
@@ -1522,12 +1735,17 @@ static int k3fb_frc_get_fps(struct k3_fb_data_type *k3fd)
 		case K3_FB_FRC_WEBKIT_PLAYING | K3_FB_FRC_IDLE_PLAYING:
 			fps = K3_FB_FRC_WEBKIT_FPS;
 			break;
+        case K3_FB_FRC_GAME_30_PLAYING:
+        case K3_FB_FRC_GAME_30_PLAYING | K3_FB_FRC_IDLE_PLAYING:
+             fps = K3_FB_FRC_GAME_30_FPS;
+            break;
 		case K3_FB_FRC_NONE_PLAYING:
 		default:
 			fps = K3_FB_FRC_NORMAL_FPS;
 			break;
 		}
 	}
+
 	return fps;
 }
 
@@ -1546,10 +1764,13 @@ static bool k3fb_frc_prepare(struct k3_fb_data_type *k3fd)
 	static u32 frc_special_count;
 #endif /* CONFIG_OVERLAY_COMPOSE */
 
-	if (time_after((k3fd->frc_timestamp  + HZ * 3), jiffies)) {
+	if (get_boot_into_recovery_flag() || time_after((k3fd->frc_timestamp  + HZ * 3), jiffies)) {
 		return false;
 	}
-	
+
+	if (k3fb_debug_frc == 1)
+		return false;
+
 	addr_new = inp32(k3fd->edc_base + EDC_CH2L_ADDR_OFFSET);
 #if defined(CONFIG_OVERLAY_COMPOSE)
 	ch1_addr_new = inp32(k3fd->edc_base + EDC_CH1L_ADDR_OFFSET);
@@ -1658,9 +1879,10 @@ static int k3fb_frc_set(struct k3_fb_data_type *k3fd)
 	if (pdata->set_frc(k3fd->pdev,  fps) != 0) {
 		k3fb_loge("set frc failed!\n");
 		return -1;
-	}/*else {
-		k3fb_logi("now fps will be %d.\n", fps);
-	}*/
+	} else {
+		if (k3fb_debug_frc)
+			k3fb_logi("now fps will be %d.\n", fps);
+	}
 
 #if defined(CONFIG_OVERLAY_COMPOSE)
 	if (k3fd->frc_state == K3_FB_FRC_IDLE_PLAYING
@@ -1682,6 +1904,9 @@ static bool k3fb_esd_prepare(struct k3_fb_data_type *k3fd)
 		return false;
 	}
 
+	if (k3fb_debug_esd)
+		return false;
+
 	if (++k3fd->esd_frame_count >= K3_FB_ESD_THRESHOLD) {
 		k3fd->esd_frame_count = 0;
 		return true;
@@ -1690,7 +1915,7 @@ static bool k3fb_esd_prepare(struct k3_fb_data_type *k3fd)
 	}
 }
 
-static int k3fb_esd_set(struct k3_fb_data_type *k3fd)
+static int k3_fb_esd_set(struct k3_fb_data_type *k3fd)
 {
 	bool is_timeout = true;
 	int delay_count = 0;
@@ -1796,7 +2021,7 @@ static int get_fps_for_temperature(struct k3_fb_data_type *k3fd)
 	if (temp <= EVT_TEM_NORM) {
 		temp = 0;
 	} else if (temp < EVT_TEM_ABOVE_NORM) {
-		temp = 1;
+		temp = 2;
 	} else if (temp < EVT_TEM_HIGH) {
 		temp = 2;
 	} else if (temp < EVT_TEM_THRD) {
@@ -1837,12 +2062,11 @@ static enum hrtimer_restart k3fb_fake_vsync(struct hrtimer *timer)
 	int fps = 0;
 	int fps_for_temp = 60;
 
-	k3fd  = container_of(timer, struct k3_fb_data_type, fake_vsync_hrtimer);
+	k3fd = container_of(timer, struct k3_fb_data_type, fake_vsync_hrtimer);
 	BUG_ON(k3fd == NULL);
 
-	if (!k3fd->panel_power_on) {
-		return HRTIMER_NORESTART;
-	}
+	if (!k3fd->panel_power_on)
+		goto error;
 
 	if (k3fd->panel_info.frc_enable) {
 		fps = k3fb_frc_get_fps(k3fd);
@@ -1860,11 +2084,37 @@ static enum hrtimer_restart k3fb_fake_vsync(struct hrtimer *timer)
 	}
 
 	/*k3fb_loge("---fps=%d, active=%d---\n", fps, k3fd->vsync_info.active);*/
-	if (k3fd->vsync_info.active && k3fd->vsync_info.thread) {
+	if (k3fd->use_fake_vsync && k3fd->vsync_info.active && k3fd->vsync_info.thread) {
 		k3fd->vsync_info.timestamp = ktime_get();
 		wake_up_interruptible_all(&k3fd->vsync_info.wait);
 	}
 
+#if defined(CONFIG_OVERLAY_COMPOSE)
+	/*for overlay idle detect (only cmd display mode)*/
+	if(!k3fd->vsync_info.active && k3fd->panel_info.type == PANEL_MIPI_CMD){
+		if(k3fd->ovcIdleCount < K3_FB_FRC_THRESHOLD){
+			k3fd->ovcIdleCount++;
+			if( k3fd->ovcIdleCount == K3_FB_FRC_THRESHOLD){
+				u32 min_ddr_freq;
+
+				k3fb_te_dec(k3fd, true, true);
+
+				min_ddr_freq = k3_fb_overlay_compose_get_target_ddr_min_freq(0, 0);
+
+				spin_lock(&gralloc_overlay_slock);
+				if (min_ddr_freq < k3fd->ddr_min_freq && k3fd->ovc_ddr_wq){
+					k3fd->ddr_min_freq = min_ddr_freq;
+					queue_work(k3fd->ovc_ddr_wq, &k3fd->ovc_ddr_work);
+				}
+				spin_unlock(&gralloc_overlay_slock);
+			}
+		}
+	}else{
+		k3fd->ovcIdleCount = 0;
+	}
+#endif
+
+error:
 	hrtimer_start(&k3fd->fake_vsync_hrtimer, ktime_set(0, NSEC_PER_SEC / fps), HRTIMER_MODE_REL);
 
 	return HRTIMER_NORESTART;
@@ -1882,28 +2132,33 @@ static int edc_isr_cmd_mode(struct k3_fb_data_type *k3fd, u32 ints)
 	** 0x40 for bas_end_int
 	*/
 	if ((ints & 0x40) == 0x40) {
-		k3fd->cmd_mode_refresh = false;
+		if (k3fd->cmd_mode_refresh) {
+			k3fd->cmd_mode_refresh = false;
 
-		if (k3fd->frame_count >= 2) {
-			k3fd->is_first_frame_end = true;
+			k3fd->cmd_bl_can_set = true;
 			if (k3fd->frame_end_wq)
 				queue_work(k3fd->frame_end_wq, &k3fd->frame_end_work);
 		}
 	}
 
 	if ((ints & 0x80) == 0x80) {
-		k3fd->cmd_mode_refresh = true;
+		if (!k3fd->cmd_mode_refresh) {
+			k3fd->cmd_mode_refresh = true;
 
-		if (k3fd->frame_count >= 1) {
-			k3fd->frame_count++;
+		if (k3fd->index == 0) {
+			if (!k3fd->use_fake_vsync && k3fd->vsync_info.active && k3fd->vsync_info.thread) {
+				k3fd->vsync_info.timestamp = ktime_get();
+				wake_up_interruptible_all(&k3fd->vsync_info.wait);
+			}
+		}
+
+		if (k3fd->panel_info.sbl_enable && k3fd->sbl_wq)
+			queue_work(k3fd->sbl_wq, &k3fd->sbl_work);
 
 		#if defined(CONFIG_OVERLAY_COMPOSE)
 			k3_fb_gralloc_overlay_ch_process(k3fd);
-		#endif
 
-			set_MIPIDSI_TE_CTRL_te_mask_en(k3fd->edc_base, 1);
-			set_LDI_CTRL_ldi_en(k3fd->edc_base, K3_DISABLE);
-			/*set_EDC_DISP_CTL_edc_en(k3fd->edc_base, K3_DISABLE);*/
+		#endif
 
 			k3fd->update_frame = 1;
 			wake_up_interruptible(&k3fd->frame_wq);
@@ -1928,10 +2183,11 @@ static irqreturn_t edc_isr_video_mode(struct k3_fb_data_type *k3fd, u32 ints)
 		wake_up_interruptible(&k3fd->frame_wq);
 
 		if (k3fd->index == 0) {
-			/*if (!k3fd->fake_vsync && k3fd->vsync_info.active && k3fd->vsync_info.thread) {
+
+			if (!k3fd->use_fake_vsync && k3fd->vsync_info.active && k3fd->vsync_info.thread) {
 				k3fd->vsync_info.timestamp = ktime_get();
 				wake_up_interruptible_all(&k3fd->vsync_info.wait);
-			}*/
+			}
 
 			if (k3fd->panel_info.sbl_enable && k3fd->sbl_wq)
 				queue_work(k3fd->sbl_wq, &k3fd->sbl_work);
@@ -2002,41 +2258,38 @@ static irqreturn_t ldi_isr(int irq, void *data)
 	pdata = (struct k3_fb_panel_data *)k3fd->pdev->dev.platform_data;
 	BUG_ON(pdata == NULL);
 
-	if (k3fd->index >= 1) {
-		k3fb_loge("fb%d do not use ldi interrupt.\n", k3fd->index);
-		return IRQ_HANDLED;
-	}
-
 	/* ldi interrupt state */
 	ints = inp32(k3fd->edc_base + LDI_ORG_INT_OFFSET);
 	/* clear ldi interrupt */
 	outp32(k3fd->edc_base + LDI_INT_CLR_OFFSET, 0xFFFFFFFF);
 
-	/* check vfrontporch_end_int interrupt*/
-	if ((ints & 0x400) == 0x400) {
-		if (k3fd->panel_info.frc_enable &&
-			(k3fd->ldi_int_type & FB_LDI_INT_TYPE_FRC)) {
-			ret = k3fb_frc_set(k3fd);
-			if (ret < 0) {
-				k3fb_loge("failed to set frc.\n");
+	if (k3fd->index == 0) {
+		/* check vfrontporch_end_int interrupt*/
+		if ((ints & 0x400) == 0x400) {
+			if (k3fd->panel_info.frc_enable &&
+				(k3fd->ldi_int_type & FB_LDI_INT_TYPE_FRC)) {
+				ret = k3fb_frc_set(k3fd);
+				if (ret < 0) {
+					k3fb_loge("failed to set frc.\n");
+				}
+			} else if (k3fd->panel_info.esd_enable &&
+				(k3fd->ldi_int_type & FB_LDI_INT_TYPE_ESD)) {
+				ret = k3_fb_esd_set(k3fd);
+				if (ret < 0) {
+					k3fb_loge("failed to set esd.\n");
+				}
 			}
-		} else if (k3fd->panel_info.esd_enable &&
-			(k3fd->ldi_int_type & FB_LDI_INT_TYPE_ESD)) {
-			ret = k3fb_esd_set(k3fd);
-			if (ret < 0) {
-				k3fb_loge("failed to set esd.\n");
-			}
-		}
-	}/* else {
-		k3fb_loge("interrupt(0x%x) is not used!\n", ints);
-	}*/
+		}/* else {
+			k3fb_loge("interrupt(0x%x) is not used!\n", ints);
+		}*/
 
-	/* disable vfrontporch_end_int */
-	set_reg(k3fd->edc_base + LDI_INT_EN_OFFSET, 0x0, 1, 10);
-	/* enable ldi */
-	set_reg(k3fd->edc_base + LDI_CTRL_OFFSET, 0x1, 1, 0);
+		/* disable vfrontporch_end_int */
+		set_reg(k3fd->edc_base + LDI_INT_EN_OFFSET, 0x0, 1, 10);
+		/* enable ldi */
+		set_reg(k3fd->edc_base + LDI_CTRL_OFFSET, 0x1, 1, 0);
 
-	k3fd->ldi_int_type = FB_LDI_INT_TYPE_NONE;
+		k3fd->ldi_int_type = FB_LDI_INT_TYPE_NONE;
+	}
 
 	return IRQ_HANDLED;
 }
@@ -2112,6 +2365,7 @@ static int k3fb_overlay_unset(struct fb_info *info, unsigned long *argp)
 		mutex_unlock(&video_buf.overlay_mutex);
 	}
 #endif
+
 	return edc_overlay_unset(info, ndx);
 }
 
@@ -2179,11 +2433,12 @@ static int k3fb_overlay_play(struct fb_info *info, unsigned long *argp)
 		video_data->count = count;
 
 		video_buf.last_addr = req.src.phy_addr;
-		/*k3fb_logi("buf index:%d count:%d\n", video_index, count);*/
 		mutex_unlock(&video_buf.overlay_mutex);
 		return 0;
 	} else if((k3fd->index == 1) && video_buf.is_video){ 
-		k3fb_logi("exit play video req.is_video:%d buf.is_video:%d is_connected:%d\n",req.src.is_video, video_buf.is_video, hdmi_is_connected);
+		k3fb_logi("exit play video req.is_video:%d buf.is_video:%d is_connected:%d\n",
+			req.src.is_video, video_buf.is_video, hdmi_is_connected);
+
 		video_buf.is_video = false;
 		mutex_lock(&video_buf.overlay_mutex);
 		count = 0;
@@ -2232,6 +2487,20 @@ static int k3fb_vsync_int_set(struct fb_info *info, unsigned long *argp)
 	if (k3fd->vsync_info.active != cur_vsync_event) {
 		k3fd->vsync_info.active = cur_vsync_event;
 
+		if (k3fd->panel_info.type == PANEL_MIPI_CMD) {
+			k3_fb_clk_enable_cmd_mode(k3fd);
+			if (!k3fd->vsync_info.active) {
+				k3fb_te_dec(k3fd, false, false);
+			} else {
+				k3fd->use_fake_vsync = true;
+
+				// Clear idle count
+				k3fd->ovcIdleCount = 0;
+
+				k3fb_te_inc(k3fd, false, false);
+			}
+			k3_fb_clk_disable_cmd_mode(k3fd);
+		}
 		if (k3fd->vsync_info.active) {
 			if (k3fd->frc_state == K3_FB_FRC_IDLE_PLAYING) {
 				k3fd->frc_state = K3_FB_FRC_NONE_PLAYING;
@@ -2240,7 +2509,6 @@ static int k3fb_vsync_int_set(struct fb_info *info, unsigned long *argp)
 		} else {
 			if (k3fd->frc_state == K3_FB_FRC_NONE_PLAYING)
 				k3fd->frc_state = K3_FB_FRC_IDLE_PLAYING;
-
 		}
 	}
 
@@ -2310,6 +2578,50 @@ static int k3fb_set_timing(struct fb_info *info, unsigned long *argp)
 
 
 /******************************************************************************/
+void k3_fb_clk_enable_cmd_mode(struct k3_fb_data_type *k3fd)
+{
+	BUG_ON(k3fd == NULL);
+
+#if 0
+	if (k3fd->panel_info.type == PANEL_MIPI_CMD) {
+		/* enable edc clk */
+		if (clk_enable(k3fd->edc_clk) != 0) {
+			k3fb_loge("failed to enable edc clk!\n");
+		}
+
+		/*enable ldi clk*/
+		if (clk_enable(k3fd->ldi_clk) != 0) {
+			k3fb_loge("failed to enable ldi clk!\n");
+		}
+	}
+#endif
+}
+
+void k3_fb_clk_disable_cmd_mode(struct k3_fb_data_type *k3fd)
+{
+	BUG_ON(k3fd == NULL);
+
+#if 0
+	if (k3fd->panel_info.type == PANEL_MIPI_CMD) {
+		/* disable ldi clk */
+		clk_disable(k3fd->ldi_clk);
+		/* disable edc clk */
+		clk_disable(k3fd->edc_clk);
+	}
+#endif
+}
+
+static int k3_fb_esd_set_cmd_mode(struct fb_info *info)
+{
+	int ret = 0;
+	struct k3_fb_data_type *k3fd = NULL;
+
+	BUG_ON(info == NULL);
+	k3fd = (struct k3_fb_data_type *)info->par;
+	BUG_ON(k3fd == NULL);
+
+	return ret;
+}
 
 static void k3_fb_set_backlight_cmd_mode(struct k3_fb_data_type *k3fd, u32 bkl_lvl)
 {
@@ -2363,6 +2675,7 @@ void k3_fb_set_backlight(struct k3_fb_data_type *k3fd, u32 bkl_lvl)
 	}
 
 	down(&k3_fb_backlight_sem);
+
 	k3_fb_clk_enable_cmd_mode(k3fd);
 
 	k3fd->bl_level = bkl_lvl;
@@ -2374,6 +2687,7 @@ void k3_fb_set_backlight(struct k3_fb_data_type *k3fd, u32 bkl_lvl)
 	}
 
 	k3_fb_clk_disable_cmd_mode(k3fd);
+
 	up(&k3_fb_backlight_sem);
 }
 
@@ -2409,23 +2723,10 @@ static int k3_fb_blank_sub(int blank_mode, struct fb_info *info)
 				k3fd->panel_power_on = true;
 				if (k3fd->panel_info.type != PANEL_MIPI_CMD)
 					k3_fb_set_backlight(k3fd, k3fd->bl_level);
-				
-				if (k3fd->panel_info.type == PANEL_MIPI_CMD) {
-					set_EDC_INTE(k3fd->edc_base, 0xFFFFFFFF);
-					set_EDC_INTS(k3fd->edc_base, 0x0);
-					k3fd->is_first_frame_end = false;
-				}
 
-				/* enable edc irq */
-				if (k3fd->edc_irq)
-					enable_irq(k3fd->edc_irq);
-				/* enable ldi irq */
-				if (k3fd->ldi_irq)
-					enable_irq(k3fd->ldi_irq);
+				k3_fb_clk_disable_cmd_mode(k3fd);
 
 				if (k3fd->panel_info.type == PANEL_MIPI_CMD) {
-					set_EDC_INTE(k3fd->edc_base, 0xFFFFFF3F); 
-					k3_fb_clk_disable_cmd_mode(k3fd);
 					if (k3fd->panel_info.esd_enable) {
 						k3fd->esd_hrtimer_enable = false;
 						hrtimer_restart(&k3fd->esd_hrtimer);
@@ -2435,6 +2736,13 @@ static int k3_fb_blank_sub(int blank_mode, struct fb_info *info)
 				if (k3fd->index == 0) {
 					hrtimer_restart(&k3fd->fake_vsync_hrtimer);
 				}
+
+				/* enable edc irq */
+				if (k3fd->edc_irq)
+					enable_irq(k3fd->edc_irq);
+				/* enable ldi irq */
+				if (k3fd->ldi_irq)
+					enable_irq(k3fd->ldi_irq);
 			}
 		}
 		break;
@@ -2458,11 +2766,12 @@ static int k3_fb_blank_sub(int blank_mode, struct fb_info *info)
 				disable_irq(k3fd->ldi_irq);
 
 			if (k3fd->panel_info.type == PANEL_MIPI_CMD) {
-				if ((k3fd->frame_count >= 1) || (k3fd->is_first_frame_end == false)) {
+				if (!k3fd->cmd_mode_refresh ) {
 					k3_fb_clk_enable_cmd_mode(k3fd);
 				}
 
-				k3fd->frame_count = 0;
+				k3fd->cmd_mode_refresh = false;
+				k3fd->cmd_bl_can_set = false;
 				k3fd->bl_level_cmd = 0;
 
 				if (k3fd->panel_info.esd_enable) {
@@ -2472,8 +2781,15 @@ static int k3_fb_blank_sub(int blank_mode, struct fb_info *info)
 			}
 
 			if (k3fd->index == 0) {
+				k3fd->use_fake_vsync = false;
 				hrtimer_cancel(&k3fd->fake_vsync_hrtimer);
 				k3fd->ambient_temperature = 0;
+			}
+
+			/* Set frame rate back to 60 */
+			if (k3fd->panel_info.frc_enable) {
+				k3fd->frc_state = K3_FB_FRC_NONE_PLAYING;
+				k3fb_frc_set(k3fd);
 			}
 
 			ret = pdata->off(k3fd->pdev);
@@ -2494,7 +2810,7 @@ static int k3_fb_blank_sub(int blank_mode, struct fb_info *info)
 
 u32 k3_fb_line_length(u32 xres, int bpp)
 {
-#ifdef CONFIG_FB_64BYTES_ODD_ALIGN
+#ifdef CONFIG_FB_STRIDE_64BYTES_ODD_ALIGN
 	u32 stride = ALIGN_UP(xres * bpp, 64);
 	return (((stride / 64) % 2 == 0) ? (stride + 64) : stride);
 #else
@@ -2569,6 +2885,7 @@ static int k3_fb_release(struct fb_info *info, int user)
 		}
 	}
 #endif /* CONFIG_OVERLAY_COMPOSE */
+
 
 	return ret;
 }
@@ -2802,27 +3119,39 @@ static int k3_fb_pan_display_cmd_mode(struct fb_var_screeninfo *var,
 		k3fb_loge("edc_fb_pan_display err!\n");
 	}
 
-	/*set_EDC_DISP_CTL_edc_en(k3fd->edc_base, K3_ENABLE);*/
-	set_LDI_CTRL_ldi_en(k3fd->edc_base, K3_ENABLE);
-	set_MIPIDSI_TE_CTRL_te_mask_en(k3fd->edc_base, 0);
+	// Clear idle count
+	k3fd->ovcIdleCount = 0;
 
-	if (k3fd->frame_count == 0)
-		k3fd->frame_count = 1;
+	k3fb_te_inc(k3fd, true, false);
+
+	if (k3fd->frc_state != K3_FB_FRC_IDLE_PLAYING)
+		k3fd->use_fake_vsync = k3fb_frc_get_fps(k3fd) < K3_FB_FRC_NORMAL_FPS ? true : false;
 
 #if K3_FB_OVERLAY_USE_BUF 
 	if (!hdmi_is_connected || video_buf.is_video) {
 #else
 	if (!hdmi_is_connected) {
 #endif
-
-		if (wait_event_interruptible_timeout(k3fd->frame_wq, k3fd->update_frame, HZ / 10) <= 0) {
-			k3_fb_esd_recovery(k3fd, info);
+		if ((wait_event_interruptible_timeout(k3fd->frame_wq, k3fd->update_frame, HZ / 10) <= 0)||(k3fd->esd_recover == true)) {
+			if (k3fd->panel_info.esd_enable) {
+				if (k3_fb_blank_sub(FB_BLANK_POWERDOWN, info) != 0) {
+					k3fb_loge("blank mode %d failed!\n", FB_BLANK_POWERDOWN);
+				}
+				if (k3_fb_blank_sub(FB_BLANK_UNBLANK, info) != 0) {
+					k3fb_loge("blank mode %d failed!\n", FB_BLANK_UNBLANK);
+				}
+				k3fb_loge("ESD recover!\n");
+				k3fd->esd_recover = false;
+			}
 			k3fb_logw("wait_event_interruptible_timeout !\n");
+			k3fb_te_dec(k3fd, false, false);
 			k3fd->update_frame = 0;
 			return -ETIME;
 		}
 		k3fd->update_frame = 0;
 	}
+
+	k3fb_te_dec(k3fd, false, false);
 
 	return ret;
 }
@@ -2842,8 +3171,7 @@ static int k3_fb_pan_display_video_mode(struct fb_var_screeninfo *var,
 #else
 	if (!hdmi_is_connected) {
 #endif
-		ret = wait_event_interruptible_timeout(k3fd->frame_wq, k3fd->update_frame, HZ / 10);
-		if (ret <= 0) {
+		if (wait_event_interruptible_timeout(k3fd->frame_wq, k3fd->update_frame, HZ / 10) <= 0) {
 			k3fb_logw("wait_event_interruptible_timeout !\n");
 			k3fd->update_frame = 0;
 			return -ETIME;
@@ -2888,14 +3216,15 @@ static int k3_fb_pan_display(struct fb_var_screeninfo *var, struct fb_info *info
 	else
 		ret = k3_fb_pan_display_video_mode(var, info);
 
-#ifdef CONFIG_K3V2_TEMP_GOVERNOR
-	k3fd->ambient_temperature = getcalctemperature(ADC_RTMP_FOR_SIM);
-#else
-#error "undefined getcalctemperature \n"
-#endif
+	if (k3fd->temp_wq)
+		queue_work(k3fd->temp_wq, &k3fd->temp_work);
 
 	return ret;
 }
+
+#define K3FB_OVERLAY_GET_EPRJ		-2142999161
+#define K3FB_OVERLAY_SET_EPRJ		-1069257336
+#define K3FB_SET_UPDATE_RECTANGLE_EPRJ	1084255631
 
 static int k3_fb_ioctl(struct fb_info *info, unsigned int cmd, unsigned long arg)
 {
@@ -2904,11 +3233,14 @@ static int k3_fb_ioctl(struct fb_info *info, unsigned int cmd, unsigned long arg
 
 	BUG_ON(info == NULL);
 
+
 	down(&k3_fb_overlay_sem);
 	switch (cmd) {
+	case K3FB_OVERLAY_GET_EPRJ:
 	case K3FB_OVERLAY_GET:
 		ret = k3fb_overlay_get(info, argp);
 		break;
+	case K3FB_OVERLAY_SET_EPRJ:
 	case K3FB_OVERLAY_SET:
 		ret = k3fb_overlay_set(info, argp);
 		break;
@@ -2937,10 +3269,23 @@ static int k3_fb_ioctl(struct fb_info *info, unsigned int cmd, unsigned long arg
 	case K3FB_OVC_CHECK_DDR_FREQ:
 		ret = k3fb_ovc_check_ddr_freq(info, argp);
 		break;
+	case K3FB_SET_UPDATE_RECTANGLE_EPRJ:
+		ret = 0; /* Sink request: we've got incomplete source.. */
+		break;
 #endif /* CONFIG_OVERLAY_COMPOSE */
 	default:
-		k3fb_loge("unknown ioctl (cmd=%d) received!\n", cmd);
-		ret = -EINVAL;
+#if 0
+		if (cmd == -2142999161) {
+			ret = k3fb_overlay_get(info, argp);
+		} else if (cmd == -1069257336) {
+			ret = k3fb_overlay_set(info, argp);
+		} else if (cmd == 1084255631) {
+			ret = 0; /* sink request... */
+		} else {
+			k3fb_loge("unknown ioctl (cmd=%d) received!\n", cmd);
+			ret = -EINVAL;
+		}
+#endif
 		break;
 	}
 
@@ -2957,14 +3302,14 @@ static int k3_fb_blank(int blank_mode, struct fb_info *info)
 	k3fd = (struct k3_fb_data_type *)info->par;
 	BUG_ON(k3fd == NULL);
 
-	k3fb_logi("index=%d, enter!\n", k3fd->index);
+	k3fb_logd("index=%d, enter!\n", k3fd->index);
 
 	ret = k3_fb_blank_sub(blank_mode, info);
 	if (ret != 0) {
 		k3fb_loge("blank mode %d failed!\n", blank_mode);
 	}
 
-	k3fb_logi("index=%d, exit!\n", k3fd->index);
+	k3fb_logd("index=%d, exit!\n", k3fd->index);
 
 	return ret;
 }
@@ -3024,7 +3369,7 @@ static void k3_fb_set_bl_brightness(struct led_classdev *led_cdev,
 	}
 
 	if ((k3fd->panel_info.type == PANEL_MIPI_CMD)
-		&& (!k3fd->is_first_frame_end))
+		&& (!k3fd->cmd_bl_can_set))
 			return;
 
 	if (k3fd->panel_info.sbl_enable)
@@ -3047,7 +3392,7 @@ static void k3fb_early_suspend(struct early_suspend *h)
 
 	k3fb_logi("index=%d, enter!\n", k3fd->index);
 
-	msleep(500);
+//	msleep(500);
 
 	if (k3fd->index == 0) {
 		if (k3_fb_blank_sub(FB_BLANK_POWERDOWN, k3fd->fbi) != 0) {
@@ -3204,15 +3549,7 @@ static int k3_fb_init_par(struct k3_fb_data_type *k3fd, int pixel_fmt)
 
 	var->xres = k3fd->panel_info.xres;
 	var->yres = k3fd->panel_info.yres;
-#if USE_VIVANTE_GPU
-	if (k3fd->index == 0) {
-		var->xres_virtual = ALIGN_UP(k3fd->panel_info.xres, 16);
-	} else {
-		var->xres_virtual = k3fd->panel_info.xres;
-	}
-#else
 	var->xres_virtual = k3fd->panel_info.xres;
-#endif
 	var->yres_virtual = k3fd->panel_info.yres * K3_NUM_FRAMEBUFFERS;
 	var->bits_per_pixel = bpp * 8;
 
@@ -3274,26 +3611,100 @@ static int k3_fb_register(struct k3_fb_data_type *k3fd)
 		k3fd->bl_level = 40;
 	}
 	k3fd->ldi_int_type = FB_LDI_INT_TYPE_NONE;
-	k3fd->frame_count = 0;
 	k3fd->cmd_mode_refresh = false;
+	k3fd->cmd_bl_can_set = false;
 	k3fd->ambient_temperature = 0;
 
-	/* register framebuffer */
-	if (register_framebuffer(fbi) < 0) {
-		k3fb_loge("not able to register framebuffer %d!\n", k3fd->index);
-		return -EPERM;
-	}
-
-	/* request edc irq */
 	k3fd->update_frame = 0;
 	init_waitqueue_head(&k3fd->frame_wq);
+
+	/* for primary lcd */
+	if (k3fd->index == 0) {
+		if (k3fd->panel_info.sbl_enable) {
+			init_sbl_workqueue(k3fd);
+		}
+
+		if (k3fd->panel_info.frc_enable) {
+			k3fd->frc_threshold_count = 0;
+			k3fd->frc_state = K3_FB_FRC_NONE_PLAYING;
+			k3fd->frc_timestamp = jiffies;
+		}
+
+		/* for vsync */
+		memset(&(k3fd->vsync_info), 0, sizeof(k3fd->vsync_info));
+
+		init_waitqueue_head(&k3fd->vsync_info.wait);
+		k3fd->vsync_info.thread = kthread_run(k3fb_wait_for_vsync_thread, k3fd, "k3fb-vsync");
+		if (IS_ERR(k3fd->vsync_info.thread)) {
+			k3fb_loge("failed to run vsync thread!\n");
+			k3fd->vsync_info.thread = NULL;
+		}
+
+		spin_lock_init(&k3fd->vsync_info.irq_lock);
+		k3fd->use_fake_vsync = false;
+
+		/* for temperature obtaining*/
+		init_temperature_workqueue(k3fd);
+
+		/* hrtimer for fake vsync timing */
+		hrtimer_init(&k3fd->fake_vsync_hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+		k3fd->fake_vsync_hrtimer.function = k3fb_fake_vsync;
+		hrtimer_start(&k3fd->fake_vsync_hrtimer, ktime_set(0, NSEC_PER_SEC / 60), HRTIMER_MODE_REL);
+
+		if (k3fd->panel_info.esd_enable) {
+			if (k3fd->panel_info.type == PANEL_MIPI_CMD) {
+				init_frame_end_workqueue(k3fd);
+
+				/* hrtimer for ESD timing */
+				hrtimer_init(&k3fd->esd_hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
+				k3fd->esd_hrtimer.function = k3fb_cmd_esd;
+				k3fd->esd_hrtimer_enable = false;
+				hrtimer_start(&k3fd->esd_hrtimer, ktime_set(0, NSEC_PER_SEC), HRTIMER_MODE_REL);
+			} else {
+				k3fd->esd_timestamp = jiffies;
+				k3fd->esd_frame_count = 0;
+			}
+		}
+	} else if (k3fd->index == 1) {
+	#if K3_FB_OVERLAY_USE_BUF
+		overlay_play_work(k3fd);
+	#endif
+	} else {
+		k3fb_loge("fb%d not support now!\n", k3fd->index);
+	}
+
+#ifdef CONFIG_FASTBOOT_DISP_ENABLE
+	if (k3fd->index == 0) {
+		pdata = (struct k3_fb_panel_data *)k3fd->pdev->dev.platform_data;
+		if (pdata && pdata->set_fastboot) {
+			pdata->set_fastboot(k3fd->pdev);
+		}
+
+		if (k3fd->panel_info.type == PANEL_MIPI_CMD) {
+			set_MIPIDSI_TE_CTRL_te_mask_en(k3fd->edc_base, 1);
+
+		}
+
+		set_EDC_INTE(k3fd->edc_base, 0xFFFFFFFF);
+		set_EDC_INTS(k3fd->edc_base, 0x0);
+		set_EDC_INTE(k3fd->edc_base, 0xFFFFFF3F);
+
+		k3fd->ref_cnt++;
+		k3fd->panel_power_on = true;
+
+		k3_fb_clk_disable_cmd_mode(k3fd);
+	}
+#endif
+
+	/* request edc irq */
 	snprintf(k3fd->edc_irq_name, sizeof(k3fd->edc_irq_name), "%s_edc", fix->id);
 	ret = request_irq(k3fd->edc_irq, edc_isr, IRQF_SHARED, k3fd->edc_irq_name, (void *)k3fd);
 	if (ret != 0) {
 		k3fb_loge("index=%d unable to request edc irq\n", k3fd->index);
 	}
 
-	disable_irq(k3fd->edc_irq);
+	if (k3fd->index == 1)
+		disable_irq(k3fd->edc_irq);
 
 	/* register edc_irq to core 1 */
 	k3v2_irqaffinity_register(k3fd->edc_irq, 1);
@@ -3305,58 +3716,11 @@ static int k3_fb_register(struct k3_fb_data_type *k3fd)
 		k3fb_loge("index=%d unable to request ldi irq\n", k3fd->index);
 	}
 
-	disable_irq(k3fd->ldi_irq);
+	if (k3fd->index == 1)
+		disable_irq(k3fd->ldi_irq);
 
 	/* register ldi_irq to core 1 */
 	k3v2_irqaffinity_register(k3fd->ldi_irq, 1);
-
-	if (k3fd->index == 0) {
-		if (k3fd->panel_info.frc_enable) {
-			k3fd->frc_threshold_count = 0;
-			k3fd->frc_state = K3_FB_FRC_NONE_PLAYING;
-			k3fd->frc_timestamp = jiffies;
-		}
-
-		/* hrtimer for  vsync timing */
-		hrtimer_init(&k3fd->fake_vsync_hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
-		k3fd->fake_vsync_hrtimer.function = k3fb_fake_vsync;
-		hrtimer_start(&k3fd->fake_vsync_hrtimer, ktime_set(0, NSEC_PER_SEC / 60), HRTIMER_MODE_REL);
-
-		if (k3fd->panel_info.esd_enable) {
-			if (k3fd->panel_info.type == PANEL_MIPI_CMD) {
-				/* hrtimer for ESD timing */
-				hrtimer_init(&k3fd->esd_hrtimer, CLOCK_MONOTONIC, HRTIMER_MODE_REL);
-				k3fd->esd_hrtimer.function = k3fb_cmd_esd;
-				k3fd->esd_hrtimer_enable = false;
-				hrtimer_start(&k3fd->esd_hrtimer, ktime_set(0, NSEC_PER_SEC), HRTIMER_MODE_REL);
-			} else {
-				k3fd->esd_timestamp = jiffies;
-				k3fd->esd_frame_count = 0;
-			}
-		}
-
-		if (k3fd->panel_info.sbl_enable) {
-			init_sbl_workqueue(k3fd);
-		}
-
-		init_frame_end_workqueue(k3fd);
-
-		/* Vsync */
-		init_waitqueue_head(&k3fd->vsync_info.wait);
-
-		/* Create vsync thread */
-		k3fd->vsync_info.thread = kthread_run(k3fb_wait_for_vsync_thread, k3fd, "k3fb-vsync");
-		if (IS_ERR(k3fd->vsync_info.thread)) {
-			k3fb_loge("failed to run vsync thread\n");
-			k3fd->vsync_info.thread = NULL;
-		}
-	} else if (k3fd->index == 1) {
-	#if K3_FB_OVERLAY_USE_BUF
-		overlay_play_work(k3fd);
-	#endif
-	} else {
-		k3fb_loge("fb%d not support now!\n", k3fd->index);
-	}
 
 #ifdef CONFIG_HAS_EARLYSUSPEND
 	k3fd->early_suspend.suspend = k3fb_early_suspend;
@@ -3365,31 +3729,11 @@ static int k3_fb_register(struct k3_fb_data_type *k3fd)
 	register_early_suspend(&k3fd->early_suspend);
 #endif
 
-#ifdef CONFIG_FASTBOOT_DISP_ENABLE
-	if (k3fd->index == 0) {
-		pdata = (struct k3_fb_panel_data *)k3fd->pdev->dev.platform_data;
-
-		k3fd->ref_cnt++;
-		k3fd->panel_power_on = true;
-		if (pdata && pdata->set_fastboot) {
-			pdata->set_fastboot(k3fd->pdev);
-		}
-
-		set_EDC_INTE(k3fd->edc_base, 0xFFFFFFFF);
-		set_EDC_INTS(k3fd->edc_base, 0x0);
-
-		/* enable edc irq */
-		if (k3fd->edc_irq)
-			enable_irq(k3fd->edc_irq);
-		/* enable ldi irq */
-		if (k3fd->ldi_irq)
-			enable_irq(k3fd->ldi_irq);
-
-		set_EDC_INTE(k3fd->edc_base, 0xFFFFFF3F);
-
-		k3_fb_clk_disable_cmd_mode(k3fd);
+	/* register framebuffer */
+	if (register_framebuffer(fbi) < 0) {
+		k3fb_loge("not able to register framebuffer %d!\n", k3fd->index);
+		return -EPERM;
 	}
-#endif
 
 	return ret;
 }
@@ -3444,6 +3788,13 @@ static int k3_fb_probe(struct platform_device *pdev)
 		}
 		k3fd_reg_base_edc1 = IO_ADDRESS(res->start);
 
+		res = platform_get_resource_byname(pdev, IORESOURCE_MEM, REG_BASE_PWM0_NAME);
+		if (!res) {
+			k3fb_loge("failed to get reg_base_pwm0 resource.\n");
+			return -ENXIO;
+		}
+		k3fd_reg_base_pwm0 = IO_ADDRESS(res->start);
+
 		k3_fb_resource_initialized = 1;
 		return 0;
 	}
@@ -3497,9 +3848,7 @@ static int k3_fb_probe(struct platform_device *pdev)
 	ret = clk_set_rate(k3fd->edc_clk,  EDC_CLK_RATE_GET(k3fd->panel_info.clk_rate));
 	if (ret != 0) {
 		k3fb_loge("failed to set edc clk rate(%d).\n", EDC_CLK_RATE_GET(k3fd->panel_info.clk_rate));
-	#ifndef CONFIG_MACH_TC45MSU3
-		return ret;
-	#endif
+		/*return ret;*/
 	}
 
 #ifdef CONFIG_G2D
@@ -3597,6 +3946,11 @@ static int k3_fb_remove(struct platform_device *pdev)
 		if (k3fd->frame_end_wq) {
 			destroy_workqueue(k3fd->frame_end_wq);
 			k3fd->frame_end_wq = NULL;
+		}
+
+		if (k3fd->temp_wq) {
+			destroy_workqueue(k3fd->temp_wq);
+			k3fd->temp_wq = NULL;
 		}
 
 		if (k3fd->vsync_info.thread)
@@ -3769,10 +4123,12 @@ struct platform_device *k3_fb_add_device(struct platform_device *pdev)
 	k3fd->index = fbi_list_index;
 	if (k3fd->index == 0) {
 		k3fd->edc_base = k3fd_reg_base_edc0;
+		k3fd->pwm_base = k3fd_reg_base_pwm0;
 		k3fd->edc_irq = k3fd_irq_edc0;
 		k3fd->ldi_irq = k3fd_irq_ldi0;
 	} else if (k3fd->index == 1) {
 		k3fd->edc_base = k3fd_reg_base_edc1;
+		k3fd->pwm_base = k3fd_reg_base_pwm1;
 		k3fd->edc_irq = k3fd_irq_edc1;
 		k3fd->ldi_irq = k3fd_irq_ldi1;
 	} else {

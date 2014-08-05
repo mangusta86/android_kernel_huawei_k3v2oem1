@@ -135,4 +135,9 @@ source "drivers/k3gps/Kconfig"
 source "drivers/huawei/Kconfig"
 
 source "drivers/thermal_framework/Kconfig"
+
+source "drivers/devdetect/Kconfig"
+
+source "drivers/srecorder/Kconfig"
+
 endmenu

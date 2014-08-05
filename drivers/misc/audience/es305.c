@@ -16,7 +16,9 @@
 #include <linux/regulator/machine.h>
 
 #include "es305.h"
-
+#ifdef CONFIG_HUAWEI_HW_DEV_DCT
+#include <linux/hw_dev_dec.h>
+#endif
 #define LOG_TAG "ES305"
 
 #define PRINT_INFO  0
@@ -108,46 +110,92 @@ static unsigned int path_playback[] = {
     0x80260092, /* ROUTE 146 : PORT A(64bits) <--> PORT C(32bits) */
 };
 
-/* call mode narrow band */
-static unsigned int path_nb_call_receiver[] = {
+static unsigned int path_first_nb_call_receiver[] = {
     0x80310000, /* CONFIG HANDSET PRESET */
 };
 
-static unsigned int path_nb_call_headset[] = {
+static unsigned int path_first_nb_call_headset[] = {
     0x80310001, /* CONFIG HEADSET PRESET */
 };
 
-static unsigned int path_nb_call_headphone[] = {
+static unsigned int path_first_nb_call_headphone[] = {
     0x80310002, /* CONFIG HEADPHONE PRESET */
 };
 
-static unsigned int path_nb_call_speaker[] = {
+static unsigned int path_first_nb_call_speaker[] = {
     0x80310003, /* CONFIG HANDFREE PRESET */
 };
 
-static unsigned int path_nb_call_bt[] = {
+static unsigned int path_first_nb_call_bt[] = {
     0x80310004, /* CONFIG BT PRESET */
 };
 
-/* cs chip call mode wide band */
-static unsigned int path_wb_call_receiver[] = {
+/* cs chip call mode wide band  first modem */
+static unsigned int path_first_wb_call_receiver[] = {
     0x80310006, /* CONFIG HANDSET PRESET */
 };
 
-static unsigned int path_wb_call_headset[] = {
+static unsigned int path_first_wb_call_headset[] = {
     0x80310007, /* CONFIG HEADSET PRESET */
 };
 
-static unsigned int path_wb_call_headphone[] = {
+static unsigned int path_first_wb_call_headphone[] = {
     0x80310008, /* CONFIG HEADPHONE PRESET */
 };
 
-static unsigned int path_wb_call_speaker[] = {
+static unsigned int path_first_wb_call_speaker[] = {
     0x80310009, /* CONFIG HANDFREE PRESET */
 };
 
-static unsigned int path_wb_call_bt[] = {
+static unsigned int path_first_wb_call_bt[] = {
     0x8031000A, /* CONFIG BT PRESET */
+};
+
+/* ASR */
+static unsigned int path_asr[] = {
+    0x80310012, 
+};
+
+/* cs chip call mode narrow band for second modem */
+static unsigned int path_second_nb_call_receiver[] = {
+    0x80310018, /* CONFIG HANDSET PRESET */
+};
+
+static unsigned int path_second_nb_call_headset[] = {
+    0x80310019, /* CONFIG HEADSET PRESET */
+};
+
+static unsigned int path_second_nb_call_headphone[] = {
+    0x8031001A, /* CONFIG HEADPHONE PRESET */
+};
+
+static unsigned int path_second_nb_call_speaker[] = {
+    0x8031001B, /* CONFIG HANDFREE PRESET */
+};
+
+static unsigned int path_second_nb_call_bt[] = {
+    0x8031001C, /* CONFIG BT PRESET */
+};
+
+/* cs chip call mode wide band  second modem */
+static unsigned int path_second_wb_call_receiver[] = {
+    0x8031001E, /* CONFIG HANDSET PRESET */
+};
+
+static unsigned int path_second_wb_call_headset[] = {
+    0x8031001F, /* CONFIG HEADSET PRESET */
+};
+
+static unsigned int path_second_wb_call_headphone[] = {
+    0x80310020, /* CONFIG HEADPHONE PRESET */
+};
+
+static unsigned int path_second_wb_call_speaker[] = {
+    0x80310021, /* CONFIG HANDFREE PRESET */
+};
+
+static unsigned int path_second_wb_call_bt[] = {
+    0x80310022, /* CONFIG BT PRESET */
 };
 
 /* voip mode, support wide band only */
@@ -665,46 +713,88 @@ static int es305_set_pathid(enum ES305_PATHID pathid)
                                       SIZE_OF_ARRAY(path_playback));
         break;
 /* call narrow band */
-    case ES305_PATH_NB_CALL_RECEIVER:
-        ret = es305_send_msg_by_array(path_nb_call_receiver,
-                                      SIZE_OF_ARRAY(path_nb_call_receiver));
+    case ES305_PATH_FIRST_NB_CALL_RECEIVER:
+        ret = es305_send_msg_by_array(path_first_nb_call_receiver,
+                                      SIZE_OF_ARRAY(path_first_nb_call_receiver));
         break;
-    case ES305_PATH_NB_CALL_HEADSET:
-        ret = es305_send_msg_by_array(path_nb_call_headset,
-                                      SIZE_OF_ARRAY(path_nb_call_headset));
+    case ES305_PATH_FIRST_NB_CALL_HEADSET:
+        ret = es305_send_msg_by_array(path_first_nb_call_headset,
+                                      SIZE_OF_ARRAY(path_first_nb_call_headset));
         break;
-    case ES305_PATH_NB_CALL_HEADPHONE:
-        ret = es305_send_msg_by_array(path_nb_call_headphone,
-                                      SIZE_OF_ARRAY(path_nb_call_headphone));
+    case ES305_PATH_FIRST_NB_CALL_HEADPHONE:
+        ret = es305_send_msg_by_array(path_first_nb_call_headphone,
+                                      SIZE_OF_ARRAY(path_first_nb_call_headphone));
         break;
-    case ES305_PATH_NB_CALL_SPEAKER:
-        ret = es305_send_msg_by_array(path_nb_call_speaker,
-                                      SIZE_OF_ARRAY(path_nb_call_speaker));
+    case ES305_PATH_FIRST_NB_CALL_SPEAKER:
+        ret = es305_send_msg_by_array(path_first_nb_call_speaker,
+                                      SIZE_OF_ARRAY(path_first_nb_call_speaker));
         break;
-    case ES305_PATH_NB_CALL_BT:
-        ret = es305_send_msg_by_array(path_nb_call_bt,
-                                      SIZE_OF_ARRAY(path_nb_call_bt));
+    case ES305_PATH_FIRST_NB_CALL_BT:
+        ret = es305_send_msg_by_array(path_first_nb_call_bt,
+                                      SIZE_OF_ARRAY(path_first_nb_call_bt));
         break;
 /* call wide band */
-    case ES305_PATH_WB_CALL_RECEIVER:
-        ret = es305_send_msg_by_array(path_wb_call_receiver,
-                                      SIZE_OF_ARRAY(path_wb_call_receiver));
+    case ES305_PATH_FIRST_WB_CALL_RECEIVER:
+        ret = es305_send_msg_by_array(path_first_wb_call_receiver,
+                                      SIZE_OF_ARRAY(path_first_wb_call_receiver));
         break;
-    case ES305_PATH_WB_CALL_HEADSET:
-        ret = es305_send_msg_by_array(path_wb_call_headset,
-                                      SIZE_OF_ARRAY(path_wb_call_headset));
+    case ES305_PATH_FIRST_WB_CALL_HEADSET:
+        ret = es305_send_msg_by_array(path_first_wb_call_headset,
+                                      SIZE_OF_ARRAY(path_first_wb_call_headset));
         break;
-    case ES305_PATH_WB_CALL_HEADPHONE:
-        ret = es305_send_msg_by_array(path_wb_call_headphone,
-                                      SIZE_OF_ARRAY(path_wb_call_headphone));
+    case ES305_PATH_FIRST_WB_CALL_HEADPHONE:
+        ret = es305_send_msg_by_array(path_first_wb_call_headphone,
+                                      SIZE_OF_ARRAY(path_first_wb_call_headphone));
         break;
-    case ES305_PATH_WB_CALL_SPEAKER:
-        ret = es305_send_msg_by_array(path_wb_call_speaker,
-                                      SIZE_OF_ARRAY(path_wb_call_speaker));
+    case ES305_PATH_FIRST_WB_CALL_SPEAKER:
+        ret = es305_send_msg_by_array(path_first_wb_call_speaker,
+                                      SIZE_OF_ARRAY(path_first_wb_call_speaker));
         break;
-    case ES305_PATH_WB_CALL_BT:
-        ret = es305_send_msg_by_array(path_wb_call_bt,
-                                      SIZE_OF_ARRAY(path_wb_call_bt));
+    case ES305_PATH_FIRST_WB_CALL_BT:
+        ret = es305_send_msg_by_array(path_first_wb_call_bt,
+                                      SIZE_OF_ARRAY(path_first_wb_call_bt));
+        break;
+/* narrow band call for second modem*/
+    case ES305_PATH_SECOND_NB_CALL_RECEIVER:
+        ret = es305_send_msg_by_array(path_second_nb_call_receiver,
+                                      SIZE_OF_ARRAY(path_second_nb_call_receiver));
+        break;
+    case ES305_PATH_SECOND_NB_CALL_HEADSET:
+        ret = es305_send_msg_by_array(path_second_nb_call_headset,
+                                      SIZE_OF_ARRAY(path_second_nb_call_headset));
+        break;
+    case ES305_PATH_SECOND_NB_CALL_HEADPHONE:
+        ret = es305_send_msg_by_array(path_second_nb_call_headphone,
+                                      SIZE_OF_ARRAY(path_second_nb_call_headphone));
+        break;
+    case ES305_PATH_SECOND_NB_CALL_SPEAKER:
+        ret = es305_send_msg_by_array(path_second_nb_call_speaker,
+                                      SIZE_OF_ARRAY(path_second_nb_call_speaker));
+        break;
+    case ES305_PATH_SECOND_NB_CALL_BT:
+        ret = es305_send_msg_by_array(path_second_nb_call_bt,
+                                      SIZE_OF_ARRAY(path_second_nb_call_bt));
+        break;
+/* wide band call for second modem*/
+    case ES305_PATH_SECOND_WB_CALL_RECEIVER:
+        ret = es305_send_msg_by_array(path_second_wb_call_receiver,
+                                      SIZE_OF_ARRAY(path_second_wb_call_receiver));
+        break;
+    case ES305_PATH_SECOND_WB_CALL_HEADSET:
+        ret = es305_send_msg_by_array(path_second_wb_call_headset,
+                                      SIZE_OF_ARRAY(path_second_wb_call_headset));
+        break;
+    case ES305_PATH_SECOND_WB_CALL_HEADPHONE:
+        ret = es305_send_msg_by_array(path_second_wb_call_headphone,
+                                      SIZE_OF_ARRAY(path_second_wb_call_headphone));
+        break;
+    case ES305_PATH_SECOND_WB_CALL_SPEAKER:
+        ret = es305_send_msg_by_array(path_second_wb_call_speaker,
+                                      SIZE_OF_ARRAY(path_second_wb_call_speaker));
+        break;
+    case ES305_PATH_SECOND_WB_CALL_BT:
+        ret = es305_send_msg_by_array(path_second_wb_call_bt,
+                                      SIZE_OF_ARRAY(path_second_wb_call_bt));
         break;
 /* voip mode */
     case ES305_PATH_VOIP_RECEIVER:
@@ -741,6 +831,44 @@ static int es305_set_pathid(enum ES305_PATHID pathid)
     if (0 <= ret) {
         logi("%s: change to path : %d", __FUNCTION__, pathid);
         es305_current_pathid = pathid;
+    }
+
+    return ret;
+}
+
+static int es305_set_ns(unsigned char ns)
+{
+    int ret = 0;
+
+    logi("%s", __FUNCTION__);
+
+    if (0 != ns) {
+        ret = es305_set_pathid(es305_current_pathid);
+        if (0 > ret) {
+            loge("%s: set ns on error", __FUNCTION__);
+            return ret;
+        }
+    } else {
+        ret = es305_send_msg(0x8017004B);
+        if (0 > ret) {
+            loge("%s: set ns off error", __FUNCTION__);
+            return ret;
+        }
+        ret = es305_send_msg(0x80180000);
+        if (0 > ret) {
+            loge("%s: set ns off error", __FUNCTION__);
+            return ret;
+        }
+        ret = es305_send_msg(0x8017000E);
+        if (0 > ret) {
+            loge("%s: set ns off error", __FUNCTION__);
+            return ret;
+        }
+        ret = es305_send_msg(0x80180000);
+        if (0 > ret) {
+            loge("%s: set ns off error", __FUNCTION__);
+            return ret;
+        }
     }
 
     return ret;
@@ -807,7 +935,8 @@ static long es305_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
     int pathid = 0;
     char msg[4];
     unsigned char status;
-
+    unsigned char ns;
+	
     mutex_lock(&es305_lock);
     switch (cmd) {
     case ES305_CMD_RESET:
@@ -845,6 +974,14 @@ static long es305_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
             goto err_exit;
         }
         ret = es305_set_status(status);
+        break;
+    case ES305_SET_NS:
+        if (copy_from_user(&ns, argp, sizeof(ns))) {
+            loge("%s: get ns from user error", __FUNCTION__);
+            ret = -EFAULT;
+            goto err_exit;
+        }
+        ret = es305_set_ns(ns);
         break;
     case ES305_WRITE_MSG:
         ret = es305_check_wakeup();
@@ -967,6 +1104,10 @@ static int es305_probe(struct i2c_client *client,const struct i2c_device_id *id)
         goto err_free_gpio_all;
     }
 
+#ifdef CONFIG_HUAWEI_HW_DEV_DCT
+    /* detect current device successful, set the flag as present */
+    set_hw_dev_flag(DEV_I2C_AUDIENCE);
+#endif
     return 0;
 
 err_free_gpio_all:

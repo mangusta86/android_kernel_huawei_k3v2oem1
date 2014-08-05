@@ -33,6 +33,8 @@
 #include <linux/init.h>
 #include <linux/kthread.h>
 
+#define USE_PMU_RTC
+
 /*
  * Register definitions
  */
@@ -339,8 +341,12 @@ static int oem_rtc_reboot_thread(void *u)
 	emergency_remount();
 	sys_sync();
 	kernel_restart("oem_rtc");
+
+	/* should not be here */
+	panic("oem_rtc");
+	return 0;
 }
-static void oem_rtc_reboot(unsigned long t)
+void oem_rtc_reboot(unsigned long t)
 {
 	kernel_thread(oem_rtc_reboot_thread, NULL, CLONE_FS | CLONE_FILES);
 }
@@ -348,6 +354,7 @@ static DECLARE_TASKLET(oem_rtc_reboot_tasklet, oem_rtc_reboot, 0);
 
 static irqreturn_t pl031_interrupt(int irq, void *dev_id)
 {
+#ifndef USE_PMU_RTC
 	struct pl031_local *ldata = dev_id;
 	unsigned long rtcmis;
 	unsigned long events = 0;
@@ -368,6 +375,7 @@ static irqreturn_t pl031_interrupt(int irq, void *dev_id)
 
 		return IRQ_HANDLED;
 	}
+#endif
 	if(unlikely(get_pd_charge_flag())) {
 		tasklet_schedule(&oem_rtc_reboot_tasklet);
 	}
@@ -377,49 +385,61 @@ static irqreturn_t pl031_interrupt(int irq, void *dev_id)
 
 static int pl031_read_time(struct device *dev, struct rtc_time *tm)
 {
+#ifndef USE_PMU_RTC
 	struct pl031_local *ldata = dev_get_drvdata(dev);
 
 	rtc_time_to_tm(readl(ldata->base + RTC_DR), tm);
-
+#else
+        k3_pmu_rtc_readtime(tm);
+#endif
 	return 0;
 }
 
 static int pl031_set_time(struct device *dev, struct rtc_time *tm)
 {
+#ifndef USE_PMU_RTC
 	unsigned long time;
-	int err;
 	struct pl031_local *ldata = dev_get_drvdata(dev);
-    
+#endif
+	int err;
+
 	err = rtc_valid_tm(tm);
 	if (err != 0) {
 		return err;
 	}
-
+#ifndef USE_PMU_RTC
 	err = rtc_tm_to_time(tm, &time);
 
     if (err == 0)
 	    writel(time, ldata->base + RTC_LR);
-
+#else
 	k3_pmu_rtc_settime(dev, tm);
+#endif
 
 	return 0;
 }
 
 static int pl031_read_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 {
+#ifndef USE_PMU_RTC
 	struct pl031_local *ldata = dev_get_drvdata(dev);
 
 	rtc_time_to_tm(readl(ldata->base + RTC_MR), &alarm->time);
 
 	alarm->pending = readl(ldata->base + RTC_RIS) & RTC_BIT_AI;
 	alarm->enabled = readl(ldata->base + RTC_IMSC) & RTC_BIT_AI;
+#else
+        k3_pmu_rtc_readalarmtime(&alarm->time);
+#endif
 
 	return 0;
 }
 
 static int pl031_set_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 {
+#ifndef USE_PMU_RTC
 	struct pl031_local *ldata = dev_get_drvdata(dev);
+#endif
 	unsigned long time;
 	int ret;
 
@@ -428,9 +448,11 @@ static int pl031_set_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 	if (ret == 0) {
 		ret = rtc_tm_to_time(&alarm->time, &time);
 		if (ret == 0) {
+#ifndef USE_PMU_RTC
 			writel(time, ldata->base + RTC_MR);
-			k3_pmu_rtc_setalarmtime(time);
 			pl031_alarm_irq_enable(dev, alarm->enabled);
+#endif
+			k3_pmu_rtc_setalarmtime(time);
 		}
 	}
 
@@ -447,7 +469,6 @@ static int pl031_remove(struct amba_device *adev)
 	rtc_device_unregister(ldata->rtc);
 	iounmap(ldata->base);
 
-	
 	kfree(ldata);
 	amba_release_regions(adev);
 
@@ -460,6 +481,8 @@ static int pl031_probe(struct amba_device *adev, const struct amba_id *id)
 	struct pl031_local *ldata;
 	struct rtc_class_ops *ops = id->data;
 	struct rtc_time alarm_tm;
+	unsigned long time = 0;
+	unsigned long alarm_time = 0;
 
 	ret = amba_request_regions(adev, NULL);
 	if (ret)
@@ -489,10 +512,26 @@ static int pl031_probe(struct amba_device *adev, const struct amba_id *id)
 	dev_dbg(&adev->dev, "revision = 0x%01x\n", ldata->hw_revision);
 
 	/* Enable the clockwatch on ST Variants */
-	if ((ldata->hw_designer == AMBA_VENDOR_ST) &&
-	    (ldata->hw_revision > 1))
+	if (ldata->hw_designer == AMBA_VENDOR_ST)
 		writel(readl(ldata->base + RTC_CR) | RTC_CR_CWEN,
 		       ldata->base + RTC_CR);
+
+	/*
+	 * On ST PL031 variants, the RTC reset value does not provide correct
+	 * weekday for 2000-01-01. Correct the erroneous sunday to saturday.
+	 */
+	if (ldata->hw_designer == AMBA_VENDOR_ST) {
+		if (readl(ldata->base + RTC_YDR) == 0x2000) {
+			time = readl(ldata->base + RTC_DR);
+			if ((time &
+			     (RTC_MON_MASK | RTC_MDAY_MASK | RTC_WDAY_MASK))
+			    == 0x02120000) {
+				time = time | (0x7 << RTC_WDAY_SHIFT);
+				writel(0x2000, ldata->base + RTC_YLR);
+				writel(time, ldata->base + RTC_LR);
+			}
+		}
+	}
 
 	ldata->rtc = rtc_device_register("pl031", &adev->dev, ops,
 					THIS_MODULE);
@@ -501,18 +540,20 @@ static int pl031_probe(struct amba_device *adev, const struct amba_id *id)
 		goto out_no_rtc;
 	}
 
+#ifndef USE_PMU_RTC
+	if (request_irq(adev->irq[0], pl031_interrupt,
+#else
 	if (request_irq(IRQ_ALARMON_RISING, pl031_interrupt,
+#endif
 			IRQF_DISABLED, "rtc-pl031", ldata)) {
 		ret = -EIO;
 		goto out_no_irq;
 	}
 
-
 	/* record rtc_base addr */
 	rtc_base = (unsigned long) ldata->base;
 
 	{
-		unsigned long time = 0;
 		unsigned long rtccr_val = 0;
 		struct rtc_time tm;
 
@@ -547,6 +588,20 @@ static int pl031_probe(struct amba_device *adev, const struct amba_id *id)
 	       alarm_tm.tm_year, alarm_tm.tm_mon,
 	       alarm_tm.tm_mday, alarm_tm.tm_hour,
 	       alarm_tm.tm_min, alarm_tm.tm_sec);
+
+	rtc_tm_to_time(&alarm_tm, &alarm_time);
+
+	if (unlikely(get_pd_charge_flag() && (alarm_time > time))) {
+		poweroff_rtc_alarm.enabled = 1;
+		memcpy(&poweroff_rtc_alarm.time, &alarm_tm, sizeof(struct rtc_time));
+		printk(KERN_DEBUG "set to poweroff alarm %d-%d-%d %d:%d:%d\n",
+			poweroff_rtc_alarm.time.tm_year,
+			poweroff_rtc_alarm.time.tm_mon,
+			poweroff_rtc_alarm.time.tm_mday,
+			poweroff_rtc_alarm.time.tm_hour,
+			poweroff_rtc_alarm.time.tm_min,
+			poweroff_rtc_alarm.time.tm_sec);
+	}
 
 	return 0;
 

@@ -46,7 +46,7 @@
  *--------------------------------------------------------------------------- */
 
 /* Debugging */
-#define DEBUG	(1)
+#define DEBUG	(0)
 
 #if DEBUG
 #ifdef __KERNEL__
@@ -258,6 +258,19 @@ struct yas_mag_calibration {
 	struct yas_mag_calibration_callback callback;
 };
 
+struct yas_mag_calibration_easy {
+	int (*init)(void);
+	int (*update)(struct yas_vector *mag, struct yas_vector *calibrated,
+			int8_t *accuracy);
+	int (*get_offset)(struct yas_vector *offset);
+	int (*set_offset)(struct yas_vector *offset);
+	int (*get_static_matrix)(struct yas_matrix *matrix);
+	int (*set_static_matrix)(struct yas_matrix *matrix);
+	int (*get_accuracy)(void);
+	int (*set_accuracy)(int accuracy);
+	int (*set_calib_param)(int num, int distance);
+};
+
 struct yas_quaternion {
 	int32_t q[4];
 };
@@ -444,6 +457,7 @@ int yas_mag_calibration_get_memsize(void);
 void yas_mag_calibration_set_memregion(void *p);
 #endif
 int yas_mag_calibration_init(struct yas_mag_calibration *f);
+int yas_mag_calibration_init_easy(struct yas_mag_calibration_easy *f);
 int yas_acc_driver_init(struct yas_acc_driver *f);
 int yas_acc_calibration_init(struct yas_acc_calibration *f);
 int yas_gyro_driver_init(struct yas_gyro_driver *f, int interrupt);

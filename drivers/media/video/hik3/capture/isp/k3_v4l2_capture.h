@@ -131,6 +131,34 @@ int k3_isp_get_focus_mode(void);
 int k3_isp_set_focus_area(focus_area_s *area);
 void k3_isp_get_focus_result(focus_result_s *result);
 
+/* < zhoutian 00195335 12-7-16 added for auto scene detect begin */
+int k3_isp_get_extra_coff(extra_coff *extra_data);
+
+int k3_isp_get_ae_coff(ae_coff *ae_data);
+int k3_isp_set_ae_coff(ae_coff *ae_data);
+
+int k3_isp_get_awb_coff(awb_coff *awb_data);
+int k3_isp_set_awb_coff(awb_coff *awb_data);
+
+int k3_isp_get_awb_ct_coff(awb_ct_coff *awb_ct_data);
+int k3_isp_set_awb_ct_coff(awb_ct_coff *awb_ct_data);
+
+int k3_isp_get_ccm_coff(ccm_coff *ccm_data);
+int k3_isp_set_ccm_coff(ccm_coff *ccm_data);
+
+int k3_isp_set_added_coff(added_coff *added_data);
+
+int k3_isp_set_focus_range(camera_focus focus_range);
+
+int k3_isp_set_fps_range(camera_frame_rate_mode mode);
+
+int k3_isp_set_max_exposure(camera_max_exposrure mode);
+
+int k3_isp_get_coff_seq(seq_coffs *seq_data);
+int k3_isp_set_coff_seq(seq_coffs *seq_data);
+
+int k3_isp_set_max_expo_time(int time);
+/* zhoutian 00195335 12-7-16 added for auto scene detect end > */
 /* For bracket information settings */
 int k3_isp_set_bracket_info(int *ev);
 
@@ -142,7 +170,7 @@ int k3_isp_get_anti_shaking_coordinate(coordinate_s *coordinate);
 
 int k3_isp_set_awb_mode(camera_white_balance awb_mode);
 int k3_isp_get_awb_mode(void);
-
+int k3_isp_set_awb_lock(int lock);
 int k3_isp_set_iso(camera_iso iso);
 int k3_isp_get_iso(void);
 
@@ -178,9 +206,21 @@ int k3_isp_set_effect(camera_effects effect);
 int k3_isp_get_effect(void);
 
 int k3_isp_get_exposure_time(void);
+
+/* < zhoutian 00195335 2012-10-20 added for hwscope begin */
+int k3_isp_set_hwscope(hwscope_coff *hwscope_data);
+/* zhoutian 00195335 2012-10-20 added for hwscope end > */
+
+/* < zhoutian 00195335 2013-03-02 added for SuperZoom-LowLight begin */
+int k3_isp_set_hw_lowlight(int ctl);
+int k3_isp_get_hw_lowlight_support();
+int k3_isp_get_binning_size(binning_size *size);
+/* zhoutian 00195335 2013-03-02 added for SuperZoom-LowLight end > */
+
 int k3_isp_get_fps(camera_fps fps);
 int k3_isp_set_fps(camera_fps fps, u8 value);
 int k3_isp_get_actual_iso(void);
+int k3_isp_get_hdr_iso_exp(hdr_para_reserved *iso_exp);
 int k3_isp_get_awb_gain(int withShift);
 int k3_isp_get_focus_code(void);
 int k3_isp_get_focus_rect(camera_rect_s *rect);
@@ -188,7 +228,12 @@ int k3_isp_get_expo_line(void);
 int k3_isp_get_sensor_vts(void);
 int k3_isp_get_current_ccm_rgain(void);
 int k3_isp_get_current_ccm_bgain(void);
+int k3_isp_get_sensor_lux_matrix(lux_stat_matrix_tbl * lux_matrix);
+int k3_isp_get_sensor_hdr_info(hdr_info * hdrInfo);
+int  k3_isp_get_sensor_preview_max_size(preview_size * pre_size);
 /*AndroidK3 added by y36721 end*/
+int k3_isp_get_sensor_aperture(void);
+int k3_isp_get_equivalent_focus(void);
 
 int k3_isp_set_flash_mode(camera_flash flash_mode);
 int k3_isp_get_flash_mode(void);
@@ -203,18 +248,20 @@ int k3_isp_get_current_vts(void);
 int k3_isp_get_current_fps(void);
 int k3_isp_get_band_threshold(void);
 void k3_isp_set_fps_lock(int);
-
+void k3_isp_switch_hdr_movie(u8 on);
 void k3_isp_set_shoot_mode(camera_shoot_mode shoot_mode);
 
 void k3_isp_set_pm_mode(u8 pm_mode);
-
-int k3_isp_get_sensor_aperture(void);
-int k3_isp_get_equivalent_focus(void);
 
 void k3_isp_set_video_stabilization(int bStabilization);
 void k3_isp_set_yuv_crop_pos(int point);
 void k3_isp_get_yuv_crop_rect(crop_rect_s *rect);
 
+int k3_isp_get_hdr_movie_support(void);
+
+int k3_check_lcd_compensation_supported(void);
+int k3_check_lcd_compensation_needed(void);
+int k3_isp_set_scene_type(scene_type *type);
 #endif /*__K3_V4L2_CAPTURE_H__ */
 
 /********************************* END ***********************************************/

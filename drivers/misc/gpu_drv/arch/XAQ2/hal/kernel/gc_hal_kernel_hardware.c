@@ -1023,8 +1023,7 @@ gckHARDWARE_QueryMemory(
 
     if (ExternalSize != gcvNULL)
     {
-        /* false external memory.*/
-        *ExternalSize = HISI_MEM_COPYBIT_SIZE;
+        /* No external memory. */
     }
 
     if (HorizontalTileSize != gcvNULL)

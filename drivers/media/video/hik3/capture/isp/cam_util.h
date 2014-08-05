@@ -39,7 +39,7 @@
 //#define OVISP_OFFLINE_MODE
 /* used for offine tuning added by y00231328*/
 //#define READ_BACK_RAW
-
+//#define HDR_MOVIE_DEBUG_MODE
 typedef struct _camera_frame_buf {
 	int index;
 	u32 phyaddr;

@@ -96,7 +96,7 @@
 /*#define DEBUG 1*/
 
 /** Registers Contents */
-#define WHOAMI_L3G4200D		0x00D3	/* Expected content for WAI register*/
+#define WHOAMI_L3G4200D		0x00D4	/* Expected content for WAI register*/
 
 /*
  * L3G4200D gyroscope data
@@ -120,8 +120,8 @@ struct l3g4200d_data {
 	struct l3g4200d_gyr_platform_data *pdata;
 
 	struct mutex lock;
-    //struct delayed_work input_work;
-    struct input_dev *input_dev;
+	//struct delayed_work input_work;
+	struct input_dev *input_dev;
 	//struct input_polled_dev *input_poll_dev;
 	int hw_initialized;
 	int selftest_enabled;
@@ -130,7 +130,8 @@ struct l3g4200d_data {
 	u8 reg_addr;
 	u8 resume_state[GYRO_RESUME_ENTRIES];
 	int on_before_suspend;
-    struct hrtimer timer;
+	struct early_suspend early_suspend;
+	struct hrtimer timer;
 	struct work_struct  work;
 
 };

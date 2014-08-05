@@ -1658,13 +1658,13 @@ gckKERNEL_Dispatch(
 
     case gcvHAL_DETACH:
         /* Detach user process. */
-        gcmkONERROR(
-            gckCOMMAND_Detach(Kernel->command,
-                              Interface->u.Detach.context));
-
         gcmkVERIFY_OK(
             gckKERNEL_RemoveProcessDB(Kernel,
                               processID, gcvDB_CONTEXT,
+                              Interface->u.Detach.context));
+
+        gcmkONERROR(
+            gckCOMMAND_Detach(Kernel->command,
                               Interface->u.Detach.context));
         break;
 
@@ -1936,6 +1936,10 @@ gckKERNEL_Dispatch(
 #else
         Interface->u.QueryResetTimeStamp.timeStamp = 0;
 #endif
+        break;
+
+    case gcvHAL_QUERY_HEAP_SIZE:
+        Interface->u.QueryHeapSize.heapSize = gcdHEAP_SIZE;
         break;
 
     default:

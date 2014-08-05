@@ -50,6 +50,7 @@
 struct secondary_data secondary_data;
 
 enum ipi_msg_type {
+	IPI_CPU_START = 1,
 	IPI_TIMER = 2,
 	IPI_RESCHEDULE,
 	IPI_CALL_FUNC,
@@ -281,23 +282,27 @@ static void __cpuinit smp_store_cpu_info(unsigned int cpuid)
 asmlinkage void __cpuinit secondary_start_kernel(void)
 {
 	struct mm_struct *mm = &init_mm;
-	unsigned int cpu = smp_processor_id();
+	unsigned int cpu;
 	static bool booted;
 
-	/*printk("CPU%u: Booted secondary processor\n", cpu);*/
+	/*
+	 * The identity mapping is uncached (strongly ordered), so
+	 * switch away from it before attempting any exclusive accesses.
+	 */
+	cpu_switch_mm(mm->pgd, mm);
+	enter_lazy_tlb(mm, current);
+	local_flush_tlb_all();
 
 	/*
 	 * All kernel threads share the same mm context; grab a
 	 * reference and switch to it.
 	 */
+	cpu = smp_processor_id();
 	atomic_inc(&mm->mm_count);
 	current->active_mm = mm;
 	cpumask_set_cpu(cpu, mm_cpumask(mm));
-	cpu_switch_mm(mm->pgd, mm);
-	enter_lazy_tlb(mm, current);
-	local_flush_tlb_all();
 
-    printk("CPU%u: Booted secondary processor\n", cpu);
+	//printk("CPU%u: Booted secondary processor\n", cpu);
 
 	cpu_init();
 	preempt_disable();
@@ -413,7 +418,8 @@ void arch_send_call_function_single_ipi(int cpu)
 }
 
 static const char *ipi_types[NR_IPI] = {
-#define S(x,s)	[x - IPI_TIMER] = s
+#define S(x, s)	[x - IPI_CPU_START] = s
+	S(IPI_CPU_START, "CPU start interrupts"),
 	S(IPI_TIMER, "Timer broadcast interrupts"),
 	S(IPI_RESCHEDULE, "Rescheduling interrupts"),
 	S(IPI_CALL_FUNC, "Function call interrupts"),
@@ -472,7 +478,9 @@ asmlinkage void __exception_irq_entry do_local_timer(struct pt_regs *regs)
 
 	if (local_timer_ack()) {
 		__inc_irq_stat(cpu, local_timer_irqs);
+		irq_enter();
 		ipi_timer();
+		irq_exit();
 	}
 
 	set_irq_regs(old_regs);
@@ -633,10 +641,13 @@ asmlinkage void __exception_irq_entry do_IPI(int ipinr, struct pt_regs *regs)
 	struct pt_regs *old_regs = set_irq_regs(regs);
 	register int flage = 0;
 
-	if (ipinr >= IPI_TIMER && ipinr < IPI_TIMER + NR_IPI)
-		__inc_irq_stat(cpu, ipi_irqs[ipinr - IPI_TIMER]);
+	if (ipinr >= IPI_CPU_START && ipinr < IPI_TIMER + NR_IPI)
+		__inc_irq_stat(cpu, ipi_irqs[ipinr - IPI_CPU_START]);
 
 	switch (ipinr) {
+	case IPI_CPU_START:
+		/* Wake up from WFI/WFE using SGI */
+		break;
 	case IPI_TIMER:
 		irq_enter();
 		ipi_timer();

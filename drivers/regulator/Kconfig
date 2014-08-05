@@ -306,5 +306,9 @@ config REGULATOR_TPS65910
 	help
 	  This driver supports TPS65910 voltage regulator chips.
 
+config K3_REGULATOR_ALWAYS_ON
+	tristate "k3v2 REGULATOR write register when disable REGULATOR"
+	default n
+	help
+	  This driver provides support to keep REGULATOR on,used for debug.
 endif
-

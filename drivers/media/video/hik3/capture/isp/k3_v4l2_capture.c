@@ -48,6 +48,11 @@
 #include "cam_log.h"
 #include "cam_dbg.h"
 
+#ifdef CONFIG_DEBUG_FS
+#include <linux/debugfs.h>
+#endif
+#include "k3_ispv1_hdr_movie_ae.h"
+
 #define CAM_DEF_WIDTH   640
 #define CAM_DEF_HEIGHT  480
 
@@ -59,6 +64,13 @@ static v4l2_ctl_struct v4l2_ctl;
 static int video_nr = -1;
 #ifdef READ_BACK_RAW
 static u8 buf_used = 0;
+#endif
+
+#ifdef CONFIG_DEBUG_FS
+static struct dentry *debugfs_camera_dir;
+static struct dentry *debugfs_sensor_id;
+static u32 main_sensor_id;
+static u32 slave_sensor_id;
 #endif
 
 #define SAFE_GET_DRVDATA(cam, fh) \
@@ -651,7 +663,18 @@ static int k3_v4l2_ioctl_g_ctrl(struct file *file, void *fh,
 			a->value = k3_isp_get_equivalent_focus();
 			break;
 		}
-
+	case V4L2_CID_GET_HDR_MOVIE_SUPPORTED:
+		{
+			a->value = k3_isp_get_hdr_movie_support();
+			break;
+		}
+	/* < zhoutian 00195335 2013-03-02 added for SuperZoom-LowLight begin */
+	case V4L2_CID_GET_HW_LOWLIGHT_SUPPORTED:
+		{
+			a->value = k3_isp_get_hw_lowlight_support();
+			break;
+		}
+	/* zhoutian 00195335 2013-03-02 added for SuperZoom-LowLight end > */
 	default:
 		{
 			ret = -EINVAL;
@@ -805,6 +828,7 @@ static int k3_v4l2_ioctl_s_ctrl(struct file *file, void *fh,
 		/* select a sensor to be used */
 	case V4L2_CID_SET_SENSOR:
 		{
+			print_info("set sensor:%s", (v4l2_param->value==0)?"primary":"secondary");
 			if (v4l2_param->value < 0 || v4l2_param->value >= CAMERA_SENSOR_MAX) {
 				print_error("invalid camera sensor type [%d]",
 					    v4l2_param->value);
@@ -816,6 +840,7 @@ static int k3_v4l2_ioctl_s_ctrl(struct file *file, void *fh,
 		}
 	case V4L2_CID_PROCESS_RAW_2_YUV:
 		{
+			print_info("set process raw to yuv:%s", v4l2_param->value?"start":"stop");
 			if (v4l2_param->value == 1)
 				ret = k3_v4l2_start_process(&v4l2_ctl, CAMERA_IPP_MODE_RAW_2_YUV);
 			else if (v4l2_param->value == 0)
@@ -826,6 +851,7 @@ static int k3_v4l2_ioctl_s_ctrl(struct file *file, void *fh,
 		}
 	case V4L2_CID_PROCESS_HDR:
 		{
+			print_info("set process hdr:%s", v4l2_param->value?"start":"stop");
 			if (v4l2_param->value == 1)
 				ret = k3_v4l2_start_process(&v4l2_ctl, CAMERA_IPP_MODE_HDR);
 			else if (v4l2_param->value == 0)
@@ -837,7 +863,7 @@ static int k3_v4l2_ioctl_s_ctrl(struct file *file, void *fh,
 	case V4L2_CID_FOCUS_AUTO:
 		{
 			if (v4l2_param->value)
-				k3_isp_auto_focus(FOCUS_START);
+				k3_isp_auto_focus(v4l2_param->value);
 			else
 				k3_isp_auto_focus(FOCUS_STOP);
 			break;
@@ -851,6 +877,43 @@ static int k3_v4l2_ioctl_s_ctrl(struct file *file, void *fh,
 			}
 			break;
 		}
+	/* < zhoutian 00195335 12-7-16 added for auto scene detect begin */
+	case V4L2_CID_SET_FOCUS_RANGE:
+		{
+			ret = k3_isp_set_focus_range(v4l2_param->value);
+			if (ret == -1) {
+				ret = -EINVAL;			
+			}
+			break;
+		}
+
+	case V4L2_CID_SET_FPS_RANGE:
+		{
+			ret = k3_isp_set_fps_range(v4l2_param->value);
+			if (ret == -1) {
+				ret = -EINVAL;			
+			}
+			break;
+		}
+
+	case V4L2_CID_SET_MAX_EXPOSURE:
+		{
+			ret = k3_isp_set_max_exposure(v4l2_param->value);
+			if (ret == -1) {
+				ret = -EINVAL;			
+			}
+			break;
+		}
+
+	case V4L2_CID_SET_MAX_EXPO_TIME:
+		{
+			ret = k3_isp_set_max_expo_time(v4l2_param->value);
+			if (ret == -1) {
+				ret = -EINVAL;
+			}
+			break;
+		}
+	/* zhoutian 00195335 12-7-16 added for auto scene detect end > */
 	case V4L2_CID_FLASH_MODE:
 		{
 			print_info("set flash mode [%d]", v4l2_param->value);
@@ -894,6 +957,7 @@ static int k3_v4l2_ioctl_s_ctrl(struct file *file, void *fh,
 	case V4L2_CID_AUTO_WHITE_BALANCE_LOCK:
 		{
 			print_info("set AWB lock, %d", v4l2_param->value);
+			k3_isp_set_awb_lock(v4l2_param->value);
 			break;
 		}
 	case V4L2_CID_SET_FPS_LOCK:
@@ -926,7 +990,19 @@ static int k3_v4l2_ioctl_s_ctrl(struct file *file, void *fh,
 			k3_isp_set_yuv_crop_pos(v4l2_param->value);
 			break;
 		}
-
+	case V4L2_CID_SET_HDR_MOVIE_MODE:
+		{
+			k3_isp_switch_hdr_movie(v4l2_param->value);
+			break;
+		}
+	/* < zhoutian 00195335 2013-03-02 added for SuperZoom-LowLight begin */
+	case V4L2_CID_HW_LOWLIGHT:
+		{
+			print_info("set hw_lowlight, %d", v4l2_param->value);
+			k3_isp_set_hw_lowlight(v4l2_param->value);
+			break;
+		}
+	/* zhoutian 00195335 2013-03-02 added for SuperZoom-LowLight end > */
 	default:
 		break;
 	}
@@ -1060,14 +1136,39 @@ static int k3_v4l2_ioctl_g_ext_ctrls(struct file *file, void *fh,
 			camera_info_t *info = (struct camera_info *)(controls[cid_idx].string);
 			camera_id = controls[cid_idx].size; /* reserved[0] in hal */
 			psensor = get_camera_sensor_from_array(camera_id);
+
 			if (psensor == NULL) {
 				print_error("fail to find sensor by id.");
 				goto out;
 			}
+
+			print_info("get sensor info:name=%s",psensor->info.name[0]?psensor->info.name:"NULL");
 			if (NULL == info)
 				print_error("info is NULL");
 			else
 				memcpy(info, &psensor->info, sizeof(camera_info_t));
+			break;
+		}
+
+		case V4L2_CID_GET_HDR_ISO_EXP_VALUE:
+		{
+			printk("V4L2_CID_GET_HDR_ISO_EXP_VALUE\n");
+			int data_size = sizeof(hdr_para_reserved);
+
+			void *data_buf = kmalloc(data_size, GFP_KERNEL);
+			if (!data_buf) {
+				ret = -ENOMEM;
+				print_error("fail to allocate buffer for ext controls");
+				goto out;
+			}
+			copy_from_user(data_buf, controls[cid_idx].string, data_size);
+
+			k3_isp_get_hdr_iso_exp((hdr_para_reserved *)data_buf);
+
+			copy_to_user(controls[cid_idx].string, data_buf, data_size);
+
+			kfree(data_buf);
+
 			break;
 		}
 
@@ -1078,6 +1179,186 @@ static int k3_v4l2_ioctl_g_ext_ctrls(struct file *file, void *fh,
 			k3_isp_get_focus_result(result);
 			break;
 		}
+
+		/* < zhoutian 00195335 12-7-16 added for auto scene detect begin */
+		case V4L2_CID_GET_AE_COFF:
+		{
+			print_debug("V4L2_CID_GET_AE_COFF");
+			int data_size = sizeof(ae_coff);
+			void *data_buf = kmalloc(data_size, GFP_KERNEL);
+			if (!data_buf) {
+				ret = -ENOMEM;
+				print_error("fail to allocate buffer for ext controls");
+				goto out;
+			}
+			copy_from_user(data_buf, controls[cid_idx].string, data_size);
+			ae_coff *ae_data = data_buf;
+			
+			k3_isp_get_ae_coff(ae_data);
+
+			copy_to_user(controls[cid_idx].string, data_buf, data_size);
+			kfree(data_buf);
+			break;
+		}
+
+
+		case V4L2_CID_GET_EXTRA_COFF:
+		{
+			print_debug("V4L2_CID_GET_EXTRA_COFF");
+			int data_size = sizeof(extra_coff);
+			void *data_buf = kmalloc(data_size, GFP_KERNEL);
+			if (!data_buf) {
+				ret = -ENOMEM;
+				print_error("fail to allocate buffer for ext controls");
+				goto out;
+			}
+			copy_from_user(data_buf, controls[cid_idx].string, data_size);
+			extra_coff *extra_data = data_buf;
+			
+			k3_isp_get_extra_coff(extra_data);
+
+			copy_to_user(controls[cid_idx].string, data_buf, data_size);
+			kfree(data_buf);
+			break;
+		}
+
+
+		case V4L2_CID_GET_AWB_COFF:
+		{
+			print_debug("V4L2_CID_GET_AWB_COFF");
+			int data_size = sizeof(awb_coff);
+			void *data_buf = kmalloc(data_size, GFP_KERNEL);
+			if (!data_buf) {
+				ret = -ENOMEM;
+				print_error("fail to allocate buffer for ext controls");
+				goto out;
+			}
+			copy_from_user(data_buf, controls[cid_idx].string, data_size);
+			awb_coff *awb_data = data_buf;
+			
+			k3_isp_get_awb_coff(awb_data);
+
+			copy_to_user(controls[cid_idx].string, data_buf, data_size);
+			kfree(data_buf);
+			break;
+		}	
+
+
+		case V4L2_CID_GET_AWB_CT_COFF:
+		{
+			print_debug("V4L2_CID_GET_AWB_CT_COFF");
+			int data_size = sizeof(awb_ct_coff);
+			void *data_buf = kmalloc(data_size, GFP_KERNEL);
+			if (!data_buf) {
+				ret = -ENOMEM;
+				print_error("fail to allocate buffer for ext controls");
+				goto out;
+			}
+			copy_from_user(data_buf, controls[cid_idx].string, data_size);
+			awb_ct_coff *awb_ct_data = data_buf;
+			
+			k3_isp_get_awb_ct_coff(awb_ct_data);
+
+			copy_to_user(controls[cid_idx].string, data_buf, data_size);
+			kfree(data_buf);
+			break;
+		}	
+
+
+		case V4L2_CID_GET_CCM_COFF:
+		{
+			print_debug("V4L2_CID_GET_CCM_COFF");
+			int data_size = sizeof(ccm_coff);
+			void *data_buf = kmalloc(data_size, GFP_KERNEL);
+			if (!data_buf) {
+				ret = -ENOMEM;
+				print_error("fail to allocate buffer for ext controls");
+				goto out;
+			}
+			copy_from_user(data_buf, controls[cid_idx].string, data_size);
+			ccm_coff *ccm_data = data_buf;
+			
+			k3_isp_get_ccm_coff(ccm_data);
+
+			copy_to_user(controls[cid_idx].string, data_buf, data_size);
+			kfree(data_buf);
+			break;
+		}
+
+
+		case V4L2_CID_GET_COFF_SEQ:
+		{
+			print_debug("V4L2_CID_GET_COFF_SEQ");
+			int data_size = sizeof(seq_coffs);
+			void *data_buf = kmalloc(data_size, GFP_KERNEL);
+			if (!data_buf) {
+				ret = -ENOMEM;
+				print_error("fail to allocate buffer for ext controls");
+				goto out;
+			}
+			copy_from_user(data_buf, controls[cid_idx].string, data_size);
+			seq_coffs *seq_data = data_buf;
+
+			if(seq_data->length <= 0 || seq_data->length >= 1000)
+			{
+				ret = -EINVAL;
+				print_error("V4L2_CID_GET_COFF_SEQ coff.length error!");
+				kfree(data_buf);
+				goto out;
+			}
+
+			data_size = seq_data->length * sizeof(int);
+			void *data_reg = kmalloc(data_size, GFP_KERNEL);
+			if (!data_reg) {
+				ret = -ENOMEM;
+				print_error("fail to allocate buffer for ext controls");
+				kfree(data_buf);
+				goto out;
+			}
+			copy_from_user(data_reg, seq_data->reg, data_size);
+			seq_data->reg = data_reg;
+
+			void *data_value = kmalloc(data_size, GFP_KERNEL);
+			if (!data_value) {
+				ret = -ENOMEM;
+				print_error("fail to allocate buffer for ext controls");
+				kfree(data_reg);
+				kfree(data_buf);
+				goto out;
+			}
+			void *user_value_ptr = seq_data->value;
+			seq_data->value = data_value;
+
+			k3_isp_get_coff_seq(seq_data);
+
+			copy_to_user(user_value_ptr, data_value, data_size);
+			kfree(data_value);
+			kfree(data_reg);
+			kfree(data_buf);
+			break;
+		}
+		/* zhoutian 00195335 12-7-16 added for auto scene detect end > */
+
+		/* < zhoutian 00195335 2013-03-02 added for SuperZoom-LowLight begin */
+		case V4L2_CID_GET_BINNING_SIZE:
+		{
+			int data_size = sizeof(binning_size);
+			void *data_buf = kmalloc(data_size, GFP_KERNEL);
+			if (!data_buf) {
+				ret = -ENOMEM;
+				print_error("fail to allocate buffer for ext controls");
+				goto out;
+			}
+			copy_from_user(data_buf, controls[cid_idx].string, data_size);
+			binning_size *size = data_buf;
+
+			k3_isp_get_binning_size(size);
+
+			copy_to_user(controls[cid_idx].string, data_buf, data_size);
+			kfree(data_buf);
+			break;
+		}
+		/* zhoutian 00195335 2013-03-02 added for SuperZoom-LowLight end > */
 
 		/* get focus rect information */
 		case V4L2_CID_GET_FOCUS_RECT:
@@ -1091,9 +1372,59 @@ static int k3_v4l2_ioctl_g_ext_ctrls(struct file *file, void *fh,
 			crop_rect_s *rect = (crop_rect_s *)(controls[cid_idx].string);
 			k3_isp_get_yuv_crop_rect(rect);
 			break;
+        }
+		case V4L2_CID_GET_HDR_LUX_MATRIX:
+		{
+			lux_stat_matrix_tbl *lux_matrix = (lux_stat_matrix_tbl *)(controls[cid_idx].string);
+			if (lux_matrix == NULL) {
+				print_error("fail to get lux matrix struct pointer from user.");
+				goto out;
+			}
+			k3_isp_get_sensor_lux_matrix(lux_matrix);
+			break;
+		}
+		case V4L2_CID_GET_HDR_INFO:
+		{
+			hdr_info * hdrInfo = (hdr_info *)(controls[cid_idx].string);
+			if(hdrInfo == NULL)
+			{
+				print_error("failed to get pointer of hdr info from user.");
+				goto out;
+			}
+			k3_isp_get_sensor_hdr_info(hdrInfo);
+			break;
+		}
+		case V4L2_CID_GET_HDR_MOVIE_CONSTANT_PARAM:
+		{
+			hdr_ae_constant_param *result = (hdr_ae_constant_param *)(controls[cid_idx].string);
+			ispv1_get_hdr_movie_ae_init_param(result);
+			break;
 		}
 
+		case V4L2_CID_GET_HDR_MOVIE_VOLATILE_PARAM:
+		{
+			hdr_ae_volatile_param *result = (hdr_ae_volatile_param *)(controls[cid_idx].string);
+			ispv1_get_hdr_movie_ae_running_param(result);
+			break;
+		}
+		case V4L2_CID_GET_SENSOR_MAX_PREVIEW_SIZE:
+		{
+			preview_size *result = (preview_size *)(controls[cid_idx].string);
+			k3_isp_get_sensor_preview_max_size(result);
+			break;
+		}
+		case V4L2_CID_GET_LCD_COMPENSATION_SUPPORTED:
+		{
+			controls[cid_idx].value = k3_check_lcd_compensation_supported();
+			break;
+		}
+		case V4L2_CID_GET_LCD_COMPENSATION_NEEDED:
+		{
+			controls[cid_idx].value = k3_check_lcd_compensation_needed();
+			break;
+		}
 		default:
+			ret = -EINVAL;	// zhoutian 00195335 12-7-16 added for auto scene detect
 			break;
 
 		}
@@ -1109,7 +1440,8 @@ static void k3_v4l2_set_sensor(sensor_index_t sensor_index, char *sensor_name)
 	char* ret = NULL;
 	camera_sensor *temp_sensor = NULL;
 	int index = 0;
-	camera_sensor *temp_sensor_array[CAMERA_SENSOR_NUM_MAX];
+	camera_sensor *backup_sensor_array[CAMERA_SENSOR_NUM_MAX];
+	memset(backup_sensor_array,0,sizeof(backup_sensor_array));
 	if (sensor_index >= CAMERA_SENSOR_MAX) {
 		print_error("Unsuport sensor type : %d", sensor_index);
 		return;
@@ -1119,14 +1451,14 @@ static void k3_v4l2_set_sensor(sensor_index_t sensor_index, char *sensor_name)
 		temp_sensor = get_camera_sensor_from_array(sensor_index);
 		if (NULL == temp_sensor) {
 			print_error("fail to get camera [%d]", sensor_index);
-			memcpy(get_camera_sensor_array(sensor_index), temp_sensor_array, sizeof(temp_sensor_array));
+			memcpy(get_camera_sensor_array(sensor_index), backup_sensor_array, sizeof(backup_sensor_array));
 			return;
 		}
 
 		ret = strstr(sensor_name, temp_sensor->info.name);
 		if (NULL == ret) {
 			unregister_camera_sensor(temp_sensor->sensor_index, temp_sensor);
-			temp_sensor_array[index++] = temp_sensor;
+			backup_sensor_array[index++] = temp_sensor;
 		} else {
 			clean_camera_sensor(sensor_index);
 			register_camera_sensor(sensor_index, temp_sensor);
@@ -1226,6 +1558,202 @@ static int k3_v4l2_ioctl_s_ext_ctrls(struct file *file, void *fh,
 			goto end;
 			break;
 
+		/* < zhoutian 00195335 12-7-16 added for auto scene detect begin */
+		case V4L2_CID_SET_AE_COFF:
+		{
+			print_debug("V4L2_CID_SET_AE_COFF");
+			int data_size = sizeof(ae_coff);
+			void *data_buf = kmalloc(data_size, GFP_KERNEL);
+			if (!data_buf) {
+				ret = -ENOMEM;
+				print_error("fail to allocate buffer for ext controls");
+				goto end;
+			}
+			copy_from_user(data_buf, controls[cid_idx].string, data_size);
+			ae_coff *ae_data = data_buf;
+
+			func_ret = k3_isp_set_ae_coff(ae_data);			
+			if (func_ret != 0) {
+				ret = -EINVAL;
+			}
+			kfree(data_buf);
+			goto end;
+			break;	
+		}
+
+
+		case V4L2_CID_SET_AWB_COFF:
+		{
+			print_debug("V4L2_CID_SET_AWB_COFF");
+			int data_size = sizeof(awb_coff);
+			void *data_buf = kmalloc(data_size, GFP_KERNEL);
+			if (!data_buf) {
+				ret = -ENOMEM;
+				print_error("fail to allocate buffer for ext controls");
+				goto end;
+			}
+			copy_from_user(data_buf, controls[cid_idx].string, data_size);
+			awb_coff *awb_data = data_buf;
+
+			func_ret = k3_isp_set_awb_coff(awb_data);			
+			if (func_ret != 0) {
+				ret = -EINVAL;
+			}
+			kfree(data_buf);
+			goto end;
+			break;	
+		}
+
+
+		case V4L2_CID_SET_AWB_CT_COFF:
+		{
+			print_debug("V4L2_CID_SET_AWB_CT_COFF");
+			int data_size = sizeof(awb_ct_coff);
+			void *data_buf = kmalloc(data_size, GFP_KERNEL);
+			if (!data_buf) {
+				ret = -ENOMEM;
+				print_error("fail to allocate buffer for ext controls");
+				goto end;
+			}
+			copy_from_user(data_buf, controls[cid_idx].string, data_size);
+			awb_ct_coff *awb_ct_data = data_buf;
+
+			func_ret = k3_isp_set_awb_ct_coff(awb_ct_data);			
+			if (func_ret != 0) {
+				ret = -EINVAL;
+			}
+			kfree(data_buf);
+			goto end;
+			break;	
+		}
+
+
+		case V4L2_CID_SET_CCM_COFF:
+		{
+			print_debug("V4L2_CID_SET_CCM_COFF");
+			int data_size = sizeof(ccm_coff);
+			void *data_buf = kmalloc(data_size, GFP_KERNEL);
+			if (!data_buf) {
+				ret = -ENOMEM;
+				print_error("fail to allocate buffer for ext controls");
+				goto end;
+			}
+			copy_from_user(data_buf, controls[cid_idx].string, data_size);
+			ccm_coff *ccm_data = data_buf;
+
+			func_ret = k3_isp_set_ccm_coff(ccm_data);			
+			if (func_ret != 0) {
+				ret = -EINVAL;
+			}
+			kfree(data_buf);
+			goto end;
+			break;	
+		}
+
+
+		case V4L2_CID_SET_ADDED_COFF:
+		{
+			print_debug("V4L2_CID_SET_ADDED_COFF");
+			int data_size = sizeof(added_coff);
+			void *data_buf = kmalloc(data_size, GFP_KERNEL);
+			if (!data_buf) {
+				ret = -ENOMEM;
+				print_error("fail to allocate buffer for ext controls");
+				goto end;
+			}
+			copy_from_user(data_buf, controls[cid_idx].string, data_size);
+			added_coff *added_data = data_buf;
+
+			func_ret = k3_isp_set_added_coff(added_data);			
+			if (func_ret != 0) {
+				ret = -EINVAL;
+			}
+			kfree(data_buf);
+			goto end;
+			break;	
+		}
+
+		case V4L2_CID_SET_COFF_SEQ:
+		{
+			print_debug("V4L2_CID_SET_COFF_SEQ");
+			int data_size = sizeof(seq_coffs);
+			void *data_buf = kmalloc(data_size, GFP_KERNEL);
+			if (!data_buf) {
+				ret = -ENOMEM;
+				print_error("fail to allocate buffer fo ext controls");
+				goto end;
+			}
+			copy_from_user(data_buf, controls[cid_idx].string, data_size);
+			seq_coffs *seq_data = data_buf;
+
+			if(seq_data->length <= 0 || seq_data->length >= 1000)
+			{
+				ret = -EINVAL;
+				print_error("V4L2_CID_SET_COFF_SEQ coff.length error!");
+				kfree(data_buf);
+				goto end;
+			}
+
+			data_size = seq_data->length * sizeof(int);
+			void *data_reg = kmalloc(data_size, GFP_KERNEL);
+			if (!data_reg) {
+				ret = -ENOMEM;
+				print_error("fail to allocate buffer fo ext controls");
+				kfree(data_buf);
+				goto end;
+			}
+			copy_from_user(data_reg, seq_data->reg, data_size);
+			seq_data->reg = data_reg;
+
+			void *data_value = kmalloc(data_size, GFP_KERNEL);
+			if (!data_value) {
+				ret = -ENOMEM;
+				print_error("fail to allocate buffer fo ext controls");
+				kfree(data_reg);
+				kfree(data_buf);
+				goto end;
+			}
+			copy_from_user(data_value, seq_data->value, data_size);
+			seq_data->value = data_value;
+
+			func_ret = k3_isp_set_coff_seq(seq_data);
+			if (func_ret != 0) {
+				ret = -EINVAL;
+			}
+			kfree(data_value);
+			kfree(data_reg);
+			kfree(data_buf);
+			goto end;
+			break;
+		}
+
+		/* zhoutian 00195335 12-7-16 added for auto scene detect end > */
+
+		/* < zhoutian 00195335 2013-02-07 added for hwscope begin */
+		case V4L2_CID_HWSCOPE:
+		{
+			print_debug("V4L2_CID_HWSCOPE");
+			int data_size = sizeof(hwscope_coff);
+			void *data_buf = kmalloc(data_size, GFP_KERNEL);
+			if (!data_buf) {
+				ret = -ENOMEM;
+				print_error("fail to allocate buffer for ext controls");
+				goto end;
+			}
+			copy_from_user(data_buf, controls[cid_idx].string, data_size);
+			hwscope_coff *hwscope_data = data_buf;
+
+			func_ret = k3_isp_set_hwscope(hwscope_data);
+			if (func_ret != 0) {
+				ret = -EINVAL;
+			}
+			copy_to_user(controls[cid_idx].string, data_buf, data_size);
+			kfree(data_buf);
+			goto end;
+			break;
+		}
+		/* zhoutian 00195335 2013-02-07 added for hwscope end > */
+
 			/* For bracket information setting */
 		case V4L2_CID_BRACKET_INFO:
 			bracket_ev = (int *)(controls[cid_idx].string);
@@ -1249,9 +1777,13 @@ static int k3_v4l2_ioctl_s_ext_ctrls(struct file *file, void *fh,
 		{
 			char * sensor_name;
 			u8 cameraid;
-
 			cameraid = controls[cid_idx].size;
 			sensor_name = (char *)(controls[cid_idx].string);
+
+			print_info("V4L2_CID_SENSOR_INFO:sensor=%s,name=%s",
+				!cameraid?"primary":"secondary",
+				sensor_name?sensor_name:"null");
+
 			if (NULL != sensor_name)
 				k3_v4l2_set_sensor(cameraid, sensor_name);
 				
@@ -1266,7 +1798,42 @@ static int k3_v4l2_ioctl_s_ext_ctrls(struct file *file, void *fh,
 			}
 			goto end;
 			break;
+		case V4L2_CID_SET_HDR_MOVIE_AE_RESULT:
+		{
+			int data_size = sizeof(hdr_ae_algo_result);
+			void *data_buf = kmalloc(data_size, GFP_KERNEL);
+			if (!data_buf) {
+				ret = -ENOMEM;
+				print_error("fail to allocate buffer for ext controls");
+				goto end;
+			}
+			copy_from_user(data_buf, controls[cid_idx].string, data_size);
+			hdr_ae_algo_result *ae_result = data_buf;
+			func_ret = ispv1_set_hdr_movie_shutter_gain_to_sensor(ae_result);
+			if (func_ret != 0) {
+				ret = -EINVAL;
+			}
+			kfree(data_buf);
+			goto end;
+			break;
+		}
+		case V4L2_CID_SET_SCENE_TYPE:
+		{
+			int scene_size = sizeof(scene_type);
+			void *scene_buf = kmalloc(scene_size,GFP_KERNEL);
+			if(!scene_buf)
+			{
+				ret = -ENOMEM;
+				print_error("fail to allocate buffer for scene buf");
+				goto end;
+			}
+			copy_from_user(scene_buf,controls[cid_idx].string,scene_size);
 
+			k3_isp_set_scene_type(scene_buf);
+			kfree(scene_buf);
+			goto end;
+			break;
+		}
 		default:
 			print_error("%s, id=%#x, value=%#x", __func__,
 					controls[cid_idx].id, controls[cid_idx].value);
@@ -1619,7 +2186,8 @@ static int k3_v4l2_ioctl_s_param(struct file *file, void *fh,
 	camera_sensor *sensor;
 	u8 max_fps = CAMERA_MAX_FRAMERATE;
 	u8 min_fps = CAMERA_MIN_FRAMERATE;
-
+	u8 mid_fps = CAMERA_MIDDLE_FRAMERATE;
+	u8 video_fps = 	VIDEO_FPS_FIXED;
 	print_debug("enter %s", __func__);
 
 	SAFE_GET_DRVDATA(cam, fh);
@@ -1642,17 +2210,23 @@ static int k3_v4l2_ioctl_s_param(struct file *file, void *fh,
 	if (sensor->get_override_param) {
 		max_fps = sensor->get_override_param(OVERRIDE_FPS_MAX);
 		min_fps = sensor->get_override_param(OVERRIDE_FPS_MIN);
+		mid_fps = sensor->get_override_param(OVERRIDE_FPS_MIDDLE);
+	}
+
+	if(sensor->check_video_fps)
+	{
+		video_fps = sensor->check_video_fps();
 	}
 
 	if (CAMERA_USE_K3ISP == sensor->isp_location) {
-		if (0 == cam->frame_rate.denominator) {
-			k3_isp_set_fps(CAMERA_FPS_MAX, max_fps);
-			/*h00206029 modified 20120511*/
-			k3_isp_set_fps(CAMERA_FPS_MIN, min_fps);
-		} else {
-			k3_isp_set_fps(CAMERA_FPS_MAX, cam->frame_rate.denominator / cam->frame_rate.numerator);
-			k3_isp_set_fps(CAMERA_FPS_MIN, cam->frame_rate.denominator / cam->frame_rate.numerator);
+		if (0 != cam->frame_rate.denominator&&(VIDEO_FPS_FIXED == video_fps)) {
+			max_fps = cam->frame_rate.denominator / cam->frame_rate.numerator;
+			min_fps = cam->frame_rate.denominator / cam->frame_rate.numerator;
+			mid_fps = cam->frame_rate.denominator / cam->frame_rate.numerator;
 		}
+		k3_isp_set_fps(CAMERA_FPS_MAX, max_fps);
+		k3_isp_set_fps(CAMERA_FPS_MIN, min_fps);
+		k3_isp_set_fps(CAMERA_FPS_MIDDLE, mid_fps);
 	} else {
 		if (sensor->update_framerate) {
 			if (0 == cam->frame_rate.denominator) {
@@ -1874,10 +2448,11 @@ int k3_v4l2_set_camera(v4l2_ctl_struct *cam, int new_sensor)
 	sec_sensor = get_camera_sensor(CAMERA_SENSOR_SECONDARY);
 
 	camera_power_id_gpio(POWER_ON);
-	if ((NULL == *pri_sensor) && (NULL == *sec_sensor)) {
+	if (NULL == *pri_sensor)
 		k3_v4l2_check_camera(pri_sensor, CAMERA_SENSOR_PRIMARY);
+
+	if(NULL == *sec_sensor)
 		k3_v4l2_check_camera(sec_sensor, CAMERA_SENSOR_SECONDARY);
-	}
 
 	if (CAMERA_SENSOR_PRIMARY == new_sensor) {
 		if (NULL == *pri_sensor) {
@@ -2096,6 +2671,8 @@ static int k3_v4l2_close(struct file *file)
 	}
 
 	SAFE_UP(&cam->busy_lock);
+
+	print_info("exit %s",__func__);
 	return 0;
 }
 
@@ -2403,6 +2980,109 @@ static struct platform_driver k3_v4l2_driver = {
 		   },
 };
 
+#if CONFIG_DEBUG_FS
+static int sensor_debug_open(struct inode *inode, struct file *file)
+{
+	file->private_data = inode->i_private;
+	pr_info("%s debug in %s\n", __func__, (char *) file->private_data);
+	return 0;
+}
+
+static int sensor_param_check(char *buf, long int *param1, int num_of_par)
+{
+	char *token;
+	int base, cnt;
+
+	token = strsep(&buf, " ");
+
+	for (cnt = 0; cnt < num_of_par; cnt++)
+	{
+		if (token != NULL)
+		{
+			if ((token[1] == 'x') || (token[1] == 'X'))
+				base = 16;
+			else
+				base = 10;
+
+			if (strict_strtoul(token, base, &param1[cnt]) != 0)
+				return -EINVAL;
+
+			token = strsep(&buf, " ");
+		}
+		else
+		{
+			return -EINVAL;
+		}
+	}
+	return 0;
+}
+
+static ssize_t sensor_debug_write(struct file *filp,
+	const char __user *ubuf, size_t cnt, loff_t *ppos)
+{
+	char *lb_str = filp->private_data;
+	char lbuf[32];
+	int rc;
+	unsigned long param[2];
+
+	if (cnt > sizeof(lbuf) - 1)
+	{
+		return -EINVAL;
+	}
+
+	rc = copy_from_user(lbuf, ubuf, cnt);
+	if (rc)
+	{
+		return -EFAULT;
+	}
+
+	lbuf[cnt] = '\0';
+
+	if (!strcmp(lb_str, "sensor_id"))
+	{
+		rc = sensor_param_check(lbuf, param, 2);
+		if (!rc)
+		{
+			pr_info("%s %lu %lu\n", lb_str, param[0], param[1]);
+			main_sensor_id = param[0];
+			slave_sensor_id =  param[1];
+		}
+		else
+		{
+			pr_err("%s: Error, invalid parameters\n", __func__);
+			rc = -EINVAL;
+		}
+	}
+
+	if (rc == 0)
+	{
+		rc = cnt;
+	}
+	else
+	{
+		pr_err("%s: rc = %d\n", __func__, rc);
+	}
+
+	return rc;
+}
+
+u32 get_main_sensor_id(void)
+{
+	return main_sensor_id;
+}
+
+u32 get_slave_sensor_id(void)
+{
+	return slave_sensor_id;
+}
+
+static const struct file_operations sensor_id_debug_fops = {
+	.open = sensor_debug_open,
+	.write = sensor_debug_write
+};
+#endif
+
+
 /*
  **************************************************************************
  * FunctionName: camera_init;
@@ -2426,6 +3106,15 @@ static __init int camera_init(void)
 		print_error("fail to register platform driver !!");
 	}
 
+#ifdef CONFIG_DEBUG_FS
+	debugfs_camera_dir = debugfs_create_dir("camera", NULL);
+	debugfs_sensor_id = debugfs_create_file("sensor_id",
+											S_IFREG |S_IWUSR|S_IWGRP,
+											debugfs_camera_dir,
+											(void *) "sensor_id",
+											&sensor_id_debug_fops);
+#endif
+
 	return ret;
 }
 
@@ -2445,6 +3134,15 @@ static void __exit camera_exit(void)
 		video_unregister_device(v4l2_ctl.video_dev);
 		v4l2_ctl.video_dev = NULL;
 	}
+
+#ifdef CONFIG_DEBUG_FS
+	if (NULL != debugfs_sensor_id) {
+		debugfs_remove(debugfs_sensor_id);
+	}
+	if (NULL != debugfs_camera_dir) {
+		debugfs_remove(debugfs_camera_dir);
+	}
+#endif
 
 	print_info("K3 camera v4l2 driver exit !!");
 

@@ -33,15 +33,18 @@
 #include <linux/uaccess.h>
 #include <linux/workqueue.h>
 #include <linux/board_sensors.h>
-
+#ifdef CONFIG_HUAWEI_HW_DEV_DCT
+#include <linux/hw_dev_dec.h>
+#endif
 #include "yas.h"
-
+//#include "yas_mag_driver-yas530.c"
+#include <hsad/config_interface.h>
 #define YAS_REGADDR_DEVICE_ID		(0x80)
 #define GEOMAGNETIC_I2C_DEVICE_NAME	"yamaha_geomagnetic"
-#define GEOMAGNETIC_INPUT_NAME		"geomagnetic"
+#define GEOMAGNETIC_INPUT_NAME		"akm_input"
 #define GEOMAGNETIC_INPUT_RAW_NAME	"geomagnetic_raw"
 
-#define CONFIG_YAS_MAGNETOMETER_DEFAULT_POSITION 3
+#define CONFIG_YAS_MAGNETOMETER_DEFAULT_POSITION 7
 #undef GEOMAGNETIC_PLATFORM_API
 
 #define ABS_STATUS			(ABS_BRAKE)
@@ -54,6 +57,15 @@
 #define ABS_RAW_REPORT			(ABS_GAS)
 
 static int calibration_value = 0;
+#define GEOMAGNETIC_PCB_ADR_ID		(0x80)
+#define GEOMAGNETIC_PCB_ADR_CAL		(0x90)
+#define GEOMAGNETIC_PCB_CAL_NUM		(14)
+#define GEOMAGNETIC_PCB_ID_YAS532	(2)
+
+#define E_COMPASS_SOFTIRON_TYPE_U9701L 0
+#define E_COMPASS_SOFTIRON_TYPE_U9700L 1
+#define E_COMPASS_SOFTIRON_TYPE_U9700GVA 2
+#define ELLIPSOID_MODE   1
 
 struct geomagnetic_data {
 	struct input_dev *input_data;
@@ -514,6 +526,94 @@ geomagnetic_current_time(int32_t *sec, int32_t *msec)
 	*msec = tv.tv_usec / 1000;
 }
 
+static int
+geomagnetic_pcb_check_id(void)
+{
+	int rt;
+	uint8_t adr = GEOMAGNETIC_PCB_ADR_ID;
+	uint8_t id;
+	rt = geomagnetic_i2c_read(adr, &id, sizeof(id));
+	if (rt)
+		return rt;
+
+	if (id != GEOMAGNETIC_PCB_ID_YAS532)
+		return -5;
+
+	return 0;
+}
+
+static int
+geomagnetic_pcb_check_cal(void)
+{
+	int rt;
+	int i;
+	uint8_t adr = GEOMAGNETIC_PCB_ADR_CAL;
+	uint8_t cal[GEOMAGNETIC_PCB_CAL_NUM];
+	int num = sizeof(cal);
+
+	/* cal register test. */
+
+for (i = 0; i < num; i++) { /* dummy read */
+	
+	rt = geomagnetic_i2c_read(adr+i, &cal[i], 1);
+	if (rt)
+		return rt;
+}
+
+	for (i = 0; i < (num - 1); i++) {
+		if (cal[i] != 0)
+			return 0;
+	}
+
+	if (cal[num - 1] & 0x80)
+		return 0;
+
+	return -10;
+}
+
+static int
+geomagnetic_pcbtest(void)
+{
+	int rt;
+
+	rt = geomagnetic_i2c_open();
+	if (rt)
+		goto err;
+
+	rt = geomagnetic_lock();
+	if (rt)
+		goto err1;
+
+	rt = geomagnetic_pcb_check_id();
+	if (rt) {
+		printk(KERN_ERR "geomagnetic_pcb_check_id faild(%d)\n", rt);
+		goto err2;
+	}
+
+	rt = geomagnetic_pcb_check_cal();
+	if (rt) {
+		printk(KERN_ERR "geomagnetic_pcb_check_cal faild(%d)\n", rt);
+		goto err2;
+	}
+
+	rt = geomagnetic_unlock();
+	if (rt)
+		goto err1;
+
+	rt = geomagnetic_i2c_close();
+	if (rt)
+		goto err;
+
+	return 0;
+
+err2:
+	geomagnetic_unlock();
+err1:
+	geomagnetic_i2c_close();
+err:
+
+	return rt;
+}
 static struct yas_mag_driver hwdriver = {
 	.callback = {
 		.lock		= geomagnetic_lock,
@@ -602,14 +702,15 @@ geomagnetic_delay_store(struct device *dev, struct device_attribute *attr,
 
 	if (hwdriver.set_delay == NULL)
 		return -ENOTTY;
-	if (strict_strtol(buf, 10, &value) < 0)
+	if (strict_strtoul(buf, 10, &value) < 0)
 		return -EINVAL;
 
 	geomagnetic_multi_lock();
-
+	value = value/1000000;
 	if (hwdriver.set_delay(value) == 0)
+	{
 		data->delay = value;
-
+	}
 	geomagnetic_multi_unlock();
 
 	return count;
@@ -1574,6 +1675,8 @@ geomagnetic_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	int data_registered = 0, raw_registered = 0, i;
 	struct yas_mag_filter filter;
     uint8_t device_id;
+    struct yamaha_platform_data * pdata;
+    unsigned int compass_softiron_type;
     
 	i2c_set_clientdata(client, NULL);
 	data = kzalloc(sizeof(struct geomagnetic_data), GFP_KERNEL);
@@ -1605,7 +1708,12 @@ geomagnetic_probe(struct i2c_client *client, const struct i2c_device_id *id)
     }
     else
     {
-		dev_err(&client->dev, "^-^^-^HT: Entry %s get device id sucess, id = %d\n",__FUNCTION__,device_id);    
+		if(device_id != 2) 
+		{
+			dev_err(&client->dev, "device id not correct, id = %d\n", device_id);
+			goto err;
+		}
+		dev_info(&client->dev, "^-^^-^HT: Entry %s get device id sucess, id = %d\n",__FUNCTION__,device_id);    
     }
     rt = set_sensor_chip_info(AKM, "YAMAHA YAS532");
 	if (rt) {
@@ -1644,7 +1752,17 @@ geomagnetic_probe(struct i2c_client *client, const struct i2c_device_id *id)
 		dev_err(&client->dev, "%s set_sensor_input error", __func__);
 		goto err;
 	}
-    
+       compass_softiron_type = get_compass_softiron_type();
+       switch(compass_softiron_type)
+       {
+             case E_COMPASS_SOFTIRON_TYPE_U9701L:
+             case E_COMPASS_SOFTIRON_TYPE_U9700GVA:
+                data->ellipsoid_mode = ELLIPSOID_MODE;
+                break;
+             default:
+                break;
+
+       }
 //	rt = sysfs_create_group(&input_data->dev.kobj,
 //			&geomagnetic_attribute_group);
 	rt = sysfs_create_group(&client->dev.kobj,
@@ -1704,15 +1822,21 @@ geomagnetic_probe(struct i2c_client *client, const struct i2c_device_id *id)
 	input_set_drvdata(input_raw, data);
 	i2c_set_clientdata(client, data);
 
+	rt = geomagnetic_pcbtest();
+	if (rt) {
+		YLOGE(("geomagnetic_probe: pcb test failed[%d]\n", rt));
+		goto err;
+	}else{
+			rt = set_compass_selfTest_result(AKM, "1");
+			if (rt) {
+				dev_err(&client->dev, " compass set self test result  fail\n");
+			}
+		}
 	rt = yas_mag_driver_init(&hwdriver);
 	if (rt < 0) {
 		YLOGE(("yas_mag_driver_init failed[%d]\n", rt));
 		goto err;
 	}
-	rt = set_compass_selfTest_result(AKM, "1");
-		if (rt) {
-			dev_err(&client->dev, " compass set self test result  fail\n");
-		}
     if (hwdriver.init != NULL) {
 		rt = hwdriver.init();
 		if (rt < 0) {
@@ -1721,12 +1845,23 @@ geomagnetic_probe(struct i2c_client *client, const struct i2c_device_id *id)
 		}
 	}
     if (hwdriver.set_position != NULL) {
-		if (hwdriver.set_position(
-					CONFIG_YAS_MAGNETOMETER_DEFAULT_POSITION)
-				< 0) {
-			YLOGE(("hwdriver.set_position() failed[%d]\n", rt));
-			goto err;
-		}
+              pdata = client->dev.platform_data;
+              if(pdata)
+              {
+        		if (hwdriver.set_position(pdata->layout)
+        				< 0) {
+        			YLOGE(("hwdriver.set_position() failed[%d]\n", rt));
+        			goto err;
+        		}
+              }
+              else
+              {
+                   if (hwdriver.set_position(CONFIG_YAS_MAGNETOMETER_DEFAULT_POSITION)
+        				< 0) {
+        			YLOGE(("hwdriver.set_position() failed[%d]\n", rt));
+        			goto err;
+        		}
+              }
 	}
 	if (hwdriver.get_offset != NULL) {
 		if (hwdriver.get_offset(&data->driver_offset) < 0) {
@@ -1766,7 +1901,10 @@ geomagnetic_probe(struct i2c_client *client, const struct i2c_device_id *id)
 		goto err;
 	}
 #endif
-
+#ifdef CONFIG_HUAWEI_HW_DEV_DCT
+    /* detect current device successful, set the flag as present */
+    set_hw_dev_flag(DEV_I2C_COMPASS);
+#endif
 	return 0;
 
 err:

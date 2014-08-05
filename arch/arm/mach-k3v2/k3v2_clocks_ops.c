@@ -20,6 +20,7 @@
 #include <asm/clkdev.h>
 #include "clock.h"
 #include <mach/early-debug.h>
+#include <hsad/config_interface.h>
 static LIST_HEAD(clocks);
 
 /* this function is used to check whether the parent clock
@@ -192,6 +193,7 @@ void clk_disable_set(struct clk *clk)
 		return;
 	}
 
+#ifndef CONFIG_K3_CLK_ALWAYS_ON
 	writel((u32)(1 << clk->enable_bit), clk->enable_reg + DISABLE_REG_OFFSET);
 	val = readl(clk->enable_reg + IS_ENABLE_REG_OFFSET) & (1 << clk->enable_bit);
 	/*check status*/
@@ -200,6 +202,7 @@ void clk_disable_set(struct clk *clk)
 		val = readl(clk->enable_reg + IS_ENABLE_REG_OFFSET) & (1 << clk->enable_bit);
 		i--;
 	}
+#endif
 
 	if (i == 0)
 		WARN(1, "CLOCK:Attempting to write clock disable register 1000 times.\r\n");
@@ -496,9 +499,11 @@ void k3v2_pll_clk_disable(struct clk *clk)
 {
 	u32 v = 0;
 
+#ifndef CONFIG_K3_CLK_ALWAYS_ON
 	v = readl(clk->enable_reg);
 	v &=  ~(1 << clk->enable_bit);
 	writel(v, clk->enable_reg);
+#endif
 }
 
 struct clk_ops clock_ops_src = {
@@ -515,7 +520,15 @@ void __init k3v2_init_clocks(void)
 
 	chip_id = get_chipid();
 	if (chip_id == CS_CHIP_ID) {
-		cl_lookups = &k3v2_clk_lookups_cs[0];
+#ifdef CONFIG_SUPPORT_B3750000_BITRATE
+	    if(get_if_use_3p75M_uart_clock())
+		{
+		 printk("k3v2_init_clocks. use_3p75M_uart_clock\n");
+		 cl_lookups = &k3v2_clk_lookups_cs_60M[0];
+		}
+		else
+#endif
+		  cl_lookups = &k3v2_clk_lookups_cs[0];
 	} else if (chip_id == DI_CHIP_ID) {
 		cl_lookups = &k3v2_clk_lookups_es[0];
 	} else {
@@ -529,4 +542,3 @@ void __init k3v2_init_clocks(void)
 		i++;
 	}
 }
-

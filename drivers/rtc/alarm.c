@@ -71,6 +71,11 @@ static struct platform_device *alarm_platform_dev;
 struct alarm_queue alarms[ANDROID_ALARM_TYPE_COUNT];
 static bool suspended;
 
+extern unsigned int get_pd_charge_flag(void);
+extern void oem_rtc_reboot(unsigned long t);
+static void check_rtc_alarm_work(struct work_struct *work);
+static DECLARE_DELAYED_WORK(check_rtc_work, check_rtc_alarm_work);
+
 static void update_timer_locked(struct alarm_queue *base, bool head_removed)
 {
 	struct alarm *alarm;
@@ -437,6 +442,20 @@ static int alarm_suspend(struct platform_device *pdev, pm_message_t state)
 	suspended = true;
 	spin_unlock_irqrestore(&alarm_slock, flags);
 
+	if (unlikely(get_pd_charge_flag() && poweroff_rtc_alarm.enabled)) {
+		rtc_read_time(alarm_rtc_dev, &rtc_current_rtc_time);
+		rtc_tm_to_time(&rtc_current_rtc_time, &rtc_current_time);
+		rtc_tm_to_time(&poweroff_rtc_alarm.time, &rtc_alarm_time);
+		printk("rtc alarm set at %ld, now %ld\n", rtc_alarm_time, rtc_current_time);
+		if (rtc_current_time + 301 >= rtc_alarm_time) {
+			suspended = false;
+			wake_lock(&alarm_rtc_wake_lock);
+                        return -EBUSY;
+		} else {
+                        return rtc_set_alarm(alarm_rtc_dev, &poweroff_rtc_alarm);
+                }
+	}
+
 	hrtimer_cancel(&alarms[ANDROID_ALARM_RTC_WAKEUP].timer);
 	hrtimer_cancel(&alarms[
 			ANDROID_ALARM_ELAPSED_REALTIME_WAKEUP].timer);
@@ -527,6 +546,29 @@ update_timer:
 	return 0;
 }
 
+void check_rtc_alarm_in_chg(void)
+{
+	struct rtc_time     rtc_current_rtc_time;
+	unsigned long       rtc_current_time;
+	unsigned long       rtc_alarm_time;
+
+	if (poweroff_rtc_alarm.enabled) {
+		rtc_read_time(alarm_rtc_dev, &rtc_current_rtc_time);
+		rtc_tm_to_time(&rtc_current_rtc_time, &rtc_current_time);
+		rtc_tm_to_time(&poweroff_rtc_alarm.time, &rtc_alarm_time);
+		if (rtc_current_time + 1 >= rtc_alarm_time) {
+			printk("rtc alarm set at %ld, now %ld\n", rtc_alarm_time, rtc_current_time);
+			oem_rtc_reboot(0);
+		}
+	}
+}
+
+static void check_rtc_alarm_work(struct work_struct *work)
+{
+	check_rtc_alarm_in_chg();
+	schedule_delayed_work_on(0, &check_rtc_work, 5 * HZ);
+}
+
 static struct rtc_task alarm_rtc_task = {
 	.func = alarm_triggered_func
 };
@@ -555,6 +597,11 @@ static int rtc_alarm_add_device(struct device *dev,
 		goto err3;
 	alarm_rtc_dev = rtc;
 	pr_alarm(INIT_STATUS, "using rtc device, %s, for alarms", rtc->name);
+
+	if (get_pd_charge_flag()) {
+		schedule_delayed_work_on(0, &check_rtc_work, 5);
+	}
+
 	mutex_unlock(&alarm_setrtc_mutex);
 
 	return 0;

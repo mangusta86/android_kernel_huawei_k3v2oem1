@@ -57,6 +57,7 @@
 #include "mach/irqs.h"
 #include "mach/hardware.h"
 #include "mach/early-debug.h"
+#include "mach/hisi_mem.h"
 
 #include <linux/regulator/consumer.h>
 #include <linux/regulator/driver.h>
@@ -185,25 +186,25 @@ static long hx170dec_ioctl(struct file *filp,
 			break;
 
 		case HX170DEC_IOC_CLOCK_ON:
-#if 0
 			ret = regulator_enable(hx170dec_data.reg);
 			if ( ret ) {
 				printk(KERN_ERR "hx170dec: regulator_enable failed\n");
+				return ret;
 			}
-
 
 			ret = clk_enable(hx170dec_data.clock);
 			if ( ret ) {
+				/* Clk enable fail , power off*/
 				printk(KERN_ERR "hx170dec: clk_enable failed\n");
+				regulator_disable(hx170dec_data.reg);
+				return ret;
 			}
-#endif
+			udelay(1);
 			break;
 
 		case HX170DEC_IOC_CLOCK_OFF:
-#if 0
-			clk_disable(hx170dec_data.clock);
 			regulator_disable(hx170dec_data.reg);
-#endif
+			clk_disable(hx170dec_data.clock);
 			break;
 
 		case HX170DEC_IOCHARDRESET:
@@ -217,7 +218,7 @@ static long hx170dec_ioctl(struct file *filp,
 		default:
 			break;
 	}
-	return 0;
+	return ret;
 }
 
 /*------------------------------------------------------------------------------
@@ -230,19 +231,7 @@ static long hx170dec_ioctl(struct file *filp,
 static int hx170dec_open(struct inode *inode, struct file *filp)
 {
 	int ret = 0;
-	
-	/*Clock on*/
-	ret = regulator_enable(hx170dec_data.reg);
-	if ( ret ) {
-		printk(KERN_ERR "hx170dec: hx170dec_open regulator_enable failed\n");
-	}
 
-	ret = clk_enable(hx170dec_data.clock);
-	if ( ret ) {
-		printk(KERN_ERR "hx170dec: hx170dec_open clk_enable failed\n");
-	}
-
-	
 	if (down_interruptible(&(hx170dec_data.busy_lock)))
 		return -EINTR;
 
@@ -310,10 +299,6 @@ static int hx170dec_release(struct inode *inode, struct file *filp)
 
 	up(&(hx170dec_data.busy_lock));
 
-	/*Clock off*/
-	clk_disable(hx170dec_data.clock);
-	regulator_disable(hx170dec_data.reg);
-	
 	return 0;
 }
 
@@ -498,6 +483,16 @@ static int hx170dec_mmap(struct file *file, struct vm_area_struct *vma)
 	unsigned long start = vma->vm_start;
 	unsigned long size = vma->vm_end - vma->vm_start;
 	int retval = 0;
+
+	unsigned long pyhs_start = vma->vm_pgoff << PAGE_SHIFT;
+	unsigned long pyhs_end = pyhs_start + size;
+	if(!(pyhs_start >= hisi_reserved_codec_phymem//not codec memory
+			&& pyhs_end <= hisi_reserved_codec_phymem + HISI_MEM_CODEC_SIZE)
+		&& !(pyhs_start >= hx170dec_data.iobaseaddr//not io address
+			&& pyhs_end <= hx170dec_data.iobaseaddr + hx170dec_data.iosize)) {
+		printk(KERN_ERR "%s(%d) failed map:0x%lx-0x%lx\n", __FUNCTION__, __LINE__, pyhs_start, pyhs_end);
+		return -EFAULT;
+	}
 
 	/* make buffers write-thru cacheable */
 

@@ -32,10 +32,13 @@
 
 #define SENSOR_NAME_LEN_MAX	50
 
+/*enable gpio for camera 1v2 dvdd is changed from gpio173 to gpio73. */
 #define CAM_VCC_PIN "gpio_173"
+#define SCAM_VCC_PIN "gpio_073"
 #define CAM_ID_PIN "gpio_111"
 #define SCAM_ID_PIN "gpio_112"
-static struct iomux_pin *gpio_core_ldo;
+static struct iomux_pin *gpio_main_core_ldo;
+static struct iomux_pin *gpio_slave_core_ldo;
 static struct iomux_pin *gpio_main_camera_id;
 static struct iomux_pin *gpio_slave_camera_id;
 
@@ -124,12 +127,11 @@ vcm_info_s vcm_dw9714 = {
 	.offsetInit = 0, /* maybe different in each AF mode */
 	.fullRange = 1023, /* maybe different in each AF mode */
 
-	.infiniteDistance = 0x50, /* should be calibrated */
 
-	.normalDistanceEnd = 0x218,
+	.infiniteDistance = 0x50, /* should be calibrated */
+	.normalDistanceEnd = 0x2b0,
 	.normalStep = 0x20, /* coarse step */
 	.normalStrideRatio = 0x18,
-
 	.videoDistanceEnd = 0x200,
 	.videoStep = 0x10,
 	.videoStrideRatio = 0x20,
@@ -142,13 +144,58 @@ vcm_info_s vcm_dw9714 = {
 	.moveLensAddr[0] = 0,
 	.moveLensAddr[1] = 0,
 
-	.motorResTime = 7,
+	/*
+	 * fixed params
+	 * coarseStep/fineStep will be calculated by other params
+	 */
+	.motorResTime = 10,
 	.motorDelayTime = 12,
 	.strideDivideOffset = 0x60,
 
+	.startCurrentOffset = 0x40,
 	.moveRange = RANGE_NORMAL,
 };
 EXPORT_SYMBOL(vcm_dw9714);
+
+/*
+ * Focus driver ic dw9714 information:
+ * Sunny ov8830/SonyImx105/S5k3h2yx use this driver ic, add for mate product
+ */
+vcm_info_s vcm_dw9714_ov8830 = {
+	.vcm_type = VCM_DW9714_SS,
+	.offsetInit = 0, /* maybe different in each AF mode */
+	.fullRange = 1023, /* maybe different in each AF mode */
+
+
+	.infiniteDistance = 0x50, /* should be calibrated */
+	.normalDistanceEnd = 0x270,
+	.normalStep = 0x20, /* coarse step */
+	.normalStrideRatio = 0x18,
+	.videoDistanceEnd = 0x200,
+	.videoStep = 0x10,
+	.videoStrideRatio = 0x20,
+
+	.strideOffset = 0xc0,  /* large stride will start at (infiniteDistance+videoStrideOffset), this value must common multiple of videoStep and normalStep*/
+
+	.vcm_bits = 9,
+	.vcm_id = 0x18,
+	/* moveLensAddr can be ommitted for DW9714 */
+	.moveLensAddr[0] = 0,
+	.moveLensAddr[1] = 0,
+
+	/*
+	 * fixed params
+	 * coarseStep/fineStep will be calculated by other params
+	 */
+	.motorResTime = 10,
+	.motorDelayTime = 15,
+	.strideDivideOffset = 0x30,
+
+	.startCurrentOffset = 0x50,
+
+	.moveRange = RANGE_NORMAL,
+};
+EXPORT_SYMBOL(vcm_dw9714_ov8830);
 
 /*
  * Focus driver ic ad5823 information:
@@ -180,6 +227,7 @@ vcm_info_s vcm_ad5823 = {
 	.motorResTime = 7,
 	.motorDelayTime = 5,
 	.strideDivideOffset = 0x50,
+	.startCurrentOffset = 0xa0,
 
 	.moveRange = RANGE_NORMAL,
 };
@@ -190,10 +238,14 @@ u32 sensor_override_params[OVERRIDE_TYPE_MAX] = {
 	CAMERA_MAX_ISO,
 	CAMERA_MIN_ISO,
 
-	CAMERA_AUTO_FPS_MAX_GAIN,
-	CAMERA_AUTO_FPS_MIN_GAIN,
+	CAMERA_AUTOFPS_GAIN_LOW2MID,
+	CAMERA_AUTOFPS_GAIN_MID2HIGH,
+
+	CAMERA_AUTOFPS_GAIN_HIGH2MID,
+	CAMERA_AUTOFPS_GAIN_MID2LOW,
 
 	CAMERA_MAX_FRAMERATE,
+	CAMERA_MIDDLE_FRAMERATE,
 	CAMERA_MIN_FRAMERATE,
 	CAMERA_MIN_CAP_FRAMERATE,
 
@@ -622,6 +674,7 @@ EXPORT_SYMBOL(unregister_camera_flash);
  * Other       : NA;
  **************************************************************************
  */
+#if 0
 int camera_power_core_ldo(camera_power_state power)
 {
 	int ret = 0;
@@ -658,6 +711,92 @@ int camera_power_core_ldo(camera_power_state power)
 
 	return ret;
 }
+#else
+/*enable gpio for camera 1v2 dvdd is changed from gpio173 to gpio73. */
+#define MCAMDVDD_BLOCK	"block_mcamdvdd"
+static struct iomux_block* gpio_block=NULL;
+static struct block_config* block_conf=NULL;
+int camera_power_core_ldo(camera_power_state power)
+{
+	int ret = 0;
+
+	print_debug("enter %s", __FUNCTION__);
+
+	if (NULL == gpio_block) {
+		/* get gpio block */
+		gpio_block = iomux_get_block(MCAMDVDD_BLOCK);
+		if (!gpio_block) {
+			print_error("%s: failed to get iomux %s\n", __func__, MCAMDVDD_BLOCK);
+			return -EINVAL;
+		}
+
+		/* get gpio config block */
+		block_conf = iomux_get_blockconfig(MCAMDVDD_BLOCK);
+		if (!block_conf) {
+			print_error("%s: failed to get iomux isp %s\n", __func__, MCAMDVDD_BLOCK);
+			return -EINVAL;
+		}
+
+		/* set gpio work mode */
+		ret = blockmux_set(gpio_block, block_conf, NORMAL);
+		if (ret != 0) {
+			print_error("%s: failed to set iomux flash to gpio mode.\n", __func__);
+			return -EINVAL;
+		}
+	}
+    
+        if (NULL == gpio_main_core_ldo) {
+		gpio_main_core_ldo = iomux_get_pin(CAM_VCC_PIN);
+		if (!gpio_main_core_ldo) {
+			print_error("fail to get CAM_VCC_PIN");
+			return -EINVAL;
+		}
+	}
+
+	if (NULL == gpio_slave_core_ldo) {
+		gpio_slave_core_ldo = iomux_get_pin(SCAM_VCC_PIN);
+		if (!gpio_slave_core_ldo) {
+			print_error("fail to get SCAM_VCC_PIN");
+			return -EINVAL;
+		}
+	}
+
+	if (POWER_ON == power) {
+		print_info("power on core ldo");
+		ret = pinmux_setpullupdown(gpio_main_core_ldo, NOPULL);
+		if (ret < 0)
+			print_error("fail to set gpio_main_core_ldo to NOPULL");
+		ret = gpio_request(GPIO_21_5, "mcam_vcc_en");
+		if (ret < 0)
+			print_error("fail to get GPIO_21_5");
+		ret = gpio_direction_output(GPIO_21_5, 1);
+		if (ret < 0)
+			print_error("fail to set GPIO_21_5 to 1");
+        
+		ret = pinmux_setpullupdown(gpio_slave_core_ldo, NOPULL);
+		if (ret < 0)
+			print_error("fail to set gpio_slave_core_ldo to NOPULL");
+		ret = gpio_request(GPIO_9_1, "scam_vcc_en");
+		if (ret < 0)
+			print_error("fail to get GPIO_9_1");
+		ret = gpio_direction_output(GPIO_9_1, 1);
+		if (ret < 0)
+			print_error("fail to set GPIO_9_1 to 1");
+	} else {
+		print_info("power off core ldo");
+		ret = gpio_direction_output(GPIO_21_5, 0);
+		if (ret < 0)
+			print_error("fail to set GPIO_21_5 to 0");
+		gpio_free(GPIO_21_5);
+		ret = gpio_direction_output(GPIO_9_1, 0);
+		if (ret < 0)
+			print_error("fail to set GPIO_9_1 to 0");
+		gpio_free(GPIO_9_1);
+	}
+
+	return ret;
+}
+#endif
 
 EXPORT_SYMBOL(camera_power_core_ldo);
 

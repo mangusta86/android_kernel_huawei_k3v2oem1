@@ -30,47 +30,48 @@
 static int ldi_init(struct k3_fb_data_type *k3fd)
 {
 	u32 edc_base = 0;
+	struct k3_panel_info *pinfo = NULL;
 
 	BUG_ON(k3fd == NULL);
 
+	pinfo = &(k3fd->panel_info);
 	edc_base = k3fd->edc_base;
 
-	set_LDI_HRZ_CTRL0_hfp(edc_base, k3fd->panel_info.ldi.h_front_porch);
-	set_LDI_HRZ_CTRL0_hbp(edc_base, k3fd->panel_info.ldi.h_back_porch);
-	set_LDI_HRZ_CTRL1_hsw(edc_base, k3fd->panel_info.ldi.h_pulse_width);
-	set_LDI_VRT_CTRL0_vfp(edc_base, k3fd->panel_info.ldi.v_front_porch);
-	set_LDI_VRT_CTRL0_vbp(edc_base, k3fd->panel_info.ldi.v_back_porch);
-	if (k3fd->panel_info.ldi.v_pulse_width > 15)
-		k3fd->panel_info.ldi.v_pulse_width = 15;
-	set_LDI_VRT_CTRL1_vsw(edc_base, k3fd->panel_info.ldi.v_pulse_width);
-	set_LDI_PLR_CTRL_hsync(edc_base, k3fd->panel_info.ldi.hsync_plr);
-	set_LDI_PLR_CTRL_vsync(edc_base, k3fd->panel_info.ldi.vsync_plr);
-	set_LDI_PLR_CTRL_pixel_clk(edc_base, k3fd->panel_info.ldi.pixelclk_plr);
-	set_LDI_PLR_CTRL_data_en(edc_base, k3fd->panel_info.ldi.data_en_plr);
+	set_LDI_HRZ_CTRL0_hfp(edc_base, pinfo->ldi.h_front_porch);
+	set_LDI_HRZ_CTRL0_hbp(edc_base, pinfo->ldi.h_back_porch);
+	set_LDI_HRZ_CTRL1_hsw(edc_base, pinfo->ldi.h_pulse_width);
+	set_LDI_VRT_CTRL0_vfp(edc_base, pinfo->ldi.v_front_porch);
+	set_LDI_VRT_CTRL0_vbp(edc_base, pinfo->ldi.v_back_porch);
+	if (pinfo->ldi.v_pulse_width > 15)
+		pinfo->ldi.v_pulse_width = 15;
+	set_LDI_VRT_CTRL1_vsw(edc_base, pinfo->ldi.v_pulse_width);
+	set_LDI_PLR_CTRL_hsync(edc_base, pinfo->ldi.hsync_plr);
+	set_LDI_PLR_CTRL_vsync(edc_base, pinfo->ldi.vsync_plr);
+	set_LDI_PLR_CTRL_pixel_clk(edc_base, pinfo->ldi.pixelclk_plr);
+	set_LDI_PLR_CTRL_data_en(edc_base, pinfo->ldi.data_en_plr);
 
-	set_LDI_DSP_SIZE_hsize(edc_base, k3fd->panel_info.xres);
-	set_LDI_DSP_SIZE_vsize(edc_base, k3fd->panel_info.yres);
+	set_LDI_DSP_SIZE_hsize(edc_base, pinfo->xres);
+	set_LDI_DSP_SIZE_vsize(edc_base, pinfo->yres);
 
 	set_LDI_WORK_MODE_work_mode(edc_base, LDI_WORK);
 	set_LDI_WORK_MODE_colorbar_en(edc_base, K3_DISABLE);
-	set_LDI_CTRL_bgr(edc_base, k3fd->panel_info.bgr_fmt);
-	set_LDI_CTRL_bpp(edc_base, k3fd->panel_info.bpp);
-	set_LDI_CTRL_disp_mode(edc_base, k3fd->panel_info.ldi.disp_mode);
+	set_LDI_CTRL_bgr(edc_base, pinfo->bgr_fmt);
+	set_LDI_CTRL_bpp(edc_base, pinfo->bpp);
+	set_LDI_CTRL_disp_mode(edc_base, pinfo->ldi.disp_mode);
 	set_LDI_CTRL_corlorbar_width(edc_base, 0x3C);
-
-	if (k3fd->panel_info.type == PANEL_MIPI_CMD) {
+	if (pinfo->type == PANEL_MIPI_CMD) {
 		set_LDI_CTRL_ldi_en(edc_base, K3_DISABLE);
 	} else {
 		set_LDI_CTRL_ldi_en(edc_base, K3_ENABLE);
 	}
 	set_LDI_INT_CLR(edc_base, 0xFFFFFFFF);
 
-	if (k3fd->panel_info.type == PANEL_HDMI) {
+	if (pinfo->type == PANEL_HDMI) {
 		/* dsi pixel off */
 		set_reg(edc_base + LDI_HDMI_DSI_GT, 0x1, 1, 0);
 	}
 
-	if (!(k3fd->panel_info.bl_set_type & BL_SET_BY_PWM)) {
+	if (!(pinfo->bl_set_type & BL_SET_BY_PWM)) {
 		set_reg(edc_base + LDI_DE_SPACE_LOW, 0x1, 1, 1);
 	}
 
@@ -97,11 +98,15 @@ static int ldi_on(struct platform_device *pdev)
 	/* ldi init */
 	ldi_init(k3fd);
 
+	if (k3fd->panel_info.type == PANEL_LDI) {
+		/* set LCD init step before LCD on*/
+		k3fd->panel_info.lcd_init_step = LCD_INIT_POWER_ON;
+		ret = panel_next_on(pdev);
+	}
+
 	ret = panel_next_on(pdev);
 
-	if (k3fd->panel_info.type == PANEL_MIPI_CMD) {
-		set_LDI_CTRL_ldi_en(k3fd->edc_base, K3_ENABLE);
-	}
+	set_LDI_CTRL_ldi_en(k3fd->edc_base, K3_ENABLE);
 
 	return ret;
 }
@@ -171,6 +176,7 @@ static int ldi_set_timing(struct platform_device *pdev)
 {
 	int ret = 0;
 	struct k3_fb_data_type *k3fd = NULL;
+	struct k3_panel_info *pinfo = NULL;
 	u32 edc_base = 0;
 
 	BUG_ON(pdev == NULL);
@@ -178,25 +184,26 @@ static int ldi_set_timing(struct platform_device *pdev)
 	k3fd = (struct k3_fb_data_type *)platform_get_drvdata(pdev);
 	BUG_ON(k3fd == NULL);
 
+	pinfo = &(k3fd->panel_info);
 	edc_base = k3fd->edc_base;
 
-	set_LDI_HRZ_CTRL0_hfp(edc_base, k3fd->panel_info.ldi.h_front_porch);
-	set_LDI_HRZ_CTRL0_hbp(edc_base, k3fd->panel_info.ldi.h_back_porch);
-	set_LDI_HRZ_CTRL1_hsw(edc_base, k3fd->panel_info.ldi.h_pulse_width);
-	set_LDI_VRT_CTRL0_vfp(edc_base, k3fd->panel_info.ldi.v_front_porch);
-	set_LDI_VRT_CTRL0_vbp(edc_base, k3fd->panel_info.ldi.v_back_porch);
-	if (k3fd->panel_info.ldi.v_pulse_width > 15)
-		k3fd->panel_info.ldi.v_pulse_width = 15;
-	set_LDI_VRT_CTRL1_vsw(edc_base, k3fd->panel_info.ldi.v_pulse_width);
+	set_LDI_HRZ_CTRL0_hfp(edc_base, pinfo->ldi.h_front_porch);
+	set_LDI_HRZ_CTRL0_hbp(edc_base, pinfo->ldi.h_back_porch);
+	set_LDI_HRZ_CTRL1_hsw(edc_base, pinfo->ldi.h_pulse_width);
+	set_LDI_VRT_CTRL0_vfp(edc_base, pinfo->ldi.v_front_porch);
+	set_LDI_VRT_CTRL0_vbp(edc_base, pinfo->ldi.v_back_porch);
+	if (pinfo->ldi.v_pulse_width > 15)
+		pinfo->ldi.v_pulse_width = 15;
+	set_LDI_VRT_CTRL1_vsw(edc_base, pinfo->ldi.v_pulse_width);
 
-	set_LDI_DSP_SIZE_hsize(edc_base, k3fd->panel_info.xres);
-	set_LDI_DSP_SIZE_vsize(edc_base, k3fd->panel_info.yres);
+	set_LDI_DSP_SIZE_hsize(edc_base, pinfo->xres);
+	set_LDI_DSP_SIZE_vsize(edc_base, pinfo->yres);
 
-	set_LDI_PLR_CTRL_hsync(edc_base, k3fd->panel_info.ldi.hsync_plr);
-	set_LDI_PLR_CTRL_vsync(edc_base, k3fd->panel_info.ldi.vsync_plr);
+	set_LDI_PLR_CTRL_hsync(edc_base, pinfo->ldi.hsync_plr);
+	set_LDI_PLR_CTRL_vsync(edc_base, pinfo->ldi.vsync_plr);
 
-	if (clk_set_rate(k3fd->ldi_clk, k3fd->panel_info.clk_rate) != 0) {
-		k3fb_loge("failed to set ldi clk rate(%d).\n", k3fd->panel_info.clk_rate);
+	if (clk_set_rate(k3fd->ldi_clk, pinfo->clk_rate) != 0) {
+		k3fb_loge("failed to set ldi clk rate(%d).\n", pinfo->clk_rate);
 	}
 
 	ret = panel_next_set_timing(pdev);
@@ -251,9 +258,7 @@ static int ldi_probe(struct platform_device *pdev)
 	ret = clk_set_rate(k3fd->ldi_clk, k3fd->panel_info.clk_rate);
 	if (ret != 0) {
 		k3fb_loge("failed to set ldi clk rate(%d).\n", k3fd->panel_info.clk_rate);
-	#ifndef CONFIG_MACH_TC45MSU3
-		return ret;
-	#endif
+		/*return ret;*/
 	}
 
 	/* k3_fb device */
@@ -289,8 +294,10 @@ static int ldi_probe(struct platform_device *pdev)
 	memcpy(&k3fd->panel_info, pdata->panel_info, sizeof(struct k3_panel_info));
 
 	fbi = k3fd->fbi;
-	/*fbi->var.pixclock = clk_round_rate(pixel_edc_clk, k3fd->panel_info.clk_rate);*/
+#ifndef CONFIG_MACH_TC45MSU3
 	fbi->var.pixclock = k3fd->panel_info.clk_rate;
+#endif
+	/*fbi->var.pixclock = clk_round_rate(k3fd->ldi_clk, k3fd->panel_info.clk_rate);*/
 	fbi->var.left_margin = k3fd->panel_info.ldi.h_back_porch;
 	fbi->var.right_margin = k3fd->panel_info.ldi.h_front_porch;
 	fbi->var.upper_margin = k3fd->panel_info.ldi.v_back_porch;

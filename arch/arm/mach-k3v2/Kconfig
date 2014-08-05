@@ -38,6 +38,12 @@ config MACH_K3V2OEM2
 	help
 	  Support for  Hisilicon K3V2 SOC OEM 2 platform
 
+config MACH_EPRJ_U9508
+	bool "EternityProject U9508 Board"
+	select REGULATOR_HI6421
+	help
+	  Support for Huawei U9508 machine - EPRJ Implementation.
+
 comment "K3V200 features"
 config K3_EDB_LEVEL
 	int "Kernel Early-Debug Level( 0~254, 255 => Disable Early-Debug)"
@@ -97,17 +103,60 @@ config WIFI_DEVICE
 	help
 	  bcm4330-wifi device support
 
+config MODEM_BOOT
+	bool "Modem boot control support"
+	default y
+	help
+	  Modem boot control support
+
 config XMM_POWER
 	bool "xmm6260 power control support"
+	depends on MODEM_BOOT
 	default y
 	help
 	  xmm6260 power control
 
 config XMM_RMNET
 	bool "xmm6260 rmnet support"
+	depends on XMM_POWER
 	default y
 	help
 	  xmm6260 rmnet
+
+config BALONG_POWER
+	bool "balong boot control support"
+	depends on MODEM_BOOT
+	default y
+	help
+	  Modem balong boot control support
+
+config BALONG_RMNET
+	bool "balong rmnet support"
+	depends on BALONG_POWER
+	default y
+	help
+	  Modem balong rmnet config
+
+config MODEM_BOOT_QSC6085
+        bool "qsc6085 boot control support"
+	depends on MODEM_BOOT
+        default y
+        help
+          Modem qsc6085 boot control support
+
+config MODEM_BOOT_MTK6252
+	bool "mtk6252 boot control support"
+	depends on MODEM_BOOT
+	default y
+	help
+	  Modem mtk6252 boot control support
+
+config MODEM_BOOT_SPRD8803G
+       bool "sprd8803 boot control support"
+       depends on MODEM_BOOT
+       default y
+       help
+         Modem sprd8803 boot control support
 
 config DEFAULT_TIMERCLK
 	int "Kernel Timer Clock Frequence"
@@ -127,19 +176,81 @@ config LOWPM_DEBUG
 	help
 		set low power debug property
 
-config K3V2_WAKEUP_TIMER
-    tristate "k3v2 wakeup timer driver"
-        default y
-        help
-        Say Y to enable k3v2 wakeup timer driver Support
-
-
 config DEBUG_LED
 	bool "LED light for debug"
 	default n
 	help
 		set LED light for debug
 
+config K3_CLK_ALWAYS_ON
+    tristate "k3v2 clk write register when disable clk"
+	default n
+	help
+		Say y don't write register if disable CLK,used for debug
+
+config K3V2_WAKEUP_TIMER
+    tristate "k3v2 wakeup timer driver"
+	default n
+	help
+		Say Y to enable k3v2 wakeup timer driver Support
+
+config TOUCH_INPUT_SYNAPTICS2202
+	bool "use synaptics 2202 for touch device"
+	default n
+	help
+		set synaptics 2202 for TP else use synaptics 7020
+
+config TOUCH_INPUT_SYNAPTICS_RMI4
+	bool "use synaptics RMI4 for touch device"
+	default n
+	help
+		Old synaptics TP, not use any more.If you want to use,disable TOUCH_INPUT_SYNAPTICS2202
+
+config PMEM_ALTERNATIVES
+    bool "Overrides PMEM sizes"
+    default n
+
+config PMEM_HIGPU_BUF_SIZE
+    int "Overrides HIGPU_BUF_SIZE (in MB)"
+    depends on PMEM_ALTERNATIVES
+    default 0
+
+config PMEM_GRALLOC_SIZE
+    int "Overrides HISI_PMEM_GRALLOC_SIZE (in MB)"
+    depends on PMEM_ALTERNATIVES
+    default 0
+
+config PMEM_CODEC_SIZE
+    int "Overrides HISI_MEM_CODEC_SIZE (in MB)"
+    depends on PMEM_ALTERNATIVES
+    default 0
+
 endif
+
+config MAX_TTY_BUFFER
+	int "MAX tty buffer"
+	default "2097152"
+	help
+		Set the default max tty buffer sie 2M
+
+config SUPPORT_B3750000_BITRATE
+	bool "suport 3.75Mbps bitrate for uart"
+	default y
+	help
+   	   slect this if use b3750000,pll frequency have change to 60Mhz
+
+config ENABLE_K3V2_UART_SLEEP_CONTROL_FOR_D2
+	bool "use additional gpio for uart sleep control"
+	default y
+	help
+       slect this if use additional gpio for uart sleep control
+
+config K3V2_RAMDUMP
+	bool "ram dump for k3v2 platform"
+	default y
+	help
+	ram dump for k3v2 platform
+
 endmenu
 
+source "arch/arm/mach-k3v2/eprj_generic/Kconfig"

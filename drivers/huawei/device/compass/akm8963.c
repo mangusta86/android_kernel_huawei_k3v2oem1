@@ -44,7 +44,7 @@
 #define AKM_ACCEL_ITEMS 3
 /* Wait timeout in millisecond */
 #define AKM8963_DRDY_TIMEOUT	100
-#define MSENSOR_PIN "gpio_125"/*gpio_125*/
+#define MSENSOR_PIN "gpio_125"
 #if AKM8963_DEBUG_MSG
 #define AKMDBG(format, ...)    \
         printk(KERN_INFO "AKM8963 " format "\n", ## __VA_ARGS__)
@@ -373,6 +373,7 @@ static void AKECS_SetYPR(
 		rbuf[5], rbuf[6], rbuf[7], rbuf[8]);
 	dev_vdbg(&akm->input->dev, "  Orientation[YPR] : %6d,%6d,%6d",
 		rbuf[9], rbuf[10], rbuf[11]);
+
 	/* No events are reported */
 	if (!rbuf[0]) {
 		dev_dbg(&akm->i2c->dev, "Don't waste a time.");
@@ -541,7 +542,7 @@ AKECS_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		dev_vdbg(&akm->i2c->dev, "IOCTL_GET_OPEN_STATUS called.");
 		ret = AKECS_GetOpenStatus(akm);
 		if (ret < 0) {
-			dev_err(&akm->i2c->dev,
+			dev_vdbg(&akm->i2c->dev,
 				"Get Open returns error (%d).", ret);
 		}
 		break;
@@ -549,7 +550,7 @@ AKECS_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		dev_vdbg(&akm->i2c->dev, "IOCTL_GET_CLOSE_STATUS called.");
 		ret = AKECS_GetCloseStatus(akm);
 		if (ret < 0) {
-			dev_err(&akm->i2c->dev,
+			dev_vdbg(&akm->i2c->dev,
 				"Get Close returns error (%d).", ret);
 		}
 		break;
@@ -1096,7 +1097,6 @@ static ssize_t attr_get_accl_info(struct device *dev,
     count = sprintf(buf, "AKM AKM8963");
     return count;
 }
-
 static struct device_attribute akm8963_attributes[] = {
 	__ATTR(enable_acc, 0664, akm8963_enable_acc_show, akm8963_enable_acc_store),
 	__ATTR(enable_mag, 0664, akm8963_enable_mag_show, akm8963_enable_mag_store),

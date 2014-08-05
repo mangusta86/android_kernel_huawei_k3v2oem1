@@ -962,6 +962,17 @@ static int nl80211_send_wiphy(struct sk_buff *msg, u32 pid, u32 seq, int flags,
 	if (nl80211_put_iface_combinations(&dev->wiphy, msg))
 		goto nla_put_failure;
 
+	if (dev->wiphy.flags & WIPHY_FLAG_HAVE_AP_SME)
+		NLA_PUT_U32(msg, NL80211_ATTR_DEVICE_AP_SME,
+			    dev->wiphy.ap_sme_capa);
+
+	NLA_PUT_U32(msg, NL80211_ATTR_FEATURE_FLAGS, dev->wiphy.features);
+
+	if (dev->wiphy.ht_capa_mod_mask)
+		NLA_PUT(msg, NL80211_ATTR_HT_CAPABILITY_MASK,
+			sizeof(*dev->wiphy.ht_capa_mod_mask),
+			dev->wiphy.ht_capa_mod_mask);
+
 	return genlmsg_end(msg, hdr);
 
  nla_put_failure:

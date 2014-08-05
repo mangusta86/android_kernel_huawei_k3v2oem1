@@ -132,7 +132,7 @@ static struct pmuregs pmuregs_lookups[] = {
 	PMU_LOW(0x35, 0x00, 0x01),
 
 	/*close ldo13*/
-	PMU_LOW(0x2D, 0x30, 0x30),
+	PMU_LOW(0x2D, 0x00, 0x00),
 
 	/*w 25 31  LDO5 ECO mode*/
 	/*PMU_LOW(0x25, 0x20, 0x20),*/
@@ -154,6 +154,11 @@ static struct pmuregs pmuregs_lookups[] = {
 
 	/*w 8f 08 sleep*/
 	/*PMU_LOW(0x8F, 0x08, 0x07),*/
+
+        /*ldo chg_pump sleep*/
+       
+       
+        PMU_LOW(0x4e, 0x28, 0xff),
 };
 
 
@@ -185,7 +190,8 @@ void pmulowpower(int isuspend)
 				__LINE__, i, pmuregs_lookups[i].ucoffset,
 				uregv, pmuregs_lookups[i].old_val);
 #endif
-			writel(uregv, PMUSPI_REG(pmuregs_lookups[i].ucoffset));
+
+		        writel(uregv, PMUSPI_REG(pmuregs_lookups[i].ucoffset));
 		}
 
 	} else {

@@ -1584,6 +1584,15 @@ enum wiphy_flags {
 	WIPHY_FLAG_MESH_AUTH			= BIT(10),
 	WIPHY_FLAG_SUPPORTS_SCHED_SCAN		= BIT(11),
 	WIPHY_FLAG_ENFORCE_COMBINATIONS		= BIT(12),
+	WIPHY_FLAG_SUPPORTS_FW_ROAM		= BIT(13),
+	WIPHY_FLAG_AP_UAPSD			= BIT(14),
+	WIPHY_FLAG_SUPPORTS_TDLS		= BIT(15),
+	WIPHY_FLAG_TDLS_EXTERNAL_SETUP		= BIT(16),
+	WIPHY_FLAG_HAVE_AP_SME			= BIT(17),
+	WIPHY_FLAG_REPORTS_OBSS			= BIT(18),
+	WIPHY_FLAG_AP_PROBE_RESP_OFFLOAD	= BIT(19),
+	WIPHY_FLAG_OFFCHAN_TX			= BIT(20),
+	WIPHY_FLAG_HAS_REMAIN_ON_CHANNEL	= BIT(21),
 };
 
 /**
@@ -1683,6 +1692,11 @@ enum wiphy_wowlan_support_flags {
 	WIPHY_WOWLAN_ANY	= BIT(0),
 	WIPHY_WOWLAN_MAGIC_PKT	= BIT(1),
 	WIPHY_WOWLAN_DISCONNECT	= BIT(2),
+	WIPHY_WOWLAN_SUPPORTS_GTK_REKEY	= BIT(3),
+	WIPHY_WOWLAN_GTK_REKEY_FAILURE	= BIT(4),
+	WIPHY_WOWLAN_EAP_IDENTITY_REQ	= BIT(5),
+	WIPHY_WOWLAN_4WAY_HANDSHAKE	= BIT(6),
+	WIPHY_WOWLAN_RFKILL_RELEASE	= BIT(7),
 };
 
 /**
@@ -1802,7 +1816,9 @@ struct wiphy {
 	/* Supported interface modes, OR together BIT(NL80211_IFTYPE_...) */
 	u16 interface_modes;
 
-	u32 flags;
+	u32 flags, features;
+
+	u32 ap_sme_capa;
 
 	enum cfg80211_signal_type signal_type;
 
@@ -1857,6 +1873,8 @@ struct wiphy {
 
 	/* dir in debugfs: ieee80211/<wiphyname> */
 	struct dentry *debugfsdir;
+
+	const struct ieee80211_ht_cap *ht_capa_mod_mask;
 
 #ifdef CONFIG_NET_NS
 	/* the network namespace this phy lives in currently */

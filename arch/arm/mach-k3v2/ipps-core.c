@@ -158,6 +158,8 @@ static int add_client_context(struct ipps_device *device, struct ipps_client *cl
 	return 0;
 }
 
+int g_object_flag = 0;
+
 /**
  * ipps_register_device - Register an IPPS device with IPPS core
  * @device:Device to register
@@ -179,6 +181,7 @@ int ipps_register_device(struct ipps_device *device)
 			goto out;
 	}
 
+	g_object_flag |= device->object;
 	INIT_LIST_HEAD(&device->client_data_list);
 	spin_lock_init(&device->client_data_lock);
 
@@ -191,7 +194,9 @@ int ipps_register_device(struct ipps_device *device)
 
 		list_for_each_entry(client, &client_list, list)
 			if (client->add && !add_client_context(device, client))
-				client->add(device);
+			//	client->add(device);
+				if (g_object_flag == (IPPS_OBJ_CPU | IPPS_OBJ_GPU | IPPS_OBJ_DDR | IPPS_OBJ_TEMP))
+					client->add(device);
 	}
 
  out:
@@ -227,6 +232,8 @@ void ipps_unregister_device(struct ipps_device *device)
 		kfree(context);
 	spin_unlock_irqrestore(&device->client_data_lock, flags);
 
+	g_object_flag = 0;
+	
 	device->reg_state = IPPS_DEV_UNREGISTERED;
 }
 EXPORT_SYMBOL(ipps_unregister_device);

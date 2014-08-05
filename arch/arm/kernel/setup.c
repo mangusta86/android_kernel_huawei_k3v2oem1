@@ -52,6 +52,10 @@
 
 #include <linux/cpufreq.h>
 
+#ifdef CONFIG_SRECORDER
+#include <linux/srecorder.h>
+#endif
+
 #if defined(CONFIG_DEPRECATED_PARAM_STRUCT)
 #include "compat.h"
 #endif
@@ -130,6 +134,21 @@ EXPORT_SYMBOL(elf_platform);
 
 static const char *cpu_name;
 static const char *machine_name;
+
+#if defined(CONFIG_SRECORDER) && DUMP_SYS_INFO
+unsigned long get_cpu_name(void)
+{
+    return &cpu_name;
+}
+EXPORT_SYMBOL(get_cpu_name);
+
+unsigned long get_machine_name(void)
+{
+    return &machine_name;
+}
+EXPORT_SYMBOL(get_machine_name);
+#endif
+
 static char __initdata cmd_line[COMMAND_LINE_SIZE];
 struct machine_desc *machine_desc __initdata;
 

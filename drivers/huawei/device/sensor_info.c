@@ -13,6 +13,7 @@
 #include <linux/board_sensors.h>
 #include <hsad/config_interface.h>
 
+extern unsigned int g_compass_softiron_type;
 static char *sensor_binder_input[SENSOR_MAX] = {NULL};
 static char *sensor_chip_info[SENSOR_MAX] = {NULL};
 static char *gyro_selfTest_result;
@@ -66,6 +67,7 @@ static struct platform_device sensor_input_info = {
 	.name = "huawei_sensor",
 	.id = -1,
 };
+
 static ssize_t show_acc_chip_info(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
@@ -205,8 +207,22 @@ static ssize_t show_gyro_selfTest_result(struct device *dev,
 	}
 	return sprintf(buf, "%s\n", gyro_selfTest_result);
 }
-static DEVICE_ATTR(gyro_selfTest, S_IRUGO,
-				   show_gyro_selfTest_result, NULL);
+static ssize_t attr_set_gyro_selftest(struct device *dev, struct device_attribute *attr,
+				const char *buf, size_t size)
+{
+	struct l3g4200d_data *gyro = dev_get_drvdata(dev);
+	unsigned long val;
+	int err = -1;
+
+	if (strict_strtoul(buf, 10, &val))
+		return -EINVAL;
+	if(set_selftest(val) || set_selftest_lm330(val))
+		pr_err("st set gyro selftest fail!\n");
+	return size;
+}
+
+static DEVICE_ATTR(gyro_selfTest, 0664,
+				   show_gyro_selfTest_result, attr_set_gyro_selftest);
 static ssize_t show_akm_selfTest_result(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
@@ -227,19 +243,32 @@ static ssize_t write_akm_selfTest_result(struct device *dev,
 }
 static DEVICE_ATTR(akm_selfTest, 0664,
 				   show_akm_selfTest_result, write_akm_selfTest_result);
-static ssize_t show_gyro_use_or_not(struct device *dev,
+static ssize_t show_compass_softiron_type(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
-       char *gyro_use_or_not;
 	if (dev == NULL) {
-		pr_err("show_gyro_use_or_not dev is null\n");
+		pr_err("compass_softiron_type is null\n");
 		return -EINVAL;
 	}
-    gyro_use_or_not = "0";
-	return sprintf(buf, "%s\n", gyro_use_or_not);
+	return sprintf(buf, "%d\n", g_compass_softiron_type);
 }
-static DEVICE_ATTR(has_gyro, 0644,
-				   show_gyro_use_or_not, NULL);
+static DEVICE_ATTR(compass_softiron_type, S_IRUGO,
+				   show_compass_softiron_type, NULL);
+
+static ssize_t show_gyro_exist(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	int gyro_exist = 0;
+	if (dev == NULL) {
+		pr_err("device is null\n");
+		return -EINVAL;
+	}
+	gyro_exist = get_gyro_exist_info();
+	return sprintf(buf, "%d\n", gyro_exist);
+}
+static DEVICE_ATTR(gyro_exist, S_IRUGO,
+				   show_gyro_exist, NULL);
+
 static struct attribute *apds990x_input_attributes[] = {
 	&dev_attr_ps_input.attr,
 	&dev_attr_als_input.attr,
@@ -254,7 +283,8 @@ static struct attribute *apds990x_input_attributes[] = {
 	&dev_attr_als_info.attr,
 	&dev_attr_gyro_selfTest.attr,
 	&dev_attr_akm_selfTest.attr,
-	&dev_attr_has_gyro.attr,
+	&dev_attr_compass_softiron_type.attr,
+	&dev_attr_gyro_exist.attr,
 	NULL
 };
 static const struct attribute_group sensor_input = {

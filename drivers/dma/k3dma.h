@@ -154,7 +154,7 @@ struct k3dma_chan {
 	u32				ref_count;
 	dma_cookie_t	lc;
 	spinlock_t		lock;
-	struct list_head           k3chan_page_list;
+	struct list_head           page_list;
 };
 
 

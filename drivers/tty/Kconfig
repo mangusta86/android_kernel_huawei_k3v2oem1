@@ -319,6 +319,33 @@ config N_GSM
 	  This line discipline provides support for the GSM MUX protocol and
 	  presents the mux as a set of 61 individual tty devices.
 
+config N_GSM_MTK
+	tristate "GSM MUX line discipline support (EXPERIMENTAL) for MTK modem"
+	depends on EXPERIMENTAL
+	depends on NET
+	default y
+	help
+	  This line discipline provides support for the GSM MUX protocol and
+	  presents the mux as a set of 61 individual tty devices for MTK modem.
+
+config N_GSM_QSC
+	tristate "GSM MUX line discipline support (EXPERIMENTAL) for QSC modem"
+	depends on EXPERIMENTAL
+	depends on NET
+	default y
+	help
+	  This line discipline provides support for the GSM MUX protocol and
+	  presents the mux as a set of 61 individual tty devices.
+
+config N_GSM_BALONG
+	tristate "GSM MUX line discipline support (EXPERIMENTAL) for BALONG modem"
+	depends on EXPERIMENTAL
+	depends on NET
+	default y
+	help
+	  This line discipline provides support for the GSM MUX protocol and
+	  presents the mux as a set of 61 individual tty devices for BALONG modem.
+
 config TRACE_ROUTER
 	tristate "Trace data router for MIPI P1149.7 cJTAG standard"
 	depends on TRACE_SINK

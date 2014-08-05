@@ -25,6 +25,7 @@
 
 #include "k3_fb.h"
 #include "k3_fb_def.h"
+#include "k3_fb_panel.h"
 
 
 #define WAIT_NUMBER			(1000)
@@ -41,20 +42,32 @@
 static DEFINE_MUTEX(k3led_backlight_lock);
 static int bklclk_cnt;
 static u32 brightness_old = 0;
-int pwm_set_backlight(int bl_lvl, struct k3_panel_info *pinfo)
+
+int pwm_set_backlight(struct k3_fb_data_type *k3fd, volatile bool *display_on)
 {
 	int ret = 0;
 	int i = 0;
 	u32 brightness = 0;
-	volatile u32 base = IO_ADDRESS(pinfo->pwm_base);
+	u32 pwm_base = 0;
+	u32 bl_max = 0;
+	int bl_level = 0;
+	struct k3_panel_info *pinfo = NULL;
 
-	BUG_ON(pinfo == NULL);
+	BUG_ON(k3fd == NULL);
+	pinfo = &(k3fd->panel_info);
+
+	pwm_base = k3fd->pwm_base;
+	bl_max = pinfo->bl_max;
+	if (*display_on)
+		bl_level = k3fd->bl_level;
+	else
+		bl_level = 0;
 
 	mutex_lock(&k3led_backlight_lock);
 
-	brightness = (bl_lvl * PWM_MAX_DIV) / pinfo->bl_max;
+	brightness = (bl_level * PWM_MAX_DIV) / bl_max;
 	if (!bklclk_cnt++) {
-		ret = clk_enable(pinfo->pwm_clk);
+		ret = clk_enable(pinfo->pwm.clk);
 		if (ret != 0) {
 			k3fb_loge("backlight failed to enable pwm_clk!\n");
 			mutex_unlock(&k3led_backlight_lock);
@@ -63,14 +76,14 @@ int pwm_set_backlight(int bl_lvl, struct k3_panel_info *pinfo)
 	}
 
 	if (brightness == 0) {
-		outp32(base + PWM_OUT_OFFSET, brightness);
-		outp32(base, BACKLIGHT_DISABLE);
-		clk_disable(pinfo->pwm_clk);
+		outp32(pwm_base + PWM_OUT_OFFSET, brightness);
+		outp32(pwm_base, BACKLIGHT_DISABLE);
+		clk_disable(pinfo->pwm.clk);
 		bklclk_cnt = 0;
 	} else {
 		/*wait for display on*/
 		for (i = 0; i < WAIT_NUMBER; i++) {
-			if (pinfo->display_on  == false) {
+			if (*display_on == false) {
 				msleep(WAIT_TIMERLEN);
 				continue;
 			} else {
@@ -82,16 +95,16 @@ int pwm_set_backlight(int bl_lvl, struct k3_panel_info *pinfo)
 			k3fb_loge("backlight is time out!\n");
 		}
 
-		outp32(base, BACKLIGHT_ENABLE);
-		outp32(base + PWM_DIV_OFFSET, PWM_MAX_DIV);
+		outp32(pwm_base, BACKLIGHT_ENABLE);
+		outp32(pwm_base + PWM_DIV_OFFSET, PWM_MAX_DIV);
 
 		if (brightness_old < brightness) {
-		    for (i = brightness_old + 1; i <= brightness; i++) {
+			for (i = brightness_old + 1; i <= brightness; i++) {
 				udelay(50);
-				outp32(base + PWM_OUT_OFFSET, i);
-		    }
+				outp32(pwm_base + PWM_OUT_OFFSET, i);
+			}
 		} else {
-				outp32(base + PWM_OUT_OFFSET, brightness);
+			outp32(pwm_base + PWM_OUT_OFFSET, brightness);
 		}
 	}
 
@@ -99,4 +112,30 @@ int pwm_set_backlight(int bl_lvl, struct k3_panel_info *pinfo)
 	mutex_unlock(&k3led_backlight_lock);
 
 	return 0;
+}
+
+int pwm_clk_get(struct k3_panel_info *pinfo)
+{
+	BUG_ON(pinfo == NULL);
+
+	pinfo->pwm.clk = clk_get(NULL, pinfo->pwm.name);
+	if (IS_ERR(pinfo->pwm.clk)) {
+		k3fb_loge("failed to get %s clk!\n", pinfo->pwm.name);
+		return PTR_ERR(pinfo->pwm.clk);
+	}
+
+	if (clk_set_rate(pinfo->pwm.clk, pinfo->pwm.clk_rate) != 0) {
+		k3fb_loge("failed to set %s clk rate!\n", pinfo->pwm.name);
+	}
+
+	return 0;
+}
+
+void pwm_clk_put(struct k3_panel_info *pinfo)
+{
+	BUG_ON(pinfo == NULL);
+
+	if (!IS_ERR(pinfo->pwm.clk)) {
+		clk_put(pinfo->pwm.clk);
+	}
 }

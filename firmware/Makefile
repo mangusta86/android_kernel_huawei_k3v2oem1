@@ -142,7 +142,11 @@ fw-shipped-$(CONFIG_USB_VICAM) += vicam/firmware.fw
 fw-shipped-$(CONFIG_VIDEO_CPIA2) += cpia2/stv0672_vp4.bin
 fw-shipped-$(CONFIG_YAM) += yam/1200.bin yam/9600.bin
 fw-shipped-$(CONFIG_IPPS_SUPPORT) += ipps/ipps-v2.bin ipps/ipps-v2-es.bin
-fw-shipped-y += rmi4/TM2429-001.img
+fw-shipped-$(CONFIG_TOUCHSCREEN_RMI4_SYNAPTICS_GENERIC) += rmi4/TM2451-001.img \
+							   rmi4/TM2429-001.img \
+							   rmi4/TM2561-001.img \
+							   rmi4/BLL/TM2450-000.img
+fw-shipped-y += cyttsp4_fw.bin
 fw-shipped-all := $(fw-shipped-y) $(fw-shipped-m) $(fw-shipped-)
 
 # Directories which we _might_ need to create, so we have a rule for them.

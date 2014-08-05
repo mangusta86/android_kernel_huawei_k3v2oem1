@@ -183,8 +183,10 @@ int mipi_dsi_cmds_tx(struct dsi_cmd_desc *cmds, int cnt, u32 edc_base)
 		if (cm->wait) {
 			if (cm->waittype == WAIT_TYPE_US)
 				udelay(cm->wait);
+			else if (cm->waittype == WAIT_TYPE_MS)
+				mdelay(cm->wait);
 			else
-				msleep(cm->wait);
+				mdelay(cm->wait * 1000);
 		}
 		cm++;
 	}

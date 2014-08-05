@@ -35,4 +35,10 @@ struct ap_temp_sensor_pdata{
 	char *name;
 };
 
+struct nct203_temp_sensor_pdata{
+	char *name;
+};
+struct thermal_config_name_pdata{
+	char *name;
+};
 #endif

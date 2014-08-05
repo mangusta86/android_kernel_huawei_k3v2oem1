@@ -117,6 +117,13 @@ config USB_SUSB_OTG
 	   USB_OTG_WHITELIST and update "drivers/usb/core/otg_whitelist.h"
 	   to match your requirements.
 
+config USB_OTG_GPIO_ID_DET
+	bool "Using GPIO_ID_DET to detect USB OTG device"
+	default y
+	help
+	   k3v2 chip USB phy need external GPIO to detect if it is a USB OTG device, 
+	   then call k3v2_otg_id_status_change() to power on/off USB otg phy.
+
 endchoice
 
 # enables host support (including with OTG)

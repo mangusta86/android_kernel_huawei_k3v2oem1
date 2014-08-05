@@ -30,7 +30,6 @@
 #include <linux/list.h>
 #include <linux/interrupt.h>
 
-
 #ifdef CONFIG_RMI_DEBUG
 #include <linux/debugfs.h>
 #endif
@@ -41,8 +40,10 @@
 
 #define SYNAPTICS_VBUS "ts-vbus"
 #define SYNAPTICS_VDD "ts-vdd"
-#define LCD_X_QHD			720
-#define LCD_Y_QHD			1280
+#define LCD_X_QHD	720
+#define LCD_Y_QHD	1280
+
+void synaptics_set_sensitivity(uint8_t tp_status);
 
 /* Permissions for sysfs attributes.  Since the permissions policy will change
  * on a global basis in the future, rather than edit all sysfs attrs everywhere
@@ -358,7 +359,9 @@ struct rmi_phys_device {
 
 	void *data;
 
+	struct task_struct *rmi_task;
 	struct rmi_phys_info info;
+
 };
 
 /**
@@ -631,4 +634,7 @@ bool u8_is_any_set(u8 *target, int size);
 void u8_or(u8 *dest, u8* target1, u8* target2, int size);
 void u8_and(u8 *dest, u8* target1, u8* target2, int size);
 #endif
-int set_touch_chip_info(const char *chip_info);
+
+void __rmi_touch_irq_enable(void);
+
+void __rmi_touch_irq_disable(void);

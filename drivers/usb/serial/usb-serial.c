@@ -54,6 +54,14 @@ static struct usb_driver usb_serial_driver = {
 	.supports_autosuspend =	1,
 };
 
+/*< DTS00176579033101 begin: modified for usb tty devices number change 2012-03-31 >*/
+/* keep the ports which are bounded to the ttys in using */
+struct usb_serial_port *port_keeping_table[SERIAL_TTY_MINORS];
+
+#define SERIAL_PORT_READY(port) (port && (!port->serial->disconnected) && port->port.count)
+DEFINE_MUTEX(sr_mutex);
+/*< DTS00176579033101 end: modified for usb tty devices number change 2012-03-31 >*/
+
 /* There is no MODULE_DEVICE_TABLE for usbserial.c.  Instead
    the MODULE_DEVICE_TABLE declarations in each serial driver
    cause the "hotplug" program to pull in whatever module is necessary
@@ -168,6 +176,7 @@ static void destroy_serial(struct kref *kref)
 		}
 	}
 
+	usb_put_intf(serial->interface);
 	usb_put_dev(serial->dev);
 	kfree(serial);
 }
@@ -265,11 +274,51 @@ static int serial_activate(struct tty_port *tport, struct tty_struct *tty)
 
 static int serial_open(struct tty_struct *tty, struct file *filp)
 {
+	int ret = -ENODEV;
+
 	struct usb_serial_port *port = tty->driver_data;
 
 	dbg("%s - port %d", __func__, port->number);
-	return tty_port_open(&port->port, tty, filp);
+
+	usb_autopm_get_interface(port->serial->interface);
+	
+	ret = tty_port_open(&port->port, tty, filp);
+
+	usb_autopm_put_interface(port->serial->interface);
+
+	return ret;
 }
+
+/*< DTS00176579033101 begin: modified for usb tty devices number change 2012-03-31 >*/
+/**
+ * serial_reopen - bind tty to tty port
+ * @tty: bound to tty port
+ * @port: serial port contain tty port
+ *
+ * bind the tty to the tty port and active the tty port.
+ */
+int serial_reopen(struct tty_struct *tty, struct usb_serial_port *port)
+{
+	struct tty_port *tty_port = &port->port;
+	
+	dbg("%s - port %d", __func__, port->number);
+	tty_port->tty = tty;
+	
+	mutex_lock(&tty_port->mutex);
+	clear_bit(TTY_IO_ERROR, &tty->flags);
+	if (tty_port->ops->activate) {
+		int retval = tty_port->ops->activate(tty_port, tty);
+		if (retval) {
+			mutex_unlock(&tty_port->mutex);
+			return retval;
+		}
+	}
+	set_bit(ASYNCB_INITIALIZED, &tty_port->flags);
+	mutex_unlock(&tty_port->mutex);
+	
+	return 0;
+}
+/*< DTS00176579033101 end: modified for usb tty devices number change 2012-03-31 >*/
 
 /**
  * serial_down - shut down hardware
@@ -307,6 +356,16 @@ static void serial_close(struct tty_struct *tty, struct file *filp)
 	struct usb_serial_port *port = tty->driver_data;
 	dbg("%s - port %d", __func__, port->number);
 	tty_port_close(&port->port, tty, filp);
+	
+/*< DTS00176579033101 begin: modified for usb tty devices number change 2012-03-31 >*/
+	mutex_lock(&sr_mutex);
+	if (port_keeping_table[tty->index]) {
+		port_keeping_table[tty->index] = NULL;
+		tty_unregister_device(usb_serial_tty_driver, port->number);
+		usb_serial_put(port->serial);
+	}
+	mutex_unlock(&sr_mutex);
+/*< DTS00176579033101 end: modified for usb tty devices number change 2012-03-31 >*/
 }
 
 /**
@@ -353,6 +412,12 @@ static int serial_write(struct tty_struct *tty, const unsigned char *buf,
 	struct usb_serial_port *port = tty->driver_data;
 	int retval = -ENODEV;
 
+/*< DTS00176579033101 begin: modified for usb tty devices number change 2012-03-31 >*/
+	if(!SERIAL_PORT_READY(port)) {
+		printk("~~~~~~%s, %d, port not ready...\n", __func__, __LINE__);
+		return retval;
+	}
+/*< DTS00176579033101 end: modified for usb tty devices number change 2012-03-31 >*/
 	if (port->serial->dev->state == USB_STATE_NOTATTACHED)
 		goto exit;
 
@@ -368,6 +433,14 @@ exit:
 static int serial_write_room(struct tty_struct *tty)
 {
 	struct usb_serial_port *port = tty->driver_data;
+
+/*< DTS00176579033101 begin: modified for usb tty devices number change 2012-03-31 >*/
+	if(!SERIAL_PORT_READY(port)) {
+		printk("~~~~~~%s, %d, port not ready...\n", __func__, __LINE__);
+		return -EINVAL;
+	}
+/*< DTS00176579033101 end: modified for usb tty devices number change 2012-03-31 >*/
+	
 	dbg("%s - port %d", __func__, port->number);
 	/* pass on to the driver specific version of this function */
 	return port->serial->type->write_room(tty);
@@ -377,7 +450,15 @@ static int serial_chars_in_buffer(struct tty_struct *tty)
 {
 	struct usb_serial_port *port = tty->driver_data;
 	dbg("%s - port %d", __func__, port->number);
-
+/*< DTS00176579040601 begin: fix bug tty close for a long time 2012-04-06 >*/
+/*< DTS00176579033101 begin: modified for usb tty devices number change 2012-03-31 >*/
+	if(!SERIAL_PORT_READY(port)) {
+		printk("~~~~~~%s, %d, port not ready...\n", __func__, __LINE__);
+		return 0;
+	}
+/*< DTS00176579033101 end: modified for usb tty devices number change 2012-03-31 >*/
+/*< DTS00176579040601 end: fix bug tty close for a long time 2012-04-06 >*/
+	
 	/* if the device was unplugged then any remaining characters
 	   fell out of the connector ;) */
 	if (port->serial->disconnected)
@@ -391,6 +472,13 @@ static void serial_throttle(struct tty_struct *tty)
 	struct usb_serial_port *port = tty->driver_data;
 	dbg("%s - port %d", __func__, port->number);
 
+/*< DTS00176579033101 begin: modified for usb tty devices number change 2012-03-31 >*/
+	if(!SERIAL_PORT_READY(port)) {
+		printk("~~~~~~%s, %d, port not ready...\n", __func__, __LINE__);
+		return;
+	}
+/*< DTS00176579033101 end: modified for usb tty devices number change 2012-03-31 >*/
+
 	/* pass on to the driver specific version of this function */
 	if (port->serial->type->throttle)
 		port->serial->type->throttle(tty);
@@ -400,6 +488,13 @@ static void serial_unthrottle(struct tty_struct *tty)
 {
 	struct usb_serial_port *port = tty->driver_data;
 	dbg("%s - port %d", __func__, port->number);
+
+/*< DTS00176579033101 begin: modified for usb tty devices number change 2012-03-31 >*/
+	if(!SERIAL_PORT_READY(port)) {
+		printk("~~~~~~%s, %d, port not ready...\n", __func__, __LINE__);
+		return;
+	}
+/*< DTS00176579033101 end: modified for usb tty devices number change 2012-03-31 >*/
 
 	/* pass on to the driver specific version of this function */
 	if (port->serial->type->unthrottle)
@@ -414,6 +509,13 @@ static int serial_ioctl(struct tty_struct *tty,
 
 	dbg("%s - port %d, cmd 0x%.4x", __func__, port->number, cmd);
 
+/*< DTS00176579033101 begin: modified for usb tty devices number change 2012-03-31 >*/
+	if(!SERIAL_PORT_READY(port)) {
+		printk("~~~~~~%s, %d, port not ready...\n", __func__, __LINE__);
+		return -EINVAL;
+	}
+/*< DTS00176579033101 end: modified for usb tty devices number change 2012-03-31 >*/
+	
 	/* pass on to the driver specific version of this function
 	   if it is available */
 	if (port->serial->type->ioctl) {
@@ -428,6 +530,13 @@ static void serial_set_termios(struct tty_struct *tty, struct ktermios *old)
 	struct usb_serial_port *port = tty->driver_data;
 	dbg("%s - port %d", __func__, port->number);
 
+/*< DTS00176579033101 begin: modified for usb tty devices number change 2012-03-31 >*/
+	if(!SERIAL_PORT_READY(port)) {
+		printk("~~~~~~%s, %d, port not ready...\n", __func__, __LINE__);
+		return;
+	}
+/*< DTS00176579033101 end: modified for usb tty devices number change 2012-03-31 >*/
+
 	/* pass on to the driver specific version of this function
 	   if it is available */
 	if (port->serial->type->set_termios)
@@ -441,6 +550,13 @@ static int serial_break(struct tty_struct *tty, int break_state)
 	struct usb_serial_port *port = tty->driver_data;
 
 	dbg("%s - port %d", __func__, port->number);
+
+/*< DTS00176579033101 begin: modified for usb tty devices number change 2012-03-31 >*/
+	if(!SERIAL_PORT_READY(port)) {
+		printk("~~~~~~%s, %d, port not ready...\n", __func__, __LINE__);
+		return -EINVAL;
+	}
+/*< DTS00176579033101 end: modified for usb tty devices number change 2012-03-31 >*/
 
 	/* pass on to the driver specific version of this function
 	   if it is available */
@@ -502,6 +618,13 @@ static int serial_tiocmget(struct tty_struct *tty)
 
 	dbg("%s - port %d", __func__, port->number);
 
+/*< DTS00176579033101 begin: modified for usb tty devices number change 2012-03-31 >*/
+	if(!SERIAL_PORT_READY(port)) {
+		printk("~~~~~~%s, %d, port not ready...\n", __func__, __LINE__);
+		return -EINVAL;
+	}
+/*< DTS00176579033101 end: modified for usb tty devices number change 2012-03-31 >*/
+
 	if (port->serial->type->tiocmget)
 		return port->serial->type->tiocmget(tty);
 	return -EINVAL;
@@ -514,6 +637,13 @@ static int serial_tiocmset(struct tty_struct *tty,
 
 	dbg("%s - port %d", __func__, port->number);
 
+/*< DTS00176579033101 begin: modified for usb tty devices number change 2012-03-31 >*/
+	if(!SERIAL_PORT_READY(port)) {
+		printk("~~~~~~%s, %d, port not ready...\n", __func__, __LINE__);
+		return -EINVAL;
+	}
+/*< DTS00176579033101 end: modified for usb tty devices number change 2012-03-31 >*/
+
 	if (port->serial->type->tiocmset)
 		return port->serial->type->tiocmset(tty, set, clear);
 	return -EINVAL;
@@ -525,6 +655,13 @@ static int serial_get_icount(struct tty_struct *tty,
 	struct usb_serial_port *port = tty->driver_data;
 
 	dbg("%s - port %d", __func__, port->number);
+
+/*< DTS00176579033101 begin: modified for usb tty devices number change 2012-03-31 >*/
+	if(!SERIAL_PORT_READY(port)) {
+		printk("~~~~~~%s, %d, port not ready...\n", __func__, __LINE__);
+		return -EINVAL;
+	}
+/*< DTS00176579033101 end: modified for usb tty devices number change 2012-03-31 >*/
 
 	if (port->serial->type->get_icount)
 		return port->serial->type->get_icount(tty, icount);
@@ -624,7 +761,7 @@ static struct usb_serial *create_serial(struct usb_device *dev,
 	}
 	serial->dev = usb_get_dev(dev);
 	serial->type = driver;
-	serial->interface = interface;
+	serial->interface = usb_get_intf(interface);
 	kref_init(&serial->kref);
 	mutex_init(&serial->disc_mutex);
 	serial->minor = SERIAL_TTY_NO_MINOR;
@@ -669,12 +806,14 @@ exit:
 static struct usb_serial_driver *search_serial_device(
 					struct usb_interface *iface)
 {
-	const struct usb_device_id *id;
+	const struct usb_device_id *id = NULL;
 	struct usb_serial_driver *drv;
+	struct usb_driver *driver = to_usb_driver(iface->dev.driver);
 
 	/* Check if the usb id matches a known device */
 	list_for_each_entry(drv, &usb_serial_driver_list, driver_list) {
-		id = get_iface_id(drv, iface);
+		if (drv->usb_driver == driver)
+			id = get_iface_id(drv, iface);
 		if (id)
 			return drv;
 	}
@@ -762,7 +901,7 @@ int usb_serial_probe(struct usb_interface *interface,
 
 		if (retval) {
 			dbg("sub driver rejected device");
-			kfree(serial);
+			usb_serial_put(serial);
 			module_put(type->driver.owner);
 			return retval;
 		}
@@ -834,7 +973,7 @@ int usb_serial_probe(struct usb_interface *interface,
 		 */
 		if (num_bulk_in == 0 || num_bulk_out == 0) {
 			dev_info(&interface->dev, "PL-2303 hack: descriptors matched but endpoints did not\n");
-			kfree(serial);
+			usb_serial_put(serial);
 			module_put(type->driver.owner);
 			return -ENODEV;
 		}
@@ -848,7 +987,7 @@ int usb_serial_probe(struct usb_interface *interface,
 		if (num_ports == 0) {
 			dev_err(&interface->dev,
 			    "Generic device with no bulk out, not allowed.\n");
-			kfree(serial);
+			usb_serial_put(serial);
 			module_put(type->driver.owner);
 			return -EIO;
 		}
@@ -1059,6 +1198,12 @@ int usb_serial_probe(struct usb_interface *interface,
 		serial->attached = 1;
 	}
 
+	/* Avoid race with tty_open and serial_install by setting the
+	 * disconnected flag and not clearing it until all ports have been
+	 * registered.
+	 */
+	serial->disconnected = 1;
+
 	if (get_free_serial(serial, num_ports, &minor) == NULL) {
 		dev_err(&interface->dev, "No more free serial devices\n");
 		goto probe_error;
@@ -1083,8 +1228,11 @@ int usb_serial_probe(struct usb_interface *interface,
 		}
 	}
 
-	usb_serial_console_init(debug, minor);
+	serial->disconnected = 0;
 
+	usb_serial_console_init(debug, minor);
+	/*HSIC can autosuspend*/
+	usb_enable_autosuspend(dev);
 exit:
 	/* success */
 	usb_set_intfdata(interface, serial);
@@ -1119,7 +1267,10 @@ void usb_serial_disconnect(struct usb_interface *interface)
 		if (port) {
 			struct tty_struct *tty = tty_port_tty_get(&port->port);
 			if (tty) {
-				tty_vhangup(tty);
+				/*< DTS00176579033101 begin: modified for usb tty devices number change 2012-03-31 >*/
+				/* do not hang up the tty in using, through serial port disconnected */
+				//tty_vhangup(tty);
+				/*< DTS00176579033101 end: modified for usb tty devices number change 2012-03-31 >*/
 				tty_kref_put(tty);
 			}
 			kill_traffic(port);
@@ -1144,8 +1295,15 @@ void usb_serial_disconnect(struct usb_interface *interface)
 	}
 	serial->type->disconnect(serial);
 
-	/* let the last holder of this object cause it to be cleaned up */
-	usb_serial_put(serial);
+	/*< DTS00176579033101 begin: modified for usb tty devices number change 2012-03-31 >*/
+	if (serial->kref.refcount.counter == 1) {
+		/* let the last holder of this object cause it to be cleaned up */
+		usb_serial_put(serial);
+	} else {
+		/* serial in using, should not be released, just update serial table */
+		return_serial(serial);
+	}
+	/*< DTS00176579033101 begin: modified for usb tty devices number change 2012-03-31 >*/
 	dev_info(dev, "device disconnected\n");
 }
 EXPORT_SYMBOL_GPL(usb_serial_disconnect);

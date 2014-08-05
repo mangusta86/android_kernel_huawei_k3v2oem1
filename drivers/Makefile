@@ -42,7 +42,7 @@ obj-$(CONFIG_FB_I810)           += video/i810/
 obj-$(CONFIG_FB_INTEL)          += video/intelfb/
 
 obj-$(CONFIG_PARPORT)		+= parport/
-obj-y				+= base/ block/ misc/ mfd/ nfc/
+obj-y				+= base/ block/ misc/ mfd/
 obj-$(CONFIG_NUBUS)		+= nubus/
 obj-y				+= macintosh/
 obj-$(CONFIG_IDE)		+= ide/
@@ -127,3 +127,10 @@ obj-y				+= clk/
 obj-$(CONFIG_HWSPINLOCK)	+= hwspinlock/
 obj-y           		+= huawei/
 obj-$(CONFIG_THERMAL_FRAMEWORK) += thermal_framework/
+obj-$(CONFIG_HUAWEI_HW_DEV_DCT) += devdetect/
+
+obj-$(CONFIG_SRECORDER)     += srecorder/
+
+ifeq ($(USE_NFC_DEVICE),true)
+obj-y		+= nfc/
+endif

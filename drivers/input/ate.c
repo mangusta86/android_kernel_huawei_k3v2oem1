@@ -452,7 +452,7 @@ static void ate_disconnect(struct input_handle *handle)
 	printk(KERN_DEBUG pr_fmt("Disconnected device: %s\n"),
 	       dev_name(&handle->dev->dev));
     for (i = 0; i < ate_dt->ate_dev.input_dev_sum; i++) {
-        if (0 == strcmp(handle->dev->name, ate_dt->ate_dev.input_dev_table[i]->name)) {
+        if (handle->dev == ate_dt->ate_dev.input_dev_table[i]) {
             for (j = i; j < ate_dt->ate_dev.input_dev_sum - 1; j++) {
 				ate_dt->ate_dev.input_dev_table[j] = ate_dt->ate_dev.input_dev_table[j + 1];
 				ate_dt->ate_dev.valid[j] = ate_dt->ate_dev.valid[j + 1];
@@ -1613,6 +1613,7 @@ exit_kobject_del:
 exit_kfree_ie_dt:
     kfree(ate_dt->ie_dt);
 exit_kfree_ate_dt:
+    wake_lock_destroy(&ate_dt->wake_lock);	
     kfree(ate_dt);
 exit:
     return ret;

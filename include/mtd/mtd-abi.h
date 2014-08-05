@@ -77,10 +77,12 @@ struct mtd_oob_buf64 {
 #define MTD_OTP_FACTORY		1
 #define MTD_OTP_USER		2
 
+/*add begin,used for NV.*/
 #define NV_NAME_LENGTH      8
 #define NVE_NV_DATA_SIZE    104
 #define NV_READ             1
 #define NV_WRITE            0
+/*add end,used for NV.*/
 
 struct mtd_info_user {
 	__u8 type;
@@ -110,6 +112,7 @@ struct otp_info {
 };
 
 
+/*add begin,used for NV*/
 struct nve_info_user {
 	uint32_t nv_operation;
 	uint32_t nv_number;
@@ -117,6 +120,7 @@ struct nve_info_user {
 	uint32_t valid_size;
 	u_char nv_data[NVE_NV_DATA_SIZE];
 };
+/*add end,used for NV.*/
 #define MEMGETINFO		_IOR('M', 1, struct mtd_info_user)
 #define MEMERASE		_IOW('M', 2, struct erase_info_user)
 #define MEMWRITEOOB		_IOWR('M', 3, struct mtd_oob_buf)
@@ -140,7 +144,9 @@ struct nve_info_user {
 #define MEMWRITEOOB64		_IOWR('M', 21, struct mtd_oob_buf64)
 #define MEMREADOOB64		_IOWR('M', 22, struct mtd_oob_buf64)
 #define MEMISLOCKED		_IOR('M', 23, struct erase_info_user)
+/*add begin,used for NV.*/
 #define NVEACCESSDATA           _IOWR('M', 25, struct nve_info_user)
+/*add end,used for NV.*/
 
 
 /*

@@ -94,6 +94,7 @@ struct led_set_config {
 	u32 k3_led_iset_address;
 	u32 k3_led_start_address;
 	u32 k3_led_tim_address;
+	u32 k3_led_tim1_address;
 	unsigned long led_k3_dr_ctl;
 	unsigned long led_k3_dr_out_ctl;
 };

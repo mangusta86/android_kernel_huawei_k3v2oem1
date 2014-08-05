@@ -535,7 +535,7 @@ static void i2c_dw_dma_rx_callback(void *data)
 	dev_dbg(dev->dev, "%s: entry.\n", __func__);
 
 	/* Sync in buffer */
-	dma_sync_sg_for_cpu(dev, &dmarx->sg, 1, DMA_FROM_DEVICE);
+	dma_sync_sg_for_cpu(dev->dev, &dmarx->sg, 1, DMA_FROM_DEVICE);
 	dev->dmacr &= ~DW_IC_RXDMAE;
 	writew(dev->dmacr, dev->base + DW_IC_DMA_CR);
 

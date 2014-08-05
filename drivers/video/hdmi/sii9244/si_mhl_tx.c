@@ -77,7 +77,6 @@ bool_tt PutNextCBusTransactionImpl(cbus_req_t *pReq)
 		return false;
 	}
 	/* at least one slot available*/
-	BUG_ON((CBusQueue.tail < 0) || (CBusQueue.tail >= NUM_CBUS_EVENT_QUEUE_EVENTS));
 	CBusQueue.queue[CBusQueue.tail] = *pReq;
 	ADVANCE_QUEUE_TAIL(CBusQueue)
 
@@ -1366,8 +1365,6 @@ MhlTxNotifyEventsStatus_e AppNotifyMhlEvent(uint8_t eventCode, uint8_t eventPara
 			Check if we got	an RCP. Application can perform	the operation here
 			and send RCPK or RCPE. For now, we send the RCPK
 		*/
-		if(eventParam > 0x7F)
-			break;
 		TX_DEBUG_PRINT(("MhlTx:App: Received an	RCP	key code = %02X\n", (int)eventParam));
 		rcpKeyCode = (int16_t)eventParam;
 
@@ -1398,7 +1395,7 @@ MhlTxNotifyEventsStatus_e AppNotifyMhlEvent(uint8_t eventCode, uint8_t eventPara
 			TX_DEBUG_PRINT(("\nMhlTx:Root Menu received\n\n"));
 			break;
 		case MHL_RCP_CMD_EXIT:
-			keycode	= KEY_BACK;
+			keycode	= KEY_EXIT;
 			TX_DEBUG_PRINT(("\nMhlTx:Exit received\n\n"));
 			break;
 		case MHL_RCP_CMD_NUM_0:
@@ -1486,7 +1483,7 @@ MhlTxNotifyEventsStatus_e AppNotifyMhlEvent(uint8_t eventCode, uint8_t eventPara
 			TX_DEBUG_PRINT(("\nMhlTx:Forward	received\n\n"));
 			break;
 		case MHL_RCP_CMD_BKWD:
-			keycode	= KEY_PREVIOUSSONG;
+			keycode	= KEY_BACK;
 			TX_DEBUG_PRINT(("\nMhlTx:Backward	received\n\n"));
 			break;
 		case MHL_RCP_CMD_PLAY_FUNC:

@@ -54,7 +54,6 @@
 #include <linux/pm_qos_params.h>
 #include "k3_v4l2_capture.h"
 #include "k3_isp.h"
-#include <hsad/config_interface.h>
 
 #define DEBUG_DEBUG 0
 #define LOG_TAG "K3_ISP"
@@ -67,6 +66,7 @@
 
 #define DDR_PREVIEW_MIN_PROFILE 360000
 #define DDR_CAPTURE_MIN_PROFILE 360000
+#define GPU_INIT_BLOCK_PROFILE 120000
 #define GPU_BLOCK_PROFILE 360000
 
 #define WAIT_CHECK_FLASH_LEVEL_COMPLT_TIMEOUT 1000
@@ -104,6 +104,52 @@ static void k3_isp_calc_zoom(camera_state state, scale_strategy_t scale_strategy
 #ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
 static struct pm_qos_request_list g_specialpolicy;
 #endif
+
+
+extern int ispv1_need_lcd_compensation(camera_sensor *sensor);
+
+int k3_check_lcd_compensation_supported(void)
+{
+	if(NULL==isp_data.sensor)
+		return 0;
+	return isp_data.sensor->lcd_compensation_supported;
+}
+
+int k3_check_lcd_compensation_needed(void)
+{
+	if(NULL==isp_data.sensor)
+		return 0;
+	return ispv1_need_lcd_compensation(isp_data.sensor);
+}
+/*
+ **************************************************************************
+ * FunctionName: k3_isp_preview_switch_mode;
+ * Description : switch preview mode between hdr and non hdr preview
+ * Input       : preview mode include hdr movie and non hdr ;
+ * Output      : NA;
+ * ReturnValue : NA;
+ * Other       : NA;
+ **************************************************************************
+ */
+ void k3_isp_preview_switch_mode(camera_preview_mode mode)
+{
+	print_debug("enter %s mode = %d", __func__,mode);
+	switch(mode)
+	{
+		case HDR_MOVIE_PREVIEW_MODE:
+			isp_data.hdr_switch_on = true;
+			ispv1_hdr_isp_ae_ctrl(0);
+			ispv1_hdr_isp_ae_switch(1);
+			break;
+		case NON_HDR_PREVIEW_MODE:
+			isp_data.hdr_switch_on = false;
+			ispv1_hdr_isp_ae_ctrl(1);
+			ispv1_hdr_isp_ae_switch(0);
+			break;
+		default:
+			;
+	}
+}
 
 /*
  **************************************************************************
@@ -171,7 +217,7 @@ void k3_isp_check_flash_level(camera_flash_state state)
 #endif
 	if ((isp_data.sensor->sensor_index == CAMERA_SENSOR_PRIMARY) && (flashlight != NULL) && (CAMERA_SHOOT_SINGLE == isp_data.shoot_mode)) {
 		if (FLASH_ON == state) {
-			if (((isp_data.flash_mode == CAMERA_FLASH_AUTO) && (0 == isp_hw_ctl->isp_is_need_flash(isp_data.sensor))) ||
+			if (((isp_data.flash_mode == CAMERA_FLASH_AUTO) && (true == isp_hw_ctl->isp_is_need_flash(isp_data.sensor))) ||
 				isp_data.flash_mode == CAMERA_FLASH_ON) {
 
 
@@ -431,6 +477,25 @@ int k3_isp_try_fmt(struct v4l2_format *fmt, camera_state state, camera_setting_v
 		print_error("%s failed: invalid parameters", __func__);
 		return -EINVAL;
 	}
+    ispv1_set_isp_default_reg();
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP)
+	{
+		if(isp_data.sensor->support_hdr_movie)
+		{
+			if((HDR_MOVIE_SUPPORT == isp_data.sensor->support_hdr_movie()))
+			{
+				if(HDR_MOVIE_ON == isp_data.sensor->get_hdr_movie_switch())
+				{
+					k3_isp_preview_switch_mode(HDR_MOVIE_PREVIEW_MODE);
+				}
+				else
+				{
+					k3_isp_preview_switch_mode(NON_HDR_PREVIEW_MODE);
+				}
+			}
+		}
+	}
+
 
 	/* check resulotion, small than sensor's max resulotion */
 	fs.type = V4L2_FRMSIZE_TYPE_DISCRETE;
@@ -450,6 +515,21 @@ int k3_isp_try_fmt(struct v4l2_format *fmt, camera_state state, camera_setting_v
 		print_error("%s:fail to set sensor framesize, width = %d, height= %d",
 		     __func__, fs.discrete.width, fs.discrete.height);
 		return -EINVAL;
+	}
+
+	if(isp_data.sensor->try_current_hdr_framesizes)
+	{
+		if(HDR_MOVIE_ON == isp_data.sensor->get_hdr_movie_switch())
+		{
+			ret = isp_data.sensor->try_current_hdr_framesizes(&sensor_frmsize);
+			if(ret != 0)
+			{
+				print_info("ret = %d,fs.discrete.width = %d,fs.discrete.height = %d",ret,fs.discrete.width ,fs.discrete.height);
+				isp_data.sensor->set_hdr_movie_switch(HDR_MOVIE_OFF);
+				k3_isp_preview_switch_mode(NON_HDR_PREVIEW_MODE);
+			}
+
+		}
 	}
 
 	if (state == STATE_PREVIEW)
@@ -558,12 +638,14 @@ int k3_isp_stream_on(struct v4l2_pix_format *pixfmt,
 #endif
 		ret = isp_hw_ctl->start_preview(&isp_data.pic_attr[state], isp_data.sensor, isp_data.cold_boot, isp_data.scene);
 	} else if (state == STATE_CAPTURE) {
+		/*
 		camera_flashlight *flashlight = get_camera_flash();
 		if ((isp_data.sensor->sensor_index == CAMERA_SENSOR_PRIMARY) && (flashlight != NULL)) {
 			if (true == isp_data.flash_on) {
-				flashlight->turn_on(FLASH_MODE, LUM_LEVEL5);
+				flashlight->turn_on(FLASH_MODE, LUM_LEVEL4);
 			}
 		}
+		*/
 #ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
 		/* pm_qos_update_request(&isp_data.qos_request, DDR_CAPTURE_MIN_PROFILE); */
 #endif
@@ -578,6 +660,13 @@ int k3_isp_stream_on(struct v4l2_pix_format *pixfmt,
 			ret = -EFAULT;
 		}
 
+		if(CAMERA_ISO_AUTO != isp_data.iso)
+		{
+			if (isp_data.sensor->hynix_set_lsc_shading) {
+				isp_data.sensor->hynix_set_lsc_shading(isp_data.iso);
+			}
+		}
+
 		if (isp_data.sensor->stream_on)
 			isp_data.sensor->stream_on(state);
 
@@ -586,6 +675,22 @@ int k3_isp_stream_on(struct v4l2_pix_format *pixfmt,
 
 		isp_data.cold_boot = false;
 	}
+	else
+	{
+		if((state == STATE_PREVIEW)&&(isp_data.sensor->isp_location == CAMERA_USE_K3ISP))
+		{
+			if(isp_data.sensor->get_hdr_movie_switch)
+			{
+				if(HDR_MOVIE_ON == isp_data.sensor->get_hdr_movie_switch())
+				{
+					if (isp_data.sensor->init_isp_reg && (0 != isp_data.sensor->init_isp_reg())) {
+						ret = -EFAULT;
+					}
+				}
+			}
+		}
+	}
+
 	return ret;
 }
 
@@ -608,6 +713,7 @@ int k3_isp_stream_off(camera_state state)
 			if (true == isp_data.flash_on && flashlight) {
 				flashlight->turn_off();
 				isp_data.flash_on = false;
+				isp_data.already_turn_on_flash = false;
 			}
 		}
 	}
@@ -663,6 +769,15 @@ int k3_isp_stop_process(ipp_mode mode)
 	return isp_hw_ctl->stop_process(mode);
 }
 
+static void k3_isp_turn_on_flash(struct work_struct *work)
+{
+	camera_flashlight *flashlight = get_camera_flash();
+	
+	if(flashlight){
+		flashlight->turn_on(FLASH_MODE, LUM_LEVEL4);
+	}
+}
+
 /*
  **************************************************************************
  * FunctionName: k3_isp_init;
@@ -680,11 +795,12 @@ int k3_isp_init(struct platform_device *pdev, data_queue_t *data_queue)
 
 	/* init isp_data struct */
 	k3_isp_set_default();
+	INIT_DELAYED_WORK(&(isp_data.turn_on_flash_work),k3_isp_turn_on_flash);
 
 #ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
 	pm_qos_add_request(&g_specialpolicy, PM_QOS_IPPS_POLICY, PM_QOS_IPPS_POLICY_DEFAULT_VALUE);
 	pm_qos_add_request(&isp_data.qos_request, PM_QOS_DDR_MIN_PROFILE, DDR_PREVIEW_MIN_PROFILE);
-	/* pm_qos_add_request(&isp_data.qos_request_cpu, PM_QOS_CPU_NUMBER_MIN, 2); */
+	pm_qos_add_request(&isp_data.qos_request_gpu, PM_QOS_GPU_PROFILE_BLOCK, GPU_INIT_BLOCK_PROFILE);
 #endif
 	/* init registers */
 	isp_hw_ctl = get_isp_hw_controller();
@@ -741,11 +857,7 @@ int k3_isp_exit(void *par)
 #ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
 	pm_qos_remove_request(&isp_data.qos_request);
 	pm_qos_remove_request(&g_specialpolicy);
-	if (isp_data.gpu_blocked == true) {
-		pm_qos_remove_request(&isp_data.qos_request_gpu);
-		isp_data.gpu_blocked = false;
-	}
-	/* pm_qos_remove_request(&isp_data.qos_request_cpu); */
+	pm_qos_remove_request(&isp_data.qos_request_gpu);
 #endif
 	return 0;
 }
@@ -918,6 +1030,209 @@ int k3_isp_get_awb_mode(void)
 	return isp_data.awb_mode;
 }
 
+/* for awb */
+int k3_isp_set_awb_lock( int awb_lock)
+{
+	int ret = 0;
+
+	print_debug("enter %s", __func__);
+
+	if (NULL != isp_hw_ctl)
+		if (isp_hw_ctl->isp_set_awb_mode)
+			isp_hw_ctl->isp_set_awb_mode(awb_lock);
+
+		isp_data.awb_lock = awb_lock;
+
+	return ret;
+}
+
+/* < zhoutian 00195335 12-7-16 added for auto scene detect begin */
+int k3_isp_get_extra_coff(extra_coff *extra_data)
+{
+	int ret = 0;
+	
+	print_debug("enter %s", __func__);
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+		ret = camera_tune_ops->isp_get_extra_coff(extra_data);
+
+	return ret;
+}
+
+
+int k3_isp_get_ae_coff(ae_coff *ae_data)
+{
+	int ret = 0;
+	
+	print_debug("enter %s", __func__);
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+		ret = camera_tune_ops->isp_get_ae_coff(ae_data);
+
+	return ret;
+}
+
+int k3_isp_set_ae_coff(ae_coff *ae_data)
+{
+	int ret = 0;
+	
+	print_debug("enter %s", __func__);
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+		ret = camera_tune_ops->isp_set_ae_coff(ae_data);
+
+	return ret;
+}
+
+
+int k3_isp_get_awb_coff(awb_coff *awb_data)
+{
+	int ret = 0;
+	
+	print_debug("enter %s", __func__);
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+		ret = camera_tune_ops->isp_get_awb_coff(awb_data);
+
+	return ret;
+}
+
+int k3_isp_set_awb_coff(awb_coff *awb_data)
+{
+	int ret = 0;
+	
+	print_debug("enter %s", __func__);
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+		ret = camera_tune_ops->isp_set_awb_coff(awb_data);
+
+	return ret;
+}
+
+
+int k3_isp_get_awb_ct_coff(awb_ct_coff *awb_ct_data)
+{
+	int ret = 0;
+	
+	print_debug("enter %s", __func__);
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+		ret = camera_tune_ops->isp_get_awb_ct_coff(awb_ct_data);
+
+	return ret;
+}
+
+int k3_isp_set_awb_ct_coff(awb_ct_coff *awb_ct_data)
+{
+	int ret = 0;
+	
+	print_debug("enter %s", __func__);
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+		ret = camera_tune_ops->isp_set_awb_ct_coff(awb_ct_data);
+
+	return ret;
+}
+
+
+int k3_isp_get_ccm_coff(ccm_coff *ccm_data)
+{
+	int ret = 0;
+	
+	print_debug("enter %s", __func__);
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+		ret = camera_tune_ops->isp_get_ccm_coff(ccm_data);
+
+	return ret;
+}
+
+int k3_isp_set_ccm_coff(ccm_coff *ccm_data)
+{
+	int ret = 0;
+	
+	print_debug("enter %s", __func__);
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+		ret = camera_tune_ops->isp_set_ccm_coff(ccm_data);
+
+	return ret;
+}
+
+
+int k3_isp_set_added_coff(added_coff *added_data)
+{
+	int ret = 0;
+	
+	print_debug("enter %s", __func__);
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+		ret = camera_tune_ops->isp_set_added_coff(added_data);
+
+	return ret;
+}
+
+int k3_isp_set_focus_range(camera_focus focus_range)
+{
+	int ret = 0;
+	
+	print_debug("enter %s", __func__);
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+		ret = camera_tune_ops->isp_set_focus_range(focus_range);
+
+	return ret;	
+}
+
+
+int k3_isp_set_fps_range(camera_frame_rate_mode mode)
+{
+	int ret = 1;
+	
+	print_debug("enter %s", __func__);
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+		camera_tune_ops->isp_set_fps_range(mode);
+
+	return ret;	
+}
+
+
+int k3_isp_set_max_exposure(camera_max_exposrure mode)
+{
+	int ret = 0;
+	
+	print_debug("enter %s", __func__);
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+		ret = camera_tune_ops->isp_set_max_exposure(mode);
+
+	return ret;
+}
+
+
+int k3_isp_get_coff_seq(seq_coffs *seq_data)
+{
+	int ret = 0;
+	
+	print_debug("enter %s", __func__);
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+		ret = camera_tune_ops->isp_get_coff_seq(seq_data);
+
+	return ret;
+}
+
+int k3_isp_set_coff_seq(seq_coffs *seq_data)
+{
+	int ret = 0;
+	
+	print_debug("enter %s", __func__);
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+		ret = camera_tune_ops->isp_set_coff_seq(seq_data);
+
+	return ret;
+}
+
+
+int k3_isp_set_max_expo_time(int time)
+{
+	int ret = 0;
+	
+	print_debug("enter %s", __func__);
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+		ret = camera_tune_ops->isp_set_max_expo_time(time);
+
+	return ret;
+}
+
+/* zhoutian 00195335 12-7-16 added for auto scene detect end > */
 /* for iso */
 int k3_isp_get_iso(void)
 {
@@ -1156,6 +1471,61 @@ int k3_isp_set_effect(camera_effects effect)
 	return ret;
 }
 
+/* < zhoutian 00195335 2012-10-20 added for hwscope begin */
+int k3_isp_set_hwscope(hwscope_coff *hwscope_data)
+{
+	int ret = 0;
+
+	print_debug("enter %s", __func__);
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP)
+	{
+		ret = camera_tune_ops->isp_set_hwscope(hwscope_data);
+	}
+
+	return ret;
+}
+/* zhoutian 00195335 2012-10-20 added for hwscope end > */
+
+/* < zhoutian 00195335 2013-03-02 added for SuperZoom-LowLight begin */
+int k3_isp_set_hw_lowlight(int ctl)
+{
+	int ret = 0;
+
+	print_debug("enter %s", __func__);
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP)
+	{
+		ret = camera_tune_ops->isp_set_hw_lowlight(ctl);
+	}
+
+	return ret;
+}
+
+int k3_isp_get_hw_lowlight_support()
+{
+	print_debug("enter %s", __func__);
+
+	if (isp_data.sensor->support_hw_lowlight)
+	{
+		return isp_data.sensor->support_hw_lowlight();
+	}
+
+	return 0;
+}
+
+int k3_isp_get_binning_size(binning_size *size)
+{
+	int ret = 0;
+
+	print_debug("enter %s", __func__);
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP)
+	{
+		ret = camera_tune_ops->isp_get_binning_size(size);
+	}
+
+	return ret;
+}
+/* zhoutian 00195335 2013-03-02 added for SuperZoom-LowLight end > */
+
 int k3_isp_get_effect(void)
 {
 	print_debug("enter %s", __func__);
@@ -1181,11 +1551,8 @@ int k3_isp_set_flash_mode(camera_flash flash_mode)
 	case CAMERA_FLASH_TORCH:
 		{
 			print_info("set camera flash TORCH MODE");
-			if (product_type("U9508")) {
-				flashlight->turn_on(TORCH_MODE, LUM_LEVEL1);
-			} else {
-				flashlight->turn_on(TORCH_MODE, LUM_LEVEL2);
-			}
+//			flashlight->turn_on(TORCH_MODE, LUM_LEVEL2);
+			flashlight->turn_on(TORCH_MODE, LUM_LEVEL1); /* EPRJ: U9508 */
 			break;
 		}
 	case CAMERA_FLASH_OFF:
@@ -1264,6 +1631,10 @@ int k3_isp_set_zoom(char preview_running, u32 zoom)
 
 	isp_data.zoom = zoom;
 
+	if(isp_data.sensor->check_zoom_limit)
+	{
+		isp_data.sensor->check_zoom_limit(&zoom);
+	}
 	if (preview_running) {
 		ret |= isp_hw_ctl->isp_set_zoom(zoom, HIGH_QUALITY_MODE);
 		if (isp_data.sensor->af_enable)
@@ -1276,14 +1647,12 @@ int k3_isp_set_zoom(char preview_running, u32 zoom)
 
 #ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
 	if (0 == ret) {
-		if (zoom > 20 && (isp_data.gpu_blocked == false)) { // total is 30 steps
-			pm_qos_add_request(&isp_data.qos_request_gpu, PM_QOS_GPU_PROFILE_BLOCK, GPU_BLOCK_PROFILE);
-			isp_data.gpu_blocked = true;
-		} else if (zoom < 20 && isp_data.gpu_blocked) {
-			pm_qos_remove_request(&isp_data.qos_request_gpu);
-			isp_data.gpu_blocked = false;
+		if (zoom > 10) { // total is 30 steps
+			pm_qos_update_request(&isp_data.qos_request_gpu, GPU_BLOCK_PROFILE);
+		} else {
+			pm_qos_update_request(&isp_data.qos_request_gpu, GPU_INIT_BLOCK_PROFILE);
 		}
-	}		
+	}
 #endif
 	return ret;
 }
@@ -1313,7 +1682,7 @@ int k3_isp_set_fps(camera_fps fps, u8 value)
 	print_debug("enter %s", __func__);
 	ret = isp_hw_ctl->isp_set_fps(isp_data.sensor, fps, value);
 	if ((CAMERA_FPS_MIN == fps) && (CAMERA_SCENE_ACTION == isp_data.scene
-					|| CAMERA_SCENE_NIGHT == isp_data.scene
+		|| CAMERA_SCENE_NIGHT == isp_data.scene
 		|| CAMERA_SCENE_NIGHT_PORTRAIT == isp_data.scene
 		|| CAMERA_SCENE_THEATRE == isp_data.scene
 		|| CAMERA_SCENE_FIREWORKS == isp_data.scene
@@ -1340,6 +1709,18 @@ int k3_isp_get_actual_iso(void)
 	return ret;
 }
 
+int k3_isp_get_hdr_iso_exp(hdr_para_reserved *iso_exp)
+{
+
+	int ret = 0;
+	print_debug("enter %s", __func__);
+
+	if (CAMERA_USE_K3ISP == isp_data.sensor->isp_location) {
+		ret = camera_tune_ops->isp_get_hdr_iso_exp(iso_exp);
+	}
+
+	return ret;
+}
 int k3_isp_get_focus_distance(void)
 {
 	print_debug("enter %s", __func__);
@@ -1406,6 +1787,102 @@ int k3_isp_get_sensor_vts(void)
 	return ret;
 }
 
+/*
+ **************************************************************************
+ * FunctionName: k3_isp_get_sensor_lux_matrix;
+ * Description : HAL get lux matrix vlaue though this interface ;
+ * Input       : the pointer of lux_stat_matrix_tbl used for saving lux matrix from sensor;
+ * Output      : NA;
+ * ReturnValue : NA;
+ * Other       :
+ **************************************************************************
+ */
+
+int   k3_isp_get_sensor_lux_matrix(lux_stat_matrix_tbl * lux_matrix)
+{
+	int ret = 0;
+	if (CAMERA_USE_SENSORISP == isp_data.sensor->isp_location) {
+		ret = 0;
+	} else if ((CAMERA_USE_K3ISP == isp_data.sensor->isp_location)&& isp_data.hdr_switch_on) {
+		ret = camera_tune_ops->isp_get_sensor_lux_matrix(lux_matrix);
+	}
+
+	return ret;
+}
+/*
+ **************************************************************************
+ * FunctionName: k3_isp_get_sensor_hdr_points;
+ * Description : HAL get atr control points though this interface ;
+ * Input       : the pointer of atr_ctrl_points used for saving ctrl point;
+ * Output      : NA;
+ * ReturnValue : NA;
+ * Other       :
+ **************************************************************************
+ */
+int k3_isp_get_sensor_hdr_points(atr_ctrl_points * hdrPoints)
+{
+	int ret = 0;
+	if (CAMERA_USE_SENSORISP == isp_data.sensor->isp_location) {
+		ret = 0;
+	} else if ((CAMERA_USE_K3ISP == isp_data.sensor->isp_location)&&isp_data.hdr_switch_on) {
+		ret = camera_tune_ops->isp_get_sensor_hdr_points(hdrPoints);
+	}
+
+	return ret;
+}
+/*
+ **************************************************************************
+ * FunctionName: k3_isp_get_sensor_hdr_info;
+ * Description : HAL get hdr info though this interface include hdr switch,atr switch long gain ,short gain,
+ *			   : long shutter ,short shutter ,avg lux
+ * Input       : the pointer of hdr_info used for saving hdr info;
+ * Output      : NA;
+ * ReturnValue : NA;
+ * Other       :
+ **************************************************************************
+ */
+int k3_isp_get_sensor_hdr_info(hdr_info * hdrInfo)
+{
+	int ret = 0;
+	if (CAMERA_USE_SENSORISP == isp_data.sensor->isp_location) {
+		ret = 0;
+	} else if ((CAMERA_USE_K3ISP == isp_data.sensor->isp_location)&&isp_data.hdr_switch_on) {
+		ret = camera_tune_ops->isp_get_sensor_hdr_info(hdrInfo);
+	}
+
+	return ret;
+}
+
+/*
+ **************************************************************************
+ * FunctionName: k3_isp_get_sensor_preview_max_size;
+ * Description : HAL get  max preview size for  stoping switter
+ * Input       : the pointer of preview_size used for saving preview_size from sensor;
+ * Output      : the value of preview_size used for saving preview_size from sensor;;
+ * ReturnValue : NA;
+ * Other       :
+ **************************************************************************
+ */
+
+int   k3_isp_get_sensor_preview_max_size(preview_size * pre_size)
+{
+
+	int ret = 0;
+	if (CAMERA_USE_SENSORISP == isp_data.sensor->isp_location) {
+		ret = 0;
+	} else if (CAMERA_USE_K3ISP == isp_data.sensor->isp_location) {
+		if (isp_data.sensor->get_sensor_preview_max_size) {
+			ret = isp_data.sensor->get_sensor_preview_max_size(pre_size);
+		}
+		else
+		{
+			pre_size->width = -1;
+			pre_size->height = -1;
+		}
+	}
+	return ret;
+}
+
 int k3_isp_get_sensor_aperture(void)
 {
 	if (isp_data.sensor->get_sensor_aperture) {
@@ -1423,6 +1900,16 @@ int k3_isp_get_equivalent_focus(void)
 
 	return 0;
 }
+
+int k3_isp_get_hdr_movie_support(void)
+{
+	if (isp_data.sensor->support_hdr_movie) {
+		return isp_data.sensor->support_hdr_movie();
+	}
+
+	return 0;
+}
+
 
 int k3_isp_get_current_ccm_rgain(void)
 {
@@ -1730,6 +2217,22 @@ void k3_isp_set_fps_lock(int lock)
 	print_debug("enter %s()", __func__);
 	camera_tune_ops->isp_set_fps_lock(lock);
 }
+/*
+ **************************************************************************
+ * FunctionName: k3_isp_switch_hdr_movie;
+ * Description : set hdr movie switch option
+ * Input       : 1 on ,0 off;
+ * Output      : NA;
+ * ReturnValue : NA;
+ * Other       :
+ **************************************************************************
+ */
+void k3_isp_switch_hdr_movie(u8 on)
+{
+	if (isp_data.sensor->set_hdr_movie_switch)
+		return isp_data.sensor->set_hdr_movie_switch(on);
+	return 0;
+}
 
 void k3_isp_set_video_stabilization(int bStabilization)
 {
@@ -1748,6 +2251,19 @@ void k3_isp_set_yuv_crop_pos(int point)
 	print_debug("enter %s()", __func__);
 	isp_hw_ctl->isp_set_yuv_crop_pos(point);
 }
+
+int k3_isp_set_scene_type(scene_type *type)
+{
+	print_debug("enter %s", __func__);
+	int ret = 0;
+	if(type == NULL)
+	{
+		return -1;
+	}
+	memcpy(&isp_data.sceneInfo, type, sizeof(scene_type));
+	return ret;
+}
+
 /*
  **************************************************************************
  * FunctionName: k3_isp_set_default;
@@ -1784,19 +2300,20 @@ static void k3_isp_set_default(void)
 		isp_data.pic_attr[state].crop_height		= isp_data.pic_attr[state].in_height;
 		isp_data.pic_attr[state].in_fmt			= V4L2_PIX_FMT_RAW10;
 		isp_data.pic_attr[state].out_fmt		= V4L2_PIX_FMT_NV12;
-		isp_data.video_stab = 0;
 	}
+	isp_data.video_stab = 0;
 	isp_data.zoom				= 0;
 	isp_data.sensor				= NULL;
 	isp_data.support_pixfmt			= NULL;
 	isp_data.pixfmt_count			= 0;
-#ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
-	isp_data.gpu_blocked			= false;
-#endif
+
 	isp_data.fps_mode	=	CAMERA_FRAME_RATE_AUTO;
 	isp_data.assistant_af_flash = false;
+	isp_data.af_need_flash = false;
 
 	isp_data.shoot_mode = CAMERA_SHOOT_SINGLE;
+	
+	isp_data.already_turn_on_flash = false;
 }
 
 /************************ END **************************/

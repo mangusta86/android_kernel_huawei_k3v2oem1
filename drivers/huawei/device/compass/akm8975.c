@@ -874,10 +874,7 @@ int akm8975_probe(struct i2c_client *client, const struct i2c_device_id *id)
 		dev_err(&client->dev, "AKM8975 akm8975_probe: check chip id error\n");
 		goto exit2;
 	}
-    err = set_sensor_chip_info(AKM, "AKM AKM8975");
-	if (err) {
-		dev_err(&client->dev, "set_sensor_chip_info error\n");
-	}
+
 	err = akm8975_gpio_init(PULLDOWN, MSENSOR_PIN);
 	if (err < 0) {
 		dev_err(&client->dev, "failed to init gpio\n");

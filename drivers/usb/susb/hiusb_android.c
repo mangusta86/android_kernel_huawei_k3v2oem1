@@ -15,7 +15,7 @@
 #include <linux/regulator/machine.h>
 #include <linux/usb/hiusb_android.h>
 #include <hsad/config_interface.h>
-#include <linux/mhl/si_mhl_tx_api.h>
+#include <linux/mhl/mhl.h>
 #include <linux/mux.h>
 
 #include "dwc_otg_pcd.h"
@@ -785,6 +785,10 @@ static void k3v2_otg_interrupt_work(struct work_struct *work)
 			//dwc_otg_enable_global_interrupts(otg_dev->core_if);
 			hiusb_info_p->hiusb_status = HIUSB_HOST;
 			hiusblog("hiusb_status: OFF -> HOST\n");
+            hiusb_info_p->charger_type = USB_EVENT_OTG_ID;
+            atomic_notifier_call_chain(
+                    &hiusb_info_p->charger_type_notifier_head,
+                    USB_EVENT_OTG_ID, hiusb_info_p);
 		} else if (HIUSB_DEVICE == hiusb_info_p->hiusb_status) {
 			hiusblog("hiusb_status: DEVICE -> HOST\n");
 			hiusb_info_p->hiusb_status = HIUSB_HOST;
@@ -798,10 +802,16 @@ static void k3v2_otg_interrupt_work(struct work_struct *work)
 			clearup_dvc_and_phy();
 			hiusb_info_p->hiusb_status = HIUSB_OFF;
 			dwc_hcd_drop_wake_lock(otg_dev->hcd);
-			/* reset the mhl */
-			Sii9244_mhl_reset();
-			SiiSwitchDisConnect();
+#if defined(MHL_SII9244)||defined(MHL_SII8240)
+                    /* reset the mhl */
+                    SiiMhlReset();
+                    SiiCBusIDSwitcherOpen();
+#endif
 			hiusblog("hiusb_status: HOST -> OFF\n");
+            atomic_notifier_call_chain(
+                    &hiusb_info_p->charger_type_notifier_head,
+                    CHARGER_REMOVED, hiusb_info_p);
+            hiusb_info_p->charger_type = CHARGER_REMOVED;
 		} else if (HIUSB_DEVICE == hiusb_info_p->hiusb_status) {
 			hiusblog("ID rise in DEVICE mode\n");
 			hiusblog("hiusb_status: HOST -> DEVICE\n");
@@ -1153,8 +1163,10 @@ int hiusb_resume(struct lm_device *_dev)
 		iowrite32(reg_value, PMU_IRQ2_MASK_ADDR);
 
 		/* mhl reset */
-		Sii9244_mhl_reset();
-		SiiSwitchDisConnect();
+        #if defined(MHL_SII9244)//||defined(MHL_SII8240)
+		SiiMhlReset();
+		SiiCBusIDSwitcherOpen();
+        #endif
 
 		hiusblog("system sleep in host mode, so need to resume controller\n");
 		setup_dvc_and_phy();

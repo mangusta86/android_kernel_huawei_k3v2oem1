@@ -27,7 +27,6 @@
  *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  *
  */
-
 #include "fmdrv.h"
 #include "fmdrv_v4l2.h"
 #include "fmdrv_common.h"
@@ -46,14 +45,30 @@ static ssize_t fm_v4l2_fops_read(struct file *file, char __user * buf,
 	u8 rds_mode;
 	int ret;
 	struct fmdev *fmdev;
-
+	int no_of_chans;
 	fmdev = video_drvdata(file);
-
+	no_of_chans = fmdev->rx.no_of_chans;
 	if (!radio_disconnected) {
 		fmerr("FM device is already disconnected\n");
 		return -EIO;
 	}
+	if (fmdev->rx.comp_scan_status == 1) {
+		fmdev->rx.comp_scan_status = 0;
+		memcpy(buf, &fmdev->rx.stat_found[0], 4*fmdev->rx.no_of_chans);
 
+		if (fmdev->rx.rds.pause == 1) {
+			fmdev->rx.rds.pause = 0;
+
+			ret = fmc_set_rds_mode(fmdev, FM_RDS_ENABLE);
+			if (ret < 0)
+				fmerr("Failed to set RX RDS mode\n");
+		}
+
+		/* Set back the Original Frequency */
+		fmc_set_freq(fmdev, fmdev->rx.freq);
+
+		return 4*fmdev->rx.no_of_chans;
+	}
 	/* Turn on RDS mode , if it is disabled */
 	ret = fm_rx_get_rds_mode(fmdev, &rds_mode);
 	if (ret < 0) {
@@ -82,29 +97,277 @@ static ssize_t fm_v4l2_fops_write(struct file *file, const char __user * buf,
 	struct fmdev *fmdev;
 
 	ret = copy_from_user(&rds, buf, sizeof(rds));
+	rds.text[sizeof(rds.text) - 1] = '\0';
 	fmdbg("(%d)type: %d, text %s, af %d\n",
 		   ret, rds.text_type, rds.text, rds.af_freq);
+	if (ret)
+		return -EFAULT;
 
 	fmdev = video_drvdata(file);
 	fm_tx_set_radio_text(fmdev, rds.text, rds.text_type);
 	fm_tx_set_af(fmdev, rds.af_freq);
 
-	return 0;
+	return sizeof(rds);
 }
 
 static u32 fm_v4l2_fops_poll(struct file *file, struct poll_table_struct *pts)
 {
 	int ret;
 	struct fmdev *fmdev;
+	unsigned int mask = 0;
 
 	fmdev = video_drvdata(file);
+	if (fmdev->rx.comp_scan_status == 1) {
+		if (fmdev->rx.comp_scan_done == 1) {
+			mask |= POLLPRI | POLLIN;
+			fmdev->rx.comp_scan_done = 0;
+		} else {
+			mask = 0;
+		}
+
+		return mask;
+	}
+
+	mask = 0;
 	ret = fmc_is_rds_data_available(fmdev, file, pts);
 	if (ret < 0)
-		return POLLIN | POLLRDNORM;
+		mask = 0;
+	else
+		mask |= (POLLIN | POLLRDNORM);
 
-	return 0;
+	return mask;
+}
+/**********************************************************************/
+/* functions called from sysfs subsystem */
+
+static ssize_t show_fmtx_af(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct fmdev *fmdev = dev_get_drvdata(dev);
+
+	return sprintf(buf, "%d\n", fmdev->tx_data.af_frq);
 }
 
+static ssize_t store_fmtx_af(struct device *dev,
+		struct device_attribute *attr, char *buf, size_t size)
+{
+	int ret;
+	unsigned long af_freq;
+	struct fmdev *fmdev = dev_get_drvdata(dev);
+
+	if (kstrtoul(buf, 0, &af_freq))
+		return -EINVAL;
+
+	ret = fm_tx_set_af(fmdev, af_freq);
+	if (ret < 0) {
+		fmerr("Failed to set FM TX AF Frequency\n");
+		return ret;
+	}
+	return size;
+}
+static ssize_t show_fmrx_comp_scan(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct fmdev *fmdev = dev_get_drvdata(dev);
+
+	/* Chip doesn't support complete scan for weather band */
+	if (fmdev->rx.region.fm_band == FM_BAND_WEATHER)
+		return -EINVAL;
+
+	return sprintf(buf, "%d\n", fmdev->rx.no_of_chans);
+}
+
+static ssize_t store_fmrx_comp_scan(struct device *dev,
+		struct device_attribute *attr, char *buf, size_t size)
+{
+	int ret;
+	unsigned long comp_scan;
+	struct fmdev *fmdev = dev_get_drvdata(dev);
+
+	/* Chip doesn't support complete scan for weather band */
+	if (fmdev->rx.region.fm_band == FM_BAND_WEATHER)
+		return -EINVAL;
+
+	if (kstrtoul(buf, 0, &comp_scan))
+		return -EINVAL;
+
+	ret = fm_rx_seek(fmdev, 1, 0, AUTO_SEARCH_SPACING, comp_scan);
+	if (ret < 0)
+		fmerr("RX complete scan failed - %d\n", ret);
+
+	if (comp_scan == COMP_SCAN_READ)
+		return (size_t) fmdev->rx.no_of_chans;
+	else
+		return size;
+}
+static ssize_t show_fmrx_deemphasis(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct fmdev *fmdev = dev_get_drvdata(dev);
+
+	return sprintf(buf, "%d\n", (fmdev->rx.deemphasis_mode ==
+				FM_RX_EMPHASIS_FILTER_50_USEC) ? 50 : 75);
+}
+
+static ssize_t store_fmrx_deemphasis(struct device *dev,
+		struct device_attribute *attr, char *buf, size_t size)
+{
+	int ret;
+	unsigned long deemph_mode;
+	struct fmdev *fmdev = dev_get_drvdata(dev);
+
+	printk(KERN_ALERT"fmdrv: store_fmrx_deemphasis buff to write %s\n", buf);
+
+	if (kstrtoul(buf, 0, &deemph_mode))
+	{
+		printk(KERN_ALERT"fmdrv strict_strtoul failed. deemph_mode is %ld\n", deemph_mode);
+		return -EINVAL;
+	}
+
+	printk(KERN_ALERT"fmdrv:deemph_mode is %ld\n", deemph_mode);
+
+	if (deemph_mode != 50 && deemph_mode != 75)
+	{
+		printk(KERN_ALERT"Invalid deemph_mode\n");
+		return -EINVAL;
+	}
+
+	if (deemph_mode == 50)
+		deemph_mode = FM_RX_EMPHASIS_FILTER_50_USEC;
+	else
+		deemph_mode = FM_RX_EMPHASIS_FILTER_75_USEC;
+
+	ret = fm_rx_set_deemphasis_mode(fmdev, deemph_mode);
+	if (ret < 0) {
+		fmerr("Failed to set De-emphasis Mode\n");
+		return ret;
+	}
+
+	return size;
+}
+
+static ssize_t show_fmrx_af(struct device *dev,
+                struct device_attribute *attr, char *buf)
+{
+	struct fmdev *fmdev = dev_get_drvdata(dev);
+
+	return sprintf(buf, "%d\n", fmdev->rx.af_mode);
+}
+
+static ssize_t store_fmrx_af(struct device *dev,
+		struct device_attribute *attr, char *buf, size_t size)
+{
+	int ret;
+	unsigned long af_mode;
+	struct fmdev *fmdev = dev_get_drvdata(dev);
+
+	if (kstrtoul(buf, 0, &af_mode))
+		return -EINVAL;
+
+	if (af_mode < 0 || af_mode > 1)
+		return -EINVAL;
+
+	ret = fm_rx_set_af_switch(fmdev, af_mode);
+	if (ret < 0) {
+		fmerr("Failed to set AF Switch\n");
+		return ret;
+	}
+
+	return size;
+}
+
+static ssize_t show_fmrx_band(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct fmdev *fmdev = dev_get_drvdata(dev);
+
+	return sprintf(buf, "%d\n", fmdev->rx.region.fm_band);
+}
+
+static ssize_t store_fmrx_band(struct device *dev,
+		struct device_attribute *attr, char *buf, size_t size)
+{
+	int ret;
+	unsigned long fm_band;
+	struct fmdev *fmdev = dev_get_drvdata(dev);
+
+	if (kstrtoul(buf, 0, &fm_band))
+		return -EINVAL;
+	if (fm_band < FM_BAND_EUROPE_US || fm_band > FM_BAND_WEATHER)
+		return -EINVAL;
+
+	ret = fm_rx_set_region(fmdev, fm_band);
+	if (ret < 0) {
+		fmerr("Failed to set FM Band\n");
+		return ret;
+	}
+
+	return size;
+}
+
+static ssize_t show_fmrx_rssi_lvl(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{
+	struct fmdev *fmdev = dev_get_drvdata(dev);
+
+	return sprintf(buf, "%d\n", fmdev->rx.rssi_threshold);
+}
+static ssize_t store_fmrx_rssi_lvl(struct device *dev,
+		struct device_attribute *attr, char *buf, size_t size)
+{
+	int ret;
+	unsigned long rssi_lvl;
+	struct fmdev *fmdev = dev_get_drvdata(dev);
+
+	if (kstrtoul(buf, 0, &rssi_lvl))
+		return -EINVAL;
+
+	ret = fm_rx_set_rssi_threshold(fmdev, rssi_lvl);
+	if (ret < 0) {
+		fmerr("Failed to set RSSI level\n");
+		return ret;
+	}
+
+	return size;
+}
+
+/* structures specific for sysfs entries */
+static struct kobj_attribute v4l2_fmtx_rds_af =
+__ATTR(fmtx_rds_af, 0666, (void *)show_fmtx_af, (void *)store_fmtx_af);
+/* To start FM RX complete scan*/
+static struct kobj_attribute v4l2_fmrx_comp_scan =
+__ATTR(fmrx_comp_scan, 0666, (void *)show_fmrx_comp_scan,
+		(void *)store_fmrx_comp_scan);
+/* To Set De-Emphasis filter mode */
+static struct kobj_attribute v4l2_fmrx_deemph_mode =
+__ATTR(fmrx_deemph_mode, 0666, (void *)show_fmrx_deemphasis,
+		(void *)store_fmrx_deemphasis);
+
+/* To Enable/Disable FM RX RDS AF feature */
+static struct kobj_attribute v4l2_fmrx_rds_af =
+__ATTR(fmrx_rds_af, 0666, (void *)show_fmrx_af, (void *)store_fmrx_af);
+
+/* To switch between Japan/US bands */
+static struct kobj_attribute v4l2_fmrx_band =
+__ATTR(fmrx_band, 0666, (void *)show_fmrx_band, (void *)store_fmrx_band);
+
+/* To set the desired FM reception RSSI level */
+static struct kobj_attribute v4l2_fmrx_rssi_lvl =
+__ATTR(fmrx_rssi_lvl, 0666, (void *) show_fmrx_rssi_lvl,
+		(void *)store_fmrx_rssi_lvl);
+
+static struct attribute *v4l2_fm_attrs[] = {
+	&v4l2_fmtx_rds_af.attr,
+	&v4l2_fmrx_comp_scan.attr,
+	&v4l2_fmrx_deemph_mode.attr,
+	&v4l2_fmrx_rds_af.attr,
+	&v4l2_fmrx_band.attr,
+	&v4l2_fmrx_rssi_lvl.attr,
+	NULL,
+};
+static struct attribute_group v4l2_fm_attr_grp = {
+	.attrs = v4l2_fm_attrs,
+};
 /*
  * Handle open request for "/dev/radioX" device.
  * Start with FM RX mode as default.
@@ -136,7 +399,12 @@ static int fm_v4l2_fops_open(struct file *file)
 		return ret;
 	}
 	radio_disconnected = 1;
-
+	/* Register sysfs entries */
+	ret = sysfs_create_group(&fmdev->radio_dev->dev.kobj, &v4l2_fm_attr_grp);
+	if (ret) {
+		pr_err("failed to create sysfs entries");
+		return ret;
+	}
 	return ret;
 }
 
@@ -146,6 +414,14 @@ static int fm_v4l2_fops_release(struct file *file)
 	struct fmdev *fmdev;
 
 	fmdev = video_drvdata(file);
+	if (fmdev->rx.comp_scan_status == 1) {
+		if (fmdev->rx.comp_scan_done == 0) {
+			ret = fm_rx_seek(fmdev, 1, 0, FM_CHANNEL_SPACING_200KHZ,
+					COMP_SCAN_STOP);
+			if (ret < 0)
+				fmerr("RX complete scan failed - %d\n", ret);
+		}
+	}
 	if (!radio_disconnected) {
 		fmdbg("FM device is already closed\n");
 		return 0;
@@ -156,7 +432,7 @@ static int fm_v4l2_fops_release(struct file *file)
 		fmerr("Unable to turn off the chip\n");
 		return ret;
 	}
-
+	sysfs_remove_group(&fmdev->radio_dev->dev.kobj, &v4l2_fm_attr_grp);
 	ret = fmc_release(fmdev);
 	if (ret < 0) {
 		fmerr("FM CORE release failed\n");
@@ -175,7 +451,7 @@ static int fm_v4l2_vidioc_querycap(struct file *file, void *priv,
 	strlcpy(capability->card, FM_DRV_CARD_SHORT_NAME,
 			sizeof(capability->card));
 	sprintf(capability->bus_info, "UART");
-	capability->version = FM_DRV_RADIO_VERSION;
+//	capability->version = FM_DRV_RADIO_VERSION;
 	capability->capabilities = V4L2_CAP_HW_FREQ_SEEK | V4L2_CAP_TUNER |
 		V4L2_CAP_RADIO | V4L2_CAP_MODULATOR |
 		V4L2_CAP_AUDIO | V4L2_CAP_READWRITE |
@@ -191,7 +467,7 @@ static int fm_g_volatile_ctrl(struct v4l2_ctrl *ctrl)
 
 	switch (ctrl->id) {
 	case  V4L2_CID_TUNE_ANTENNA_CAPACITOR:
-		ctrl->cur.val = fm_tx_get_tune_cap_val(fmdev);
+		ctrl->val = fm_tx_get_tune_cap_val(fmdev);
 		break;
 	default:
 		fmwarn("%s: Unknown IOCTL: %d\n", __func__, ctrl->id);
@@ -205,7 +481,7 @@ static int fm_v4l2_s_ctrl(struct v4l2_ctrl *ctrl)
 {
 	struct fmdev *fmdev = container_of(ctrl->handler,
 			struct fmdev, ctrl_handler);
-
+	int ret;
 	switch (ctrl->id) {
 	case V4L2_CID_AUDIO_VOLUME:	/* set volume */
 		return fm_rx_set_volume(fmdev, (u16)ctrl->val);
@@ -219,7 +495,37 @@ static int fm_v4l2_s_ctrl(struct v4l2_ctrl *ctrl)
 
 	case V4L2_CID_TUNE_PREEMPHASIS:
 		return fm_tx_set_preemph_filter(fmdev, (u8) ctrl->val);
+	case V4L2_CID_RDS_TX_PI:
+		ret = set_rds_picode(fmdev, ctrl->val);
+		if (ret < 0) {
+			fmerr("Failed to set RDS Radio PS Name\n");
+			return ret;
+		}
+		return 0;
 
+	case V4L2_CID_RDS_TX_PTY:
+		ret = set_rds_pty(fmdev, ctrl->val);
+		if (ret < 0) {
+			fmerr("Failed to set RDS Radio PS Name\n");
+			return ret;
+		}
+		return 0;
+
+	case V4L2_CID_RDS_TX_PS_NAME:
+		ret = fm_tx_set_radio_text(fmdev, ctrl->string, 1);
+		if (ret < 0) {
+			fmerr("Failed to set RDS Radio PS Name\n");
+			return ret;
+		}
+		return 0;
+
+	case V4L2_CID_RDS_TX_RADIO_TEXT:
+		ret = fm_tx_set_radio_text(fmdev, ctrl->string, 2);
+		if (ret < 0) {
+			fmerr("Failed to set RDS Radio Text\n");
+			return ret;
+		}
+		return 0;
 	default:
 		return -EINVAL;
 	}
@@ -393,7 +699,7 @@ static int fm_v4l2_vidioc_s_hw_freq_seek(struct file *file, void *priv,
 	}
 
 	ret = fm_rx_seek(fmdev, seek->seek_upward, seek->wrap_around,
-			seek->spacing);
+			seek->spacing, SEEK_START);
 	if (ret < 0)
 		fmerr("RX seek failed - %d\n", ret);
 
@@ -541,10 +847,19 @@ int fm_v4l2_init_video_device(struct fmdev *fmdev, int radio_nr)
 	v4l2_ctrl_new_std(&fmdev->ctrl_handler, &fm_ctrl_ops,
 			V4L2_CID_AUDIO_VOLUME, FM_RX_VOLUME_MIN,
 			FM_RX_VOLUME_MAX, 1, FM_RX_VOLUME_MAX);
+	v4l2_ctrl_new_std(&fmdev->ctrl_handler, &fm_ctrl_ops,
+			V4L2_CID_AUDIO_MUTE, 0, 1, 1, 0);
+	v4l2_ctrl_new_std(&fmdev->ctrl_handler, &fm_ctrl_ops,
+			V4L2_CID_RDS_TX_PI, 0x0, 0xf, 1, 0x0);
 
 	v4l2_ctrl_new_std(&fmdev->ctrl_handler, &fm_ctrl_ops,
-			V4L2_CID_AUDIO_MUTE, 0, 1, 1, 1);
+			V4L2_CID_RDS_TX_PTY, 0, 32, 1, 0);
 
+	v4l2_ctrl_new_std(&fmdev->ctrl_handler, &fm_ctrl_ops,
+			V4L2_CID_RDS_TX_PS_NAME, 0, 0xffff, 1, 0);
+
+	v4l2_ctrl_new_std(&fmdev->ctrl_handler, &fm_ctrl_ops,
+			V4L2_CID_RDS_TX_RADIO_TEXT, 0, 0xffff, 1, 0);
 	v4l2_ctrl_new_std_menu(&fmdev->ctrl_handler, &fm_ctrl_ops,
 			V4L2_CID_TUNE_PREEMPHASIS, V4L2_PREEMPHASIS_75_uS,
 			0, V4L2_PREEMPHASIS_75_uS);
@@ -558,7 +873,7 @@ int fm_v4l2_init_video_device(struct fmdev *fmdev, int radio_nr)
 			255, 1, 255);
 
 	if (ctrl)
-		ctrl->is_volatile = 1;
+		ctrl->flags |= V4L2_CTRL_FLAG_VOLATILE;
 
 	return 0;
 }

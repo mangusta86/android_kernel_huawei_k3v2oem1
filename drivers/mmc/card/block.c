@@ -443,6 +443,9 @@ static struct mmc_blk_ioc_data *mmc_blk_ioctl_copy_from_user(
 		goto idata_err;
 	}
 
+	if (!idata->buf_bytes)
+		return idata;
+
 	idata->buf = kzalloc(idata->buf_bytes, GFP_KERNEL);
 	if (!idata->buf) {
 		err = -ENOMEM;
@@ -474,7 +477,7 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 	struct mmc_command cmd = {0};
 	struct mmc_data data = {0};
 	struct mmc_request mrq = {0};
-	struct scatterlist *sg_list = NULL;
+	struct scatterlist sg;
 	int i;
 	int err;
 
@@ -490,22 +493,6 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 	if (IS_ERR(idata))
 		return PTR_ERR(idata);
 
-	cmd.opcode = idata->ic.opcode;
-	cmd.arg = idata->ic.arg;
-	cmd.flags = idata->ic.flags;
-
-	data.blksz = idata->ic.blksz;
-	data.blocks = idata->ic.blocks;
-
-
-	if (idata->ic.write_flag)
-		data.flags = MMC_DATA_WRITE;
-	else
-		data.flags = MMC_DATA_READ;
-
-	mrq.cmd = &cmd;
-	mrq.data = &data;
-
 	md = mmc_blk_get(bdev->bd_disk);
 	if (!md) {
 		err = -EINVAL;
@@ -518,21 +505,47 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 		goto cmd_done;
 	}
 
+	cmd.opcode = idata->ic.opcode;
+	cmd.arg = idata->ic.arg;
+	cmd.flags = idata->ic.flags;
 
-	data.sg_len = (u32)(idata->buf_bytes + card->host->max_seg_size -1) / card->host->max_seg_size;
+	if (idata->buf_bytes) {
+		data.sg = &sg;
+		data.sg_len = 1;
+		data.blksz = idata->ic.blksz;
+		data.blocks = idata->ic.blocks;
 
-	sg_list = kzalloc(data.sg_len * sizeof(struct scatterlist), GFP_KERNEL);
-	if (!sg_list) {
-		err = -ENOMEM;
-		goto cmd_done;
+		sg_init_one(data.sg, idata->buf, idata->buf_bytes);
+
+		if (idata->ic.write_flag)
+			data.flags = MMC_DATA_WRITE;
+		else
+			data.flags = MMC_DATA_READ;
+
+		/* data.flags must already be set before doing this. */
+		mmc_set_data_timeout(&data, card);
+
+		/* Allow overriding the timeout_ns for empirical tuning. */
+		if (idata->ic.data_timeout_ns)
+			data.timeout_ns = idata->ic.data_timeout_ns;
+
+		if ((cmd.flags & MMC_RSP_R1B) == MMC_RSP_R1B) {
+			/*
+			 * Pretend this is a data transfer and rely on the
+			 * host driver to compute timeout.  When all host
+			 * drivers support cmd.cmd_timeout for R1B, this
+			 * can be changed to:
+			 *
+			 *     mrq.data = NULL;
+			 *     cmd.cmd_timeout = idata->ic.cmd_timeout_ms;
+			 */
+			data.timeout_ns = idata->ic.cmd_timeout_ms * 1000000;
+		}
+
+		mrq.data = &data;
 	}
 
-	data.sg = sg_list;
-	sg_init_table(data.sg, data.sg_len);
-	for (i = 0; i < data.sg_len - 1; i++) {
-		sg_set_buf(&sg_list[i], idata->buf + card->host->max_seg_size * i, card->host->max_seg_size);
-	}
-	sg_set_buf(&sg_list[i], idata->buf + card->host->max_seg_size * i, idata->buf_bytes - card->host->max_seg_size * i);
+	mrq.cmd = &cmd;
 
 	mmc_claim_host(card->host);
 
@@ -540,24 +553,6 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 		err = mmc_app_cmd(card->host, card);
 		if (err)
 			goto cmd_rel_host;
-	}
-
-	/* data.flags must already be set before doing this. */
-	mmc_set_data_timeout(&data, card);
-	/* Allow overriding the timeout_ns for empirical tuning. */
-	if (idata->ic.data_timeout_ns)
-		data.timeout_ns = idata->ic.data_timeout_ns;
-
-	if ((cmd.flags & MMC_RSP_R1B) == MMC_RSP_R1B) {
-		/*
-		 * Pretend this is a data transfer and rely on the host driver
-		 * to compute timeout.  When all host drivers support
-		 * cmd.cmd_timeout for R1B, this can be changed to:
-		 *
-		 *     mrq.data = NULL;
-		 *     cmd.cmd_timeout = idata->ic.cmd_timeout_ms;
-		 */
-		data.timeout_ns = idata->ic.cmd_timeout_ms * 1000000;
 	}
 
 	mmc_wait_for_req(card->host, &mrq);
@@ -599,8 +594,6 @@ cmd_rel_host:
 	mmc_release_host(card->host);
 
 cmd_done:
-	if (sg_list)
-		kfree(sg_list);
 	mmc_blk_put(md);
 	kfree(idata->buf);
 	kfree(idata);

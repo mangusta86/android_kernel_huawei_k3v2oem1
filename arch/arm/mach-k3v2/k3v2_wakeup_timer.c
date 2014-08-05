@@ -50,6 +50,10 @@
 #define TIMEREN_2_SEL                          (1<<19)
 #define TIMEREN_FORCE_HIGH                     (1<<8)
 
+u32 wakeup_timer_seconds;
+u32 wakeup_timer_milliseconds;
+static bool k3v2_timer_mode_enable;
+
  /*
  * struct k3v2_wakeup_timer
  *
@@ -76,16 +80,16 @@ static struct k3v2_wakeup_timer wakeup_timer;
 static void k3v2_wakeup_timer_set_time(unsigned int time);
 static void k3v2_wakeup_timer_init_config(void);
 static int  k3v2_wakeup_timer_clk_get(void);
+static int  k3v2_wakeup_timer_pclk_get(void);
 static int  k3v2_wakeup_timer_clk_enable(void);
+static int  k3v2_wakeup_timer_pclk_enable(void);
 static void k3v2_wakeup_timer_clk_disable(void);
-
-
+static void k3v2_pm_wakeup_on_timer(unsigned int seconds, unsigned int milliseconds);
+static void k3v2_wakeup_timer_disable(void);
 
 static void k3v2_wakeup_timer_set_time(unsigned int time)
 {
-    unsigned long ctrl, flags;
-
-    spin_lock_irqsave(&wakeup_timer.lock, flags);
+    unsigned long ctrl;
 
     ctrl = readl(wakeup_timer.base + TIMER_CTRL);
 
@@ -100,8 +104,6 @@ static void k3v2_wakeup_timer_set_time(unsigned int time)
     ctrl |= (TIMER_CTRL_ENABLE | TIMER_CTRL_IE);
 
     writel(ctrl, wakeup_timer.base + TIMER_CTRL);
-
-    spin_unlock_irqrestore(&wakeup_timer.lock, flags);
 }
 
 
@@ -116,10 +118,8 @@ static void k3v2_wakeup_timer_set_time(unsigned int time)
 */
 static void k3v2_wakeup_timer_init_config(void)
 {
-    unsigned long flags, ctrl = 0;
+    unsigned long ctrl = 0;
     unsigned int reg = 0;
-
-    spin_lock_irqsave(&wakeup_timer.lock, flags);
 
     /*1. timer2 select 32.768K. bit20:bit19=00, bit8=1,force timer0123 high*/
     reg  = readl(IO_ADDRESS(SCTRL));
@@ -138,16 +138,25 @@ static void k3v2_wakeup_timer_init_config(void)
     ctrl |= TIMER_CTRL_ONESHOT;
 
     writel(ctrl, wakeup_timer.base + TIMER_CTRL);
-
-    spin_unlock_irqrestore(&wakeup_timer.lock, flags);
 }
 
 static irqreturn_t k3v2_wakeup_timer_interrupt(int irq, void *dev_id)
 {
+    spin_lock(&wakeup_timer.lock);
+
+    if(false == k3v2_timer_mode_enable)
+    {
+        /*timer is disabled already*/
+        goto out;
+    }
+
     if ((readl(wakeup_timer.base + TIMER_RIS)) & 0x1) {
         /* clear the interrupt */
         writel(1, wakeup_timer.base + TIMER_INTCLR);
     }
+
+out:
+    spin_unlock(&wakeup_timer.lock);
 
     return IRQ_HANDLED;
 }
@@ -161,9 +170,10 @@ static irqreturn_t k3v2_wakeup_timer_interrupt(int irq, void *dev_id)
 *mode: 0 for periodic
 *          1 for oneshot
 */
-void k3v2_pm_wakeup_on_timer(unsigned int seconds, unsigned int milliseconds)
+static void k3v2_pm_wakeup_on_timer(unsigned int seconds, unsigned int milliseconds)
 {
     unsigned int set_time;
+    unsigned long flags;
 
     if (!seconds && !milliseconds)
     {
@@ -180,10 +190,20 @@ void k3v2_pm_wakeup_on_timer(unsigned int seconds, unsigned int milliseconds)
         return;
     }
 
+    spin_lock_irqsave(&wakeup_timer.lock, flags);
     /*enable clk*/
     if(k3v2_wakeup_timer_clk_enable())
     {
         printk("hisk3_pm_wakeup_on_timer: clk enable error!\n");
+        spin_unlock_irqrestore(&wakeup_timer.lock, flags);
+        return;
+    }
+
+    /*enable pclk*/
+    if(k3v2_wakeup_timer_pclk_enable())
+    {
+        printk("hisk3_pm_wakeup_on_timer: pclk enable error!\n");
+        spin_unlock_irqrestore(&wakeup_timer.lock, flags);
         return;
     }
 
@@ -194,17 +214,25 @@ void k3v2_pm_wakeup_on_timer(unsigned int seconds, unsigned int milliseconds)
 
     k3v2_wakeup_timer_set_time((unsigned int)WAKEUP_TIMER_SET_VALUE(set_time));
 
+    /*set timer mode flag to be TRUE*/
+    k3v2_timer_mode_enable = true;
+
+    spin_unlock_irqrestore(&wakeup_timer.lock, flags);
+
     pr_info("PM: Resume timer in %u.%03u secs\n",seconds, milliseconds);
 }
 
-EXPORT_SYMBOL(k3v2_pm_wakeup_on_timer);
 
-
-void k3v2_wakeup_timer_disable(void)
+static void k3v2_wakeup_timer_disable(void)
 {
     unsigned long ctrl, flags;
 
     spin_lock_irqsave(&wakeup_timer.lock, flags);
+
+    /* clear the interrupt */
+    if ((readl(wakeup_timer.base + TIMER_RIS)) & 0x1) {
+        writel(1, wakeup_timer.base + TIMER_INTCLR);
+    }
 
     ctrl = readl(wakeup_timer.base + TIMER_CTRL);
 
@@ -212,13 +240,15 @@ void k3v2_wakeup_timer_disable(void)
 
     writel(ctrl, wakeup_timer.base + TIMER_CTRL);
 
-    spin_unlock_irqrestore(&wakeup_timer.lock, flags);
-
     /*disbale clk*/
     k3v2_wakeup_timer_clk_disable();
 
+    /*set timer mode flag to be FALSE*/
+    k3v2_timer_mode_enable = false;
+
+    spin_unlock_irqrestore(&wakeup_timer.lock, flags);
 }
-EXPORT_SYMBOL(k3v2_wakeup_timer_disable);
+
 
 static int k3v2_wakeup_timer_clk_get(void)
 {
@@ -232,9 +262,16 @@ static int k3v2_wakeup_timer_clk_get(void)
         return ret;
     }
 
+    return ret;
+}
+
+static int k3v2_wakeup_timer_pclk_get(void)
+{
+    int ret = 0;
+
     /*get timer pclk*/
     wakeup_timer.pclk = clk_get(NULL,"clk_pclktimer1");
-    if (IS_ERR(wakeup_timer.clk)) {
+    if (IS_ERR(wakeup_timer.pclk)) {
         printk("k3v2_wakeup_timer_clk_get: pclk not found\n");
         ret = PTR_ERR(wakeup_timer.pclk);
     }
@@ -248,13 +285,20 @@ static int k3v2_wakeup_timer_clk_enable(void)
 
     ret = clk_enable(wakeup_timer.clk);
     if (ret) {
-        printk("k3v2_wakeup_timer_clk_enable: clk enable fail");
+        printk("k3v2_wakeup_timer_clk_enable: clk enable fail\n");
         return ret;
     }
 
+    return ret;
+}
+
+static int k3v2_wakeup_timer_pclk_enable(void)
+{
+    int ret = 0;
+
     ret = clk_enable(wakeup_timer.pclk);
     if (ret) {
-        printk("k3v2_wakeup_timer_clk_enable: pclk enable fail");
+        printk("k3v2_wakeup_timer_clk_enable: pclk enable fail\n");
     }
 
     return ret;
@@ -304,6 +348,12 @@ static int __devinit k3v2_wakeup_timer_probe(struct platform_device *pdev)
         goto err_clk_get;
     }
 
+    if(k3v2_wakeup_timer_pclk_get())
+    {
+        dev_warn(&pdev->dev, "pclk get failed\n");
+        goto err_pclk_get;
+    }
+
     wakeup_timer.base = ioremap(res->start, resource_size(res));
     if (!wakeup_timer.base) {
         ret = -ENOMEM;
@@ -319,17 +369,25 @@ static int __devinit k3v2_wakeup_timer_probe(struct platform_device *pdev)
         goto err_clk_enable;
     }
 
+    if(k3v2_wakeup_timer_pclk_enable())
+    {
+        dev_warn(&pdev->dev, "pclk enable failed\n");
+        goto err_pclk_enable;
+    }
+
     wakeup_timer.pdev = pdev;
     wakeup_timer.irq = irq;
 
     /*do timer init configs: disable timer ,mask interrupt, clear interrupt and set clk to 32.768KHz*/
     k3v2_wakeup_timer_init_config();
 
+    k3v2_timer_mode_enable = false;
+
     /*register timer2 interrupt*/
     if(request_irq(wakeup_timer.irq, k3v2_wakeup_timer_interrupt, IRQF_NO_SUSPEND, MODULE_NAME, NULL))
     {
         dev_warn(&pdev->dev,"request irq for timer2 error\n");
-        goto err_clk_enable;
+        goto err_irq;
     }
 
     /*when init config finished, disable the clk and pclk for timer and enable them when needed.*/
@@ -339,11 +397,16 @@ static int __devinit k3v2_wakeup_timer_probe(struct platform_device *pdev)
 
     return 0;
 
+err_irq:
+    clk_disable(wakeup_timer.pclk);
+err_pclk_enable:
+    clk_disable(wakeup_timer.clk);
 err_clk_enable:
-    k3v2_wakeup_timer_clk_disable();
     iounmap(wakeup_timer.base);
 err_ioremap:
-    k3v2_wakeup_timer_clk_put();
+    clk_put(wakeup_timer.pclk);
+err_pclk_get:
+    clk_put(wakeup_timer.clk);
 err_clk_get:
     wakeup_timer.clk = NULL;
     wakeup_timer.pclk = NULL;
@@ -371,6 +434,25 @@ static int __devexit k3v2_wakeup_timer_remove(struct platform_device *pdev)
     return 0;
 }
 
+static  int k3v2_wakeup_timer_suspend(struct platform_device *pdev, pm_message_t state)
+{
+    /* Wakeup timer from suspend */
+    if (wakeup_timer_seconds || wakeup_timer_milliseconds){
+        k3v2_pm_wakeup_on_timer(wakeup_timer_seconds,wakeup_timer_milliseconds);
+    }
+    return 0;
+}
+
+static  int k3v2_wakeup_timer_resume(struct platform_device *pdev)
+{
+    if(k3v2_timer_mode_enable){
+        k3v2_wakeup_timer_disable();
+        dev_info(&pdev->dev, "k3v2_wakeup_timer_disable\n");
+    }
+
+    return 0;
+}
+
 static struct platform_driver hisik3v2_timer2_driver = {
     .driver = {
         .name = MODULE_NAME,
@@ -378,6 +460,8 @@ static struct platform_driver hisik3v2_timer2_driver = {
     },
     .probe = k3v2_wakeup_timer_probe,
     .remove = __devexit_p(k3v2_wakeup_timer_remove),
+    .suspend = k3v2_wakeup_timer_suspend,
+    .resume = k3v2_wakeup_timer_resume,
 };
 
 

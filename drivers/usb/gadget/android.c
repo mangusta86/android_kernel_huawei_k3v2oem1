@@ -19,7 +19,6 @@
 /* #define VERBOSE_DEBUG */
 
 
-
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/fs.h>
@@ -171,21 +170,20 @@ static struct usb_configuration android_config_driver = {
  *  * Return value: void
  *  * Side effect : none
  *  */
-void usb_port_switch_request(void)
+void usb_port_switch_request(int usb_switch_index)
 {
 	char event_buf[32];
 	char *envp[2] = {event_buf, NULL};
 	int ret;
-	int usb_pid_index = 0;
 
-	snprintf(event_buf, sizeof(event_buf),"USB_PORT_SWITCH=%d", usb_pid_index);
+	snprintf(event_buf, sizeof(event_buf),"USB_PORT_SWITCH=%d", usb_switch_index);
 	ret= kobject_uevent_env(&_android_dev->dev->kobj, KOBJ_CHANGE, envp);
 	if (ret < 0){
 		pr_err("%s: uevent sending failed with ret = %d\n", __func__, ret);
 	}else{
-		pr_info("%s: uevent send OK %d", __func__, ret);
+		pr_info("%s: uevent USB_PORT_SWITCH=%d send OK %d", __func__, usb_switch_index, ret);
 	}
-    switch_request = 1;
+	switch_request = usb_switch_index + 1;
 	return;
 }
 static void android_work(struct work_struct *data)
@@ -1268,8 +1266,8 @@ static int android_bind(struct usb_composite_dev *cdev)
 	dev->cdev = cdev;
 
 	/* enable functions. */
-	functions_store(dev->dev, NULL, "adb,acm", sizeof("adb,acm"));
-	enable_store(dev->dev, NULL, "1", sizeof("1"));
+	/* functions_store(dev->dev, NULL, "adb,acm", sizeof("adb,acm")); */
+	/* enable_store(dev->dev, NULL, "1", sizeof("1")); */
 
 	return 0;
 }

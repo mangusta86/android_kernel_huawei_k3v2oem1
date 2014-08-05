@@ -9,7 +9,6 @@ struct st_read_proc {
 };
 
 extern unsigned int get_pd_charge_flag(void);
-extern unsigned int get_boot_into_recovery_flag(void);
 extern unsigned int resetmode_is_normal(void);
 
 extern unsigned int get_boot_into_recovery_flag(void);
@@ -37,6 +36,7 @@ static int app_tag_read_proc(char *page, char **start, off_t off,
 	u32 reset_normal_flag = 0;
 
 	recovery_flag = get_boot_into_recovery_flag();
+
 	charge_flag = get_pd_charge_flag();
 	reset_normal_flag = resetmode_is_normal();
 

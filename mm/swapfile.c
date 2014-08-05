@@ -38,6 +38,10 @@
 #include <linux/swapops.h>
 #include <linux/page_cgroup.h>
 
+#ifdef CONFIG_SRECORDER
+#include <linux/srecorder.h>
+#endif
+
 static bool swap_count_continued(struct swap_info_struct *, pgoff_t,
 				 unsigned char);
 static void free_swap_count_continuations(struct swap_info_struct *);
@@ -63,6 +67,26 @@ static DEFINE_MUTEX(swapon_mutex);
 static DECLARE_WAIT_QUEUE_HEAD(proc_poll_wait);
 /* Activity counter to indicate that a swapon or swapoff has occurred */
 static atomic_t proc_poll_event = ATOMIC_INIT(0);
+
+#if defined(CONFIG_SRECORDER) && DUMP_SYS_INFO
+unsigned long get_nr_swapfiles(void)
+{
+    return &nr_swapfiles;
+}
+EXPORT_SYMBOL(get_nr_swapfiles);
+
+unsigned long get_swap_lock(void)
+{
+    return &swap_lock;
+}
+EXPORT_SYMBOL(get_swap_lock);
+
+unsigned long get_swap_info(void)
+{
+    return &swap_info;
+}
+EXPORT_SYMBOL(get_swap_info);
+#endif
 
 static inline unsigned char swap_count(unsigned char ent)
 {
@@ -932,9 +956,7 @@ static inline int unuse_pmd_range(struct vm_area_struct *vma, pud_t *pud,
 	pmd = pmd_offset(pud, addr);
 	do {
 		next = pmd_addr_end(addr, end);
-		if (unlikely(pmd_trans_huge(*pmd)))
-			continue;
-		if (pmd_none_or_clear_bad(pmd))
+		if (pmd_none_or_trans_huge_or_clear_bad(pmd))
 			continue;
 		ret = unuse_pte_range(vma, pmd, addr, next, entry, page);
 		if (ret)

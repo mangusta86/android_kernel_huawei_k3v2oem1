@@ -31,6 +31,8 @@ enum BOARDID_STATUS {
 static enum BOARDID_STATUS boardid_status = BOARDID_CLOSE;
 static struct mutex boardid_lock;
 
+//extern void hi6421_check_pll(void);
+
 static int boardid_open(struct inode *inode, struct file *file)
 {
 	mutex_lock(&boardid_lock);
@@ -109,6 +111,20 @@ static int __devexit boardid_remove(struct platform_device *pdev)
     return 0;
 }
 
+/*
+#ifdef CONFIG_PM_SLEEP
+#define boardid_suspend NULL
+static int boardid_resume(struct platform_device *dev)
+{
+    hi6421_check_pll();
+    return 0;
+}
+#else
+*/
+#define boardid_suspend NULL
+#define boardid_resume NULL
+//#endif
+
 static struct platform_driver boardid_driver = {
     .driver = {
         .name  = BOARDID_NAME,
@@ -116,6 +132,8 @@ static struct platform_driver boardid_driver = {
     },
     .probe  = boardid_probe,
     .remove = __devexit_p(boardid_remove),
+    .suspend  = boardid_suspend,
+    .resume   = boardid_resume,
 };
 
 static int __init boardid_init(void)

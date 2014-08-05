@@ -17,26 +17,45 @@ struct es305_img {
 
 /* path ids */
 enum ES305_PATHID {
-    ES305_PATH_NO_INIT              = 0,
-    ES305_PATH_BYPASS               = 1,
-/* NarrowBand Call */
-    ES305_PATH_NB_CALL_RECEIVER     = 2,
-    ES305_PATH_NB_CALL_HEADSET      = 3,
-    ES305_PATH_NB_CALL_HEADPHONE    = 4,
-    ES305_PATH_NB_CALL_SPEAKER      = 5,
-    ES305_PATH_NB_CALL_BT           = 6,
-/* WideBand Call */
-    ES305_PATH_WB_CALL_RECEIVER     = 7,
-    ES305_PATH_WB_CALL_HEADSET      = 8,
-    ES305_PATH_WB_CALL_HEADPHONE    = 9,
-    ES305_PATH_WB_CALL_SPEAKER      = 10,
-    ES305_PATH_WB_CALL_BT           = 11,
+    ES305_PATH_NO_INIT                    = -2,
+    ES305_PATH_BYPASS                     = -1,
+/* NarrowBand Call For First Modem*/
+    ES305_PATH_FIRST_NB_CALL_RECEIVER     = 0,
+    ES305_PATH_FIRST_NB_CALL_HEADSET      = 1,
+    ES305_PATH_FIRST_NB_CALL_HEADPHONE    = 2,
+    ES305_PATH_FIRST_NB_CALL_SPEAKER      = 3,
+    ES305_PATH_FIRST_NB_CALL_BT           = 4,
+/* WideBand Call For First Modem*/
+    ES305_PATH_FIRST_WB_CALL_RECEIVER     = 6,
+    ES305_PATH_FIRST_WB_CALL_HEADSET      = 7,
+    ES305_PATH_FIRST_WB_CALL_HEADPHONE    = 8,
+    ES305_PATH_FIRST_WB_CALL_SPEAKER      = 9,
+    ES305_PATH_FIRST_WB_CALL_BT           = 10,
 /* VOIP */
-    ES305_PATH_VOIP_RECEIVER        = 12,
-    ES305_PATH_VOIP_HEADSET         = 13,
-    ES305_PATH_VOIP_HEADPHONE       = 14,
-    ES305_PATH_VOIP_SPEAKER         = 15,
-    ES305_PATH_VOIP_BT              = 16,
+    ES305_PATH_VOIP_RECEIVER              = 12,
+    ES305_PATH_VOIP_HEADSET               = 13,
+    ES305_PATH_VOIP_HEADPHONE             = 14,
+    ES305_PATH_VOIP_SPEAKER               = 15,
+    ES305_PATH_VOIP_BT                    = 16,
+/* ASR */
+	ES305_PATH_ASR                        = 18,
+/* NarrowBand Call For Second Modem*/
+    ES305_PATH_SECOND_NB_CALL_RECEIVER    = 24,
+    ES305_PATH_SECOND_NB_CALL_HEADSET     = 25,
+    ES305_PATH_SECOND_NB_CALL_HEADPHONE   = 26,
+    ES305_PATH_SECOND_NB_CALL_SPEAKER     = 27,
+    ES305_PATH_SECOND_NB_CALL_BT          = 28,
+/* WideBand Call For Second Modem*/
+    ES305_PATH_SECOND_WB_CALL_RECEIVER    = 30,
+    ES305_PATH_SECOND_WB_CALL_HEADSET     = 31,
+    ES305_PATH_SECOND_WB_CALL_HEADPHONE   = 32,
+    ES305_PATH_SECOND_WB_CALL_SPEAKER     = 33,
+    ES305_PATH_SECOND_WB_CALL_BT          = 34,
+/*Record*/
+	ES305_PATH_DUAL_MIC                   = 36,
+	ES305_PATH_MAIN_MIC                   = 37,
+	ES305_PATH_HS_MIC                     = 38,
+	ES305_PATH_CAMCORDER                  = 39,
 };
 
 /* max size of firmware */
@@ -51,7 +70,8 @@ enum ES305_PATHID {
 
 #define ES305_I2C_DOWNLOAD _IOW(ES305_IOCTL_MAGIC, 0x03, struct es305_img*)
 #define ES305_SET_PATHID   _IOW(ES305_IOCTL_MAGIC, 0x04, enum ES305_PATHID)
-#define ES305_SET_STATUS   _IOW(ES305_IOCTL_MAGIC, 0x05, unsigned char)
+#define ES305_SET_NS       _IOW(ES305_IOCTL_MAGIC, 0x05, unsigned char)
+#define ES305_SET_STATUS   _IOW(ES305_IOCTL_MAGIC, 0x06, unsigned char)
 
 /* For Diag */
 #define ES305_WRITE_MSG    _IOW(ES305_IOCTL_MAGIC, 0x10, unsigned)

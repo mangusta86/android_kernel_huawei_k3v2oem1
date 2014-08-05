@@ -52,7 +52,4 @@ obj-$(CONFIG_NETLABEL) += cipso_ipv4.o
 
 obj-$(CONFIG_XFRM) += xfrm4_policy.o xfrm4_state.o xfrm4_input.o \
 		      xfrm4_output.o
-
-#ifdef $(CONFIG_TCP_CONG_MW3)
 obj-$(CONFIG_TCP_CONG_MW3) += tcp_mw3.o
-#endif

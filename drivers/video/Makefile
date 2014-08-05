@@ -157,11 +157,12 @@ obj-$(CONFIG_FB_MX3)		  += mx3fb.o
 obj-$(CONFIG_FB_DA8XX)		  += da8xx-fb.o
 obj-$(CONFIG_FB_MXS)		  += mxsfb.o
 obj-$(CONFIG_FB_K3_CLCD)          += k3/
-obj-$(CONFIG_K3_HDMI_SII9134)     += k3/hdmi/
+obj-$(CONFIG_K3_HDMI)             += k3/hdmi/
 obj-$(CONFIG_K3_FAKE_FB)          += fakefb/
 # the test framebuffer is last
 obj-$(CONFIG_FB_VIRTUAL)          += vfb.o
 
 #video output switch sysfs driver
 obj-$(CONFIG_VIDEO_OUTPUT_CONTROL) += output.o
-obj-$(CONFIG_HUAWEI_MHL_SII9244)  += hdmi/sii9244/
+obj-$(CONFIG_MHL_SII9244)         += mhl/sii9244/
+obj-$(CONFIG_MHL_SII8240)         +=mhl/sii8240/

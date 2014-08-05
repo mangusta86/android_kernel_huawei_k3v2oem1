@@ -19,7 +19,8 @@
  */
 
 #include "yas.h"
-
+#include <hsad/config_interface.h>
+#include <linux/string.h>
 struct utimeval {
 	int32_t tv_sec;
 	int32_t tv_msec;
@@ -92,6 +93,10 @@ static void utimer_lib_init(void (*func)(int *sec, int *msec));
 #define YAS_YAS532_VERSION_AC_COEF	(900)
 #define YAS_YAS532_DATA_CENTER		(4096)
 #define YAS_YAS532_DATA_OVERFLOW	(8190)
+
+#define E_COMPASS_SOFTIRON_TYPE_U9701L 0
+#define E_COMPASS_SOFTIRON_TYPE_U9700L 1
+#define E_COMPASS_SOFTIRON_TYPE_U9700GVA 2
 
 #undef YAS_YAS530_CAL_SINGLE_READ
 
@@ -2070,8 +2075,8 @@ check_interval(int ms)
 
 	if (ms <= supported_data_interval[0])
 		ms = supported_data_interval[0];
-	for (index = 0; index < NELEMS(supported_data_interval); index++) {
-		if (ms == supported_data_interval[index])
+	for (index = NELEMS(supported_data_interval)-1; index >= 0; index--) {
+		if (ms >= supported_data_interval[index])
 			return index;
 	}
 	return -1;
@@ -2418,14 +2423,30 @@ yas_init_nolock(struct yas_driver *d)
 	int32_t zero[] = {0, 0, 0};
 #endif
 	int32_t notransform[] = {10000, 0, 0, 0, 10000, 0, 0, 0, 10000};
+       int32_t static_matrix_u9701L[] = {9009, -373, 24, -469, 10357, -83, 690, -267, 10723};
+       int32_t static_matrix_u9700GVA[] = {8936,-708,18,-395,10611,-46,-300,425,10542};
+       int32_t static_matrix_default[] = {10000, 0, 0, 0, 10000, 0, 0, 0, 10000};
 	int noise[] = {
 		YAS_MAG_DEFAULT_FILTER_NOISE_X,
 		YAS_MAG_DEFAULT_FILTER_NOISE_Y,
 		YAS_MAG_DEFAULT_FILTER_NOISE_Z
 	};
+       unsigned int compass_softiron_type;
 
 	YLOGI(("yas_init_nolock IN\n"));
 
+       compass_softiron_type = get_compass_softiron_type();
+       switch(compass_softiron_type)
+       {
+             case E_COMPASS_SOFTIRON_TYPE_U9701L:
+                memcpy(static_matrix_default,static_matrix_u9701L,sizeof(static_matrix_default));
+                break;
+             case E_COMPASS_SOFTIRON_TYPE_U9700GVA:
+                memcpy(static_matrix_default,static_matrix_u9700GVA,sizeof(static_matrix_default));
+                break;
+             default:
+                break;
+       }
 	if (d->initialized)
 		return YAS_ERROR_NOT_INITIALIZED;
 
@@ -2450,7 +2471,7 @@ yas_init_nolock(struct yas_driver *d)
 #ifdef YAS_MAG_MANUAL_OFFSET
 	set_manual_offset(d, zero);
 #endif
-	set_static_matrix(d, notransform);
+	set_static_matrix(d, static_matrix_default);
 	set_dynamic_matrix(d, notransform);
 	set_offset(d, INVALID_OFFSET);
 	set_active(d, FALSE);

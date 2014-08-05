@@ -180,6 +180,12 @@ SYSCALL_DEFINE3(setpriority, int, which, int, who, int, niceval)
 
 	if (which > PRIO_USER || which < PRIO_PROCESS)
 		goto out;
+#ifdef CONFIG_CCSECURITY
+	if (!ccs_capable(CCS_SYS_NICE)) {
+		error = -EPERM;
+		goto out;
+	}
+#endif
 
 	/* normalize: avoid signed division (rounding problems) */
 	error = -ESRCH;
@@ -299,6 +305,19 @@ out_unlock:
 	return retval;
 }
 
+
+#ifdef CONFIG_SRECORDER
+#ifdef CONFIG_POWERCOLLAPSE
+#ifndef CONFIG_KPROBES
+static void emergency_restart_prepare(char *reason)
+{
+    raw_notifier_call_chain(&emergency_reboot_notifier_list, SYS_RESTART, reason);
+}
+#endif
+#endif
+#endif /* CONFIG_SRECORDER */
+
+
 /**
  *	emergency_restart - reboot the system
  *
@@ -309,6 +328,14 @@ out_unlock:
  */
 void emergency_restart(void)
 {
+#ifdef CONFIG_SRECORDER
+#ifdef CONFIG_POWERCOLLAPSE
+#ifndef CONFIG_KPROBES
+    emergency_restart_prepare(NULL);
+#endif
+#endif
+#endif /* CONFIG_SRECORDER */
+
 	kmsg_dump(KMSG_DUMP_EMERG);
 	machine_emergency_restart();
 }
@@ -323,6 +350,43 @@ void kernel_restart_prepare(char *cmd)
 	disable_nonboot_cpus();
 	syscore_shutdown();
 }
+
+#ifdef CONFIG_SRECORDER
+#ifdef CONFIG_POWERCOLLAPSE
+#ifndef CONFIG_KPROBES
+/**
+ *	register_emergency_reboot_notifier - Register function to be called at reboot time
+ *	@nb: Info about notifier function to be called
+ *
+ *	Registers a function with the list of functions
+ *	to be called at reboot time.
+ *
+ *	Currently always returns zero, as blocking_notifier_chain_register()
+ *	always returns zero.
+ */
+int register_emergency_reboot_notifier(struct notifier_block *nb)
+{
+    return raw_notifier_chain_register(&emergency_reboot_notifier_list, nb);
+}
+EXPORT_SYMBOL(register_emergency_reboot_notifier);
+
+/**
+ *	unregister_emergency_reboot_notifier - Unregister previously registered reboot notifier
+ *	@nb: Hook to be unregistered
+ *
+ *	Unregisters a previously registered reboot
+ *	notifier function.
+ *
+ *	Returns zero on success, or %-ENOENT on failure.
+ */
+int unregister_emergency_reboot_notifier(struct notifier_block *nb)
+{
+    return raw_notifier_chain_unregister(&emergency_reboot_notifier_list, nb);
+}
+EXPORT_SYMBOL(unregister_emergency_reboot_notifier);
+#endif
+#endif
+#endif /* CONFIG_SRECORDER */
 
 /**
  *	kernel_restart - reboot the system
@@ -413,6 +477,10 @@ SYSCALL_DEFINE4(reboot, int, magic1, int, magic2, unsigned int, cmd,
 			magic2 != LINUX_REBOOT_MAGIC2B &&
 	                magic2 != LINUX_REBOOT_MAGIC2C))
 		return -EINVAL;
+#ifdef CONFIG_CCSECURITY
+	if (!ccs_capable(CCS_SYS_REBOOT))
+		return -EPERM;
+#endif
 
 	/* Instead of trying to make the power_off code look like
 	 * halt when pm_power_off is not set do it the easy way.
@@ -1241,6 +1309,10 @@ SYSCALL_DEFINE2(sethostname, char __user *, name, int, len)
 
 	if (len < 0 || len > __NEW_UTS_LEN)
 		return -EINVAL;
+#ifdef CONFIG_CCSECURITY
+	if (!ccs_capable(CCS_SYS_SETHOSTNAME))
+		return -EPERM;
+#endif
 	down_write(&uts_sem);
 	errno = -EFAULT;
 	if (!copy_from_user(tmp, name, len)) {
@@ -1290,6 +1362,10 @@ SYSCALL_DEFINE2(setdomainname, char __user *, name, int, len)
 		return -EPERM;
 	if (len < 0 || len > __NEW_UTS_LEN)
 		return -EINVAL;
+#ifdef CONFIG_CCSECURITY
+	if (!ccs_capable(CCS_SYS_SETHOSTNAME))
+		return -EPERM;
+#endif
 
 	down_write(&uts_sem);
 	errno = -EFAULT;

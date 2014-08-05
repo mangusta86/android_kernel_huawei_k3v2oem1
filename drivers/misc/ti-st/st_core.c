@@ -19,16 +19,22 @@
  *
  */
 
+
+
 #define pr_fmt(fmt)	"(stc): " fmt
 #include <linux/module.h>
 #include <linux/kernel.h>
 #include <linux/init.h>
 #include <linux/tty.h>
 
+#include <linux/delay.h>
+#include <linux/wait.h>
 #include <linux/seq_file.h>
 #include <linux/skbuff.h>
 
 #include <linux/ti_wilink_st.h>
+//#define VERBOSE 
+#undef VERBOSE
 
 /* function pointer pointing to either,
  * st_kim_recv during registration to receive fw download responses
@@ -37,6 +43,9 @@
 void (*st_recv) (void*, const unsigned char*, long);
 
 /********************************************************************/
+
+static struct st_proto_s* backupproto[ST_MAX_CHANNELS] = { NULL};
+
 static void add_channel_to_table(struct st_data_s *st_gdata,
 		struct st_proto_s *new_proto)
 {
@@ -44,6 +53,9 @@ static void add_channel_to_table(struct st_data_s *st_gdata,
 	/* list now has the channel id as index itself */
 	st_gdata->list[new_proto->chnl_id] = new_proto;
 	st_gdata->is_registered[new_proto->chnl_id] = true;
+#ifdef CONFIG_ST_HOST_WAKE
+	st_host_wake_notify(new_proto->chnl_id, ST_PROTO_REGISTERED);
+#endif
 }
 
 static void remove_channel_from_table(struct st_data_s *st_gdata,
@@ -89,8 +101,8 @@ int st_int_write(struct st_data_s *st_gdata,
 	}
 	tty = st_gdata->tty;
 #ifdef VERBOSE
-	print_hex_dump(KERN_DEBUG, "<out<", DUMP_PREFIX_NONE,
-		16, 1, data, count, 0);
+	/*print_hex_dump(KERN_DEBUG, "<out<", DUMP_PREFIX_NONE,
+		16, 1, data, count, 0);*/
 #endif
 	return tty->ops->write(tty, data, count);
 
@@ -137,6 +149,8 @@ void st_send_frame(unsigned char chnl_id, struct st_data_s *st_gdata)
  * st_reg_complete -
  * to call registration complete callbacks
  * of all protocol stack drivers
+ * This function is being called with spin lock held, protocol drivers are
+ * only expected to complete their waits and do nothing more than that.
  */
 void st_reg_complete(struct st_data_s *st_gdata, char err)
 {
@@ -215,7 +229,7 @@ static inline void st_wakeup_ack(struct st_data_s *st_gdata,
 		skb_queue_tail(&st_gdata->txq, waiting_skb);
 
 	/* state forwarded to ST LL */
-	st_ll_sleep_state(st_gdata, (unsigned long)cmd);
+	st_ll_sleep_state(st_gdata, (unsigned long)cmd, flags);
 	spin_unlock_irqrestore(&st_gdata->lock, flags);
 
 	/* wake up to send the recently copied skbs from waitQ */
@@ -312,7 +326,7 @@ void st_int_recv(void *disc_data,
 			/* this takes appropriate action based on
 			 * sleep state received --
 			 */
-			st_ll_sleep_state(st_gdata, *ptr);
+			st_ll_sleep_state(st_gdata, *ptr, &flags);
 			/* if WAKEUP_IND collides copy from waitq to txq
 			 * and assume chip awake
 			 */
@@ -338,9 +352,29 @@ void st_int_recv(void *disc_data,
 			/* Unknow packet? */
 		default:
 			type = *ptr;
+			/* Default case means non-HCILL packets,
+			 * possibilities are packets for:
+			 * (a) valid protocol -  Supported Protocols within
+			 *     the ST_MAX_CHANNELS.
+			 * (b) registered protocol - Checked by
+			 *     "st_gdata->list[type] == NULL)" are supported
+			 *     protocols only.
+			 *  Rules out any invalid protocol and
+			 *  unregistered protocols with channel ID < 16.
+			 */
+
+			if ((type >= ST_MAX_CHANNELS) ||
+					(st_gdata->list[type] == NULL)) {
+				pr_err("chip/interface misbehavior "
+						"dropping frame starting "
+						"with 0x%02x", type);
+				goto done;
+			}
 			st_gdata->rx_skb = alloc_skb(
 					st_gdata->list[type]->max_frame_size,
 					GFP_ATOMIC);
+			if (!st_gdata->rx_skb)
+				goto done;
 			skb_reserve(st_gdata->rx_skb,
 					st_gdata->list[type]->reserve);
 			/* next 2 required for BT only */
@@ -354,6 +388,7 @@ void st_int_recv(void *disc_data,
 		ptr++;
 		count--;
 	}
+done:
 	spin_unlock_irqrestore(&st_gdata->lock, flags);
 	pr_debug("done %s", __func__);
 	return;
@@ -495,7 +530,6 @@ long st_register(struct st_proto_s *new_proto)
 	unsigned long flags = 0;
 
 	st_kim_ref(&st_gdata, 0);
-	pr_info("%s(%d) ", __func__, new_proto->chnl_id);
 	if (st_gdata == NULL || new_proto == NULL || new_proto->recv == NULL
 	    || new_proto->reg_complete_cb == NULL) {
 		pr_err("gdata/new_proto/recv or reg_complete_cb not ready");
@@ -511,7 +545,9 @@ long st_register(struct st_proto_s *new_proto)
 		pr_err("chnl_id %d already registered", new_proto->chnl_id);
 		return -EALREADY;
 	}
+	pr_info("%s(%d) ", __func__, new_proto->chnl_id);
 
+	backupproto[new_proto->chnl_id] = new_proto;
 	/* can be from process context only */
 	spin_lock_irqsave(&st_gdata->lock, flags);
 
@@ -530,12 +566,14 @@ long st_register(struct st_proto_s *new_proto)
 		pr_info(" chnl_id list empty :%d ", new_proto->chnl_id);
 		set_bit(ST_REG_IN_PROGRESS, &st_gdata->st_state);
 		st_recv = st_kim_recv;
+		/* enable the ST LL - to set default chip state */
+		st_ll_enable(st_gdata);
 
 		/* release lock previously held - re-locked below */
 		spin_unlock_irqrestore(&st_gdata->lock, flags);
 
 		/* enable the ST LL - to set default chip state */
-		st_ll_enable(st_gdata);
+		//st_ll_enable(st_gdata);
 		/* this may take a while to complete
 		 * since it involves BT fw download
 		 */
@@ -546,10 +584,11 @@ long st_register(struct st_proto_s *new_proto)
 			    (test_bit(ST_REG_PENDING, &st_gdata->st_state))) {
 				pr_err(" KIM failure complete callback ");
 				st_reg_complete(st_gdata, err);
+				clear_bit(ST_REG_PENDING, &st_gdata->st_state);
 			}
 			return -EINVAL;
 		}
-
+		spin_lock_irqsave(&st_gdata->lock, flags);
 		clear_bit(ST_REG_IN_PROGRESS, &st_gdata->st_state);
 		st_recv = st_int_recv;
 
@@ -569,10 +608,11 @@ long st_register(struct st_proto_s *new_proto)
 		if (st_gdata->is_registered[new_proto->chnl_id] == true) {
 			pr_err(" proto %d already registered ",
 				   new_proto->chnl_id);
+			spin_unlock_irqrestore(&st_gdata->lock, flags);
 			return -EALREADY;
 		}
 
-		spin_lock_irqsave(&st_gdata->lock, flags);
+		//spin_lock_irqsave(&st_gdata->lock, flags);
 		add_channel_to_table(st_gdata, new_proto);
 		st_gdata->protos_registered++;
 		new_proto->write = st_write;
@@ -611,21 +651,26 @@ long st_unregister(struct st_proto_s *proto)
 	}
 
 	spin_lock_irqsave(&st_gdata->lock, flags);
-
-	if (st_gdata->list[proto->chnl_id] == NULL) {
+	if (st_gdata->is_registered[proto->chnl_id] == false) {
 		pr_err(" chnl_id %d not registered", proto->chnl_id);
 		spin_unlock_irqrestore(&st_gdata->lock, flags);
 		return -EPROTONOSUPPORT;
 	}
 
+	backupproto[proto->chnl_id] = NULL;
 	st_gdata->protos_registered--;
 	remove_channel_from_table(st_gdata, proto);
 	spin_unlock_irqrestore(&st_gdata->lock, flags);
-
+	/* paranoid check */
+	if (st_gdata->protos_registered < ST_EMPTY)
+		st_gdata->protos_registered = ST_EMPTY;
 	if ((st_gdata->protos_registered == ST_EMPTY) &&
 	    (!test_bit(ST_REG_PENDING, &st_gdata->st_state))) {
 		pr_info(" all chnl_ids unregistered ");
 
+#ifdef CONFIG_ST_HOST_WAKE
+		st_host_wake_notify(0, ST_PROTO_UNREGISTERED);
+#endif
 		/* stop traffic on tty */
 		if (st_gdata->tty) {
 			tty_ldisc_flush(st_gdata->tty);
@@ -717,9 +762,10 @@ static void st_tty_close(struct tty_struct *tty)
 	 */
 	spin_lock_irqsave(&st_gdata->lock, flags);
 	for (i = ST_BT; i < ST_MAX_CHANNELS; i++) {
-		if (st_gdata->list[i] != NULL)
+		if (st_gdata->is_registered[i] == true)
 			pr_err("%d not un-registered", i);
 		st_gdata->list[i] = NULL;
+		st_gdata->is_registered[i] = false;
 	}
 	st_gdata->protos_registered = 0;
 	spin_unlock_irqrestore(&st_gdata->lock, flags);
@@ -751,8 +797,8 @@ static void st_tty_receive(struct tty_struct *tty, const unsigned char *data,
 			   char *tty_flags, int count)
 {
 #ifdef VERBOSE
-	print_hex_dump(KERN_DEBUG, ">in>", DUMP_PREFIX_NONE,
-		16, 1, data, count, 0);
+	/*print_hex_dump(KERN_DEBUG, ">in>", DUMP_PREFIX_NONE,
+		16, 1, data, count, 0);*/
 #endif
 
 	/*
@@ -868,5 +914,48 @@ void st_core_exit(struct st_data_s *st_gdata)
 		kfree(st_gdata);
 	}
 }
+void st_restart()
+{
+	unsigned char channel_id = 0;
+	struct st_proto_s* savedchannel[ST_MAX_CHANNELS] = {NULL};
+	unsigned int channel_status[ST_MAX_CHANNELS] = {0};
+	int ret = 0;
 
+	for(channel_id = 0;channel_id < ST_MAX_CHANNELS; channel_id ++)
+	{
+		if(backupproto[channel_id] != NULL)
+		{
+			savedchannel[channel_id] = backupproto[channel_id];
+			ret = st_unregister(backupproto[channel_id]);
+			if(ret ==0)
+			{
+				channel_status[channel_id] = 1;
+				pr_err("unregister channel %d success.\n",channel_id);
+			}
+			else
+			{
+				pr_err("unregister channel %d failed.\n",channel_id);
+			}
+			
+		}
+	}
+	msleep(300);
+	
+	for(channel_id = 0;channel_id < ST_MAX_CHANNELS; channel_id ++)
+	{
+		if(channel_status[channel_id] == 1 )
+		{
+			ret = st_register(savedchannel[channel_id]);
+			if(ret ==0)
+			{
+				pr_err("re_register channel %d success.\n",channel_id);
+			}
+		}
+		else
+		{
+			pr_err("no need to re_register channel %d .\n",channel_id);
+		}
+	}
+}
+EXPORT_SYMBOL_GPL(st_restart);
 

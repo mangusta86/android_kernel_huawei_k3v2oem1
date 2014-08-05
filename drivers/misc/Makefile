@@ -60,3 +60,7 @@ obj-$(CONFIG_TPA2028_SPK_L)             += tpa2028_spk_l/
 obj-$(CONFIG_TPA2028_SPK_R)             += tpa2028_spk_r/
 obj-$(CONFIG_SPK_5VBOOST)               += spk_5vboost/
 obj-$(CONFIG_BOARDID_DEV)               += boardid/
+obj-$(CONFIG_MODEM_CONTROL)             += modemctl/
+obj-$(CONFIG_DRV2605)			+= drv2605/
+obj-$(CONFIG_HARDWARE_VERSION_DETECT) += version.o
+obj-$(CONFIG_TFA9887)                 += tfa9887/

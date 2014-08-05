@@ -723,6 +723,30 @@ void free_initmem(void)
 	}
 }
 
+
+#ifdef CONFIG_MEMORY_HOTPLUG
+int arch_add_memory(int nid, u64 start, u64 size)
+{
+	pg_data_t *pgdat;
+	unsigned long start_pfn = start >> PAGE_SHIFT;
+	unsigned long nr_pages = size >> PAGE_SHIFT;
+	int ret;
+
+	pgdat = NODE_DATA(nid);
+
+	/* We only have ZONE_NORMAL, so this is easy.. */
+	ret = __add_pages(nid, pgdat->node_zones + ZONE_NORMAL,
+				start_pfn, nr_pages);
+	if (unlikely(ret))
+		printk("%s: Failed, __add_pages() == %d\n", __func__, ret);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(arch_add_memory);
+
+#endif /* CONFIG_MEMORY_HOTPLUG */
+
+
 #ifdef CONFIG_BLK_DEV_INITRD
 
 static int keep_initrd;

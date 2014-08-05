@@ -52,11 +52,14 @@
 #include <asm/bug.h>
 #include <linux/device.h>
 #include <../isp/cam_util.h>
-#include <hsad/config_interface.h>
 
 #define LOG_TAG "OV8830"
+#include "../isp/k3_isp.h"
+#include "../isp/k3_ispv1.h"
+#include "../isp/k3_ispv1_afae.h"
 /* #define DEBUG_DEBUG 1 */
 #include "../isp/cam_log.h"
+#include <hsad/config_interface.h>
 
 #define OV8830_SUNNY_FACTORY_ID	0x00
 #define OV8830_FOXCONN_FACTORY_ID	0x01
@@ -85,6 +88,7 @@
 #define OV8830_APERTURE_FACTOR		240 // F2.4
 #define OV8830_EQUIVALENT_FOCUS		35 // 35mm
 
+#define OV8830_AWBOFFSET_VALUE  0x0a
 //#define OV8830_AP_WRITEAE_MODE
 
 static camera_capability ov8830_cap[] = {
@@ -93,20 +97,40 @@ static camera_capability ov8830_cap[] = {
 };
 
 /* camera sensor override parameters, define in binning preview mode */
-#define OV8830_MAX_ISO			1600
+#define OV8830_MAX_ISO			800
 #define OV8830_MIN_ISO			100
 
-#define OV8830_AUTO_FPS_MAX_GAIN	0x60
-#define OV8830_AUTO_FPS_MIN_GAIN	0x28
+#define OV8830_AUTOFPS_GAIN_LOW2MID		0x16
+#define OV8830_AUTOFPS_GAIN_MID2HIGH		0x16
+#define OV8830_AUTOFPS_GAIN_HIGH2MID		0x40
+#define OV8830_AUTOFPS_GAIN_MID2LOW		0x40
 
 #define OV8830_MAX_FRAMERATE		30
+#define OV8830_MIDDLE_FRAMERATE		15
 #define OV8830_MIN_FRAMERATE		15
+
 #define OV8830_MIN_CAP_FRAMERATE	8
 
 #define OV8830_FLASH_TRIGGER_GAIN	0x80
 
-#define OV8830_SHARPNESS_PREVIEW	0x30 /* phone: 0x30, pad: 0x20 */
-#define OV8830_SHARPNESS_CAPTURE	0x0A
+#define OV8830_SHARPNESS_PREVIEW	0x10
+#define OV8830_SHARPNESS_CAPTURE	0x10
+
+/* camera sensor denoise parameters */
+#define OV8830_ISP_YDENOISE_COFF_1X		2
+#define OV8830_ISP_YDENOISE_COFF_2X		4
+#define OV8830_ISP_YDENOISE_COFF_4X		6
+#define OV8830_ISP_YDENOISE_COFF_8X		8
+#define OV8830_ISP_YDENOISE_COFF_16X		12
+#define OV8830_ISP_YDENOISE_COFF_32X		0x16
+#define OV8830_ISP_YDENOISE_COFF_64X		0x16
+
+/*camera af param which are associated with sensor*/
+#define OV8830_AF_MIN_HEIGHT_RATIO	(5)
+#define OV8830_AF_MAX_FOCUS_STEP	(4)
+#define OV8830_AF_GSENSOR_INTERVAL_THRESHOLD	(50)
+#define OV8830_AF_WIDTH_PERCENT	(20)
+#define OV8830_AF_HEIGHT_PERCENT	(25)
 
 const struct isp_reg_t isp_init_regs_ov8830_foxconn[] = {
 
@@ -197,33 +221,36 @@ const struct isp_reg_t isp_init_regs_ov8830_foxconn[] = {
 	{0x65510, 0x0f},//G dns slope change from 0x4 to 0xf Richard 0320
 	{0x6551a, 0x00},//Raw G Dns improve white pixel 20120728
 	{0x6551b, 0x00},//
-	{0x6551c, 0x04},//
-	{0x6551d, 0x05},//
-	{0x6551e, 0x05},//
-	{0x6551f, 0x16},//
-	{0x65520, 0x16},//
+	{0x6551c, 0x00},//
+	{0x6551d, 0x00},//
+	{0x6551e, 0x00},//
+	{0x6551f, 0x00},//
+	{0x65520, 0x00},//
 
-	{0x65522, 0x00},//RAW BR De-noise
-	{0x65523, 0x02},
+
+       {0x65522, 0x00},//RAW BR De-noise
+	{0x65523, 0x00},//gain 1X
 	{0x65524, 0x00},
-	{0x65525, 0x04},
+	{0x65525, 0x00},//gain 2X
 	{0x65526, 0x00},
-	{0x65527, 0x08},
+	{0x65527, 0x02},//gain 4X
 	{0x65528, 0x00},
-	{0x65529, 0x10},
+	{0x65529, 0x04},//gain 8X
 	{0x6552a, 0x00},
-	{0x6552b, 0x20},
+	{0x6552b, 0x10},//gain 16X
 	{0x6552c, 0x00},
-	{0x6552d, 0x20},
+	{0x6552d, 0x20},//gain 32X
 	{0x6552e, 0x00},
-	{0x6552f, 0x20},
+	{0x6552f, 0x20},//gain 64X
 
-	{0x65c00, 0x03},//UV De-noise
-	{0x65c01, 0x05},
-	{0x65c02, 0x08},
-	{0x65c03, 0x1f},
-	{0x65c04, 0x1f},
-	{0x65c05, 0x1f},
+
+       {0x65c00, 0x5},//UV De-noise: gain 1X
+	{0x65c01, 0x8},//gain 2X
+	{0x65c02, 0x1a},//gain 4X
+	{0x65c03, 0x1f},//gain 8X
+	{0x65c04, 0x1f},//gain 16X
+	{0x65c05, 0x1f},//gain 32X
+
 
 /* sharpeness */
 	{0x65600, 0x00},
@@ -262,21 +289,22 @@ const struct isp_reg_t isp_init_regs_ov8830_foxconn[] = {
 
 /* Tone Mapping */
 	//contrast curve change for skin over exposure 20120728
-	{0x1C4C0, 0x1c}, //add contrast 20120803, new curve 20120816
-	{0x1C4C1, 0x2c},
-	{0x1C4C2, 0x38},
-	{0x1C4C3, 0x43},
-	{0x1C4C4, 0x4d},
-	{0x1C4C5, 0x56},
-	{0x1C4C6, 0x60},
-	{0x1C4C7, 0x6b},
-	{0x1C4C8, 0x76},
-	{0x1C4C9, 0x81},
-	{0x1C4CA, 0x8e},
-	{0x1C4CB, 0x9d},
-	{0x1C4CC, 0xae},
-	{0x1C4CD, 0xC3},
-	{0x1C4CE, 0xDe},
+       {0x1C4C0, 0x26},
+       {0x1C4C1, 0x35},
+       {0x1C4C2, 0x3e},
+       {0x1C4C3, 0x46},
+       {0x1C4C4, 0x4e},
+       {0x1C4C5, 0x56},
+       {0x1C4C6, 0x60},
+       {0x1C4C7, 0x6b},
+       {0x1C4C8, 0x76},
+       {0x1C4C9, 0x81},
+       {0x1C4CA, 0x8e},
+       {0x1C4CB, 0x9d},
+       {0x1C4CC, 0xae},
+       {0x1C4CD, 0xc3},
+       {0x1C4CE, 0xde},
+
 	{0x1c4d4, 0x20},//EDR scale
 	{0x1c4d5, 0x20},//EDR scale
 	{0x1c4cf, 0x80},
@@ -468,10 +496,10 @@ const struct isp_reg_t isp_init_regs_ov8830_foxconn[] = {
 	{0x1c184, 0x04},//AWB Step
 	{0x1c58d, 0x00},//LimitAWBAtD65Enable
 
-	{0x1c1be, 0x00},//AWB offset
+	{0x1c1be, OV8830_AWBOFFSET_VALUE},//AWB offset
 	{0x1c1bf, 0x00},
 	{0x1c1c0, 0x00},
-	{0x1c1c1, 0x00},
+	{0x1c1c1, OV8830_AWBOFFSET_VALUE},
 
 	{0x1c1aa, 0x00},//avgAllEnable
 	{0x1c1ad, 0x02},//weight of A
@@ -814,32 +842,34 @@ const struct isp_reg_t isp_init_regs_ov8830_samsung[] = {
 	{0x65606, 0x00},//Richard for new curve 0314
 	{0x65607, 0x00},//Richard for new curve 0314
 
-	{0x65510, 0x0f},//G dns slope change from 0x4 to 0xf Richard 0320
-	{0x6551a, 0x02},//Raw G De-noise improve white pixel: gain 1X
-	{0x6551b, 0x02},//gain  2X
-	{0x6551c, 0x04},//gain  4X
-	{0x6551d, 0x08},//gain  8X
-	{0x6551e, 0x10},//gain 16X
-	{0x6551f, 0x16},//gain 32X
-	{0x65520, 0x16},//gain 64X
+       {0x65510, 0x0f},//G dns slope change from 0x4 to 0xf Richard 0320
+	{0x6551a, 0x00},//Raw G Dns improve white pixel 20120728
+	{0x6551b, 0x00},//
+	{0x6551c, 0x00},//
+	{0x6551d, 0x00},//
+	{0x6551e, 0x00},//
+	{0x6551f, 0x00},//
+	{0x65520, 0x00},//
+
 	{0x65522, 0x00},//RAW BR De-noise
-	{0x65523, 0x02},//gain 1X
+	{0x65523, 0x00},//gain 1X
 	{0x65524, 0x00},
-	{0x65525, 0x04},//gain 2X
+	{0x65525, 0x00},//gain 2X
 	{0x65526, 0x00},
-	{0x65527, 0x08},//gain 4X
+	{0x65527, 0x02},//gain 4X
 	{0x65528, 0x00},
-	{0x65529, 0x10},//gain 8X
+	{0x65529, 0x04},//gain 8X
 	{0x6552a, 0x00},
-	{0x6552b, 0x20},//gain 16X
+	{0x6552b, 0x10},//gain 16X
 	{0x6552c, 0x00},
 	{0x6552d, 0x20},//gain 32X
 	{0x6552e, 0x00},
 	{0x6552f, 0x20},//gain 64X
 
-	{0x65c00, 0x03},//UV De-noise: gain 1X
-	{0x65c01, 0x05},//gain 2X
-	{0x65c02, 0x08},//gain 4X
+
+       {0x65c00, 0x5},//UV De-noise: gain 1X
+	{0x65c01, 0x8},//gain 2X
+	{0x65c02, 0x1a},//gain 4X
 	{0x65c03, 0x1f},//gain 8X
 	{0x65c04, 0x1f},//gain 16X
 	{0x65c05, 0x1f},//gain 32X
@@ -882,21 +912,22 @@ const struct isp_reg_t isp_init_regs_ov8830_samsung[] = {
 
 /* Tone Mapping(Y-Curve) */
 	//contrast curve change for skin over exposure;used for low gain
-	{0x1C4C0, 0x1c},
-	{0x1C4C1, 0x2c},
-	{0x1C4C2, 0x38},
-	{0x1C4C3, 0x43},
-	{0x1C4C4, 0x4d},
-	{0x1C4C5, 0x56},
-	{0x1C4C6, 0x60},
-	{0x1C4C7, 0x6b},
-	{0x1C4C8, 0x78},
-	{0x1C4C9, 0x87},
-	{0x1C4CA, 0x96},
-	{0x1C4CB, 0xa6},
-	{0x1C4CC, 0xb8},
-	{0x1C4CD, 0xcc},
-	{0x1C4CE, 0xe4},
+       {0x1C4C0, 0x26},
+       {0x1C4C1, 0x35},
+       {0x1C4C2, 0x3e},
+       {0x1C4C3, 0x46},
+       {0x1C4C4, 0x4e},
+       {0x1C4C5, 0x56},
+       {0x1C4C6, 0x60},
+       {0x1C4C7, 0x6b},
+       {0x1C4C8, 0x76},
+       {0x1C4C9, 0x81},
+       {0x1C4CA, 0x8e},
+       {0x1C4CB, 0x9d},
+       {0x1C4CC, 0xae},
+       {0x1C4CD, 0xc3},
+       {0x1C4CE, 0xde},
+
 
 	{0x1c4d4, 0x20},//EDR scale
 	{0x1c4d5, 0x20},//EDR scale
@@ -1090,10 +1121,10 @@ const struct isp_reg_t isp_init_regs_ov8830_samsung[] = {
 	{0x1c184, 0x04},//AWB Step:awb adjust every 2 FPS
 	{0x1c58d, 0x00},//LimitAWBAtD65Enable
 
-	{0x1c1be, 0x00},//AWB offset
+	{0x1c1be, OV8830_AWBOFFSET_VALUE},//AWB offset
 	{0x1c1bf, 0x00},
 	{0x1c1c0, 0x00},
-	{0x1c1c1, 0x00},
+	{0x1c1c1, OV8830_AWBOFFSET_VALUE},
 
 	{0x1c1aa, 0x00},//avgAllEnable
 	{0x1c1ad, 0x02},//weight of A
@@ -1834,13 +1865,34 @@ static int ov8830_get_vflip(void)
 static int ov8830_update_flip(u16 width, u16 height)
 {
 	u8 new_flip = ((ov8830_sensor.vflip << 1) | ov8830_sensor.hflip);
-
+    int flip_type = get_primary_sensor_flip_type();
 	print_debug("Enter %s  ", __func__);
 	k3_ispio_update_flip((ov8830_sensor.old_flip ^ new_flip) & 0x03, width, height, PIXEL_ORDER_NO_CHANGED);
 
 	ov8830_sensor.old_flip = new_flip;
-	ov8830_write_reg(OV8830REG_TIMING_FORMAT1, ov8830_sensor.vflip ? 0x00 : 0x42, ~0x42);
-	ov8830_write_reg(OV8830REG_TIMING_FORMAT2, ov8830_sensor.hflip ? 0x06 : 0x00, ~0x06);
+
+    switch (flip_type) {
+	case E_CAMERA_SENSOR_FLIP_TYPE_NONE:
+    	ov8830_write_reg(OV8830REG_TIMING_FORMAT1, ov8830_sensor.vflip ? 0x42 : 0x00, ~0x42);
+    	ov8830_write_reg(OV8830REG_TIMING_FORMAT2, ov8830_sensor.hflip ? 0x06 : 0x00, ~0x06);
+		break;
+	case E_CAMERA_SENSOR_FLIP_TYPE_H_V:
+    	ov8830_write_reg(OV8830REG_TIMING_FORMAT1, ov8830_sensor.vflip ? 0x00 : 0x42, ~0x42);
+    	ov8830_write_reg(OV8830REG_TIMING_FORMAT2, ov8830_sensor.hflip ? 0x00 : 0x06, ~0x06);
+		break;
+    case E_CAMERA_SENSOR_FLIP_TYPE_H:
+    	ov8830_write_reg(OV8830REG_TIMING_FORMAT1, ov8830_sensor.vflip ? 0x42 : 0x00, ~0x42);
+    	ov8830_write_reg(OV8830REG_TIMING_FORMAT2, ov8830_sensor.hflip ? 0x00 : 0x06, ~0x06);
+		break;
+    case E_CAMERA_SENSOR_FLIP_TYPE_V:
+    	ov8830_write_reg(OV8830REG_TIMING_FORMAT1, ov8830_sensor.vflip ? 0x00 : 0x42, ~0x42);
+    	ov8830_write_reg(OV8830REG_TIMING_FORMAT2, ov8830_sensor.hflip ? 0x06 : 0x00, ~0x06);
+		break;
+	default:
+    	ov8830_write_reg(OV8830REG_TIMING_FORMAT1, ov8830_sensor.vflip ? 0x42 : 0x00, ~0x42);
+    	ov8830_write_reg(OV8830REG_TIMING_FORMAT2, ov8830_sensor.hflip ? 0x06 : 0x00, ~0x06);
+		break;
+	}
 	return 0;
 }
 
@@ -1851,6 +1903,20 @@ void ov8830_set_vts(u16 vts)
 	ov8830_write_reg(OV8830_VTS_REG_L, vts & 0xff, 0x00);
 }
 
+static sensor_reg_t* ov8830_construct_vts_reg_buf(u16 vts, u16 *psize)
+{
+	static sensor_reg_t ov8830_vts_regs[] = {
+		{OV8830_VTS_REG_H, 0x00},
+		{OV8830_VTS_REG_L, 0x00},
+	};
+
+	print_debug("Enter %s,vts=%u", __func__, vts);
+	ov8830_vts_regs[0].value = (vts >> 8) & 0xff ;
+	ov8830_vts_regs[1].value = vts & 0xff;
+
+	*psize = ARRAY_SIZE(ov8830_vts_regs);
+	return ov8830_vts_regs;
+}
 /*
  **************************************************************************
  * FunctionName: ov8830_framesize_switch;
@@ -1922,9 +1988,8 @@ static awb_gain_t ov8830_flash_awb[FLASH_PLATFORM_MAX][OV8830_MODULE_MAX] = {
 
 	/* 9510E: U9510E/T9510E */
 	{
-		{0xe7, 0x80, 0x80, 0xfc}, /* SAMSUNG ori is {0xdc, 0x80, 0x80, 0xf5}, 5100K */
-		{0xd6, 0x80, 0x80, 0x104}, /* FOXCONN and others, flash awb fix mode */
-		//{0xb6, 0x104, 0xd6, 0x104}, /* FOXCONN and others, flash awb free go mode test option */
+		{0xb4, 0x80, 0x80, 0xf0}, /* SAMSUNG */
+		{0xb0, 0x80, 0x80, 0xf0}, /* FOXCONN and others */
 	},
 
 	/* s10 */
@@ -1932,8 +1997,8 @@ static awb_gain_t ov8830_flash_awb[FLASH_PLATFORM_MAX][OV8830_MODULE_MAX] = {
 		{0xd7, 0x80, 0x80, 0x100}, /* SAMSUNG ori is {0xd5, 0x80, 0x80, 0xf6}*/
 		{0xd0, 0x80, 0x80, 0x100}, /* FOXCONN and others */
 	},
-	
-	/* u9508 */
+
+	/* EternityProject: U9508 */
 	{
 		{0xbe, 0xe6, 0xe7, 0xfc}, /* SAMSUNG */
 		{0xb8, 0xef, 0xd0, 0x108}, /* FOXCONN and others */
@@ -1957,8 +2022,8 @@ static ccm_gain_t preview_gain ={0x80, 0x80, 0x80};
 #define OV8830_AE_TH_LOW	62000 /* 62000 is 4band(1vts)@0x10 gain, binning should x2. */
 
 #define CCM_GAIN_ORI 	0x80
-#define R_GAIN_SHIFT	0x85
-#define B_GAIN_SHIFT	0x85
+#define R_GAIN_SHIFT	0x82
+#define B_GAIN_SHIFT	0x82
 
 #define R_GAIN_MAX	0xb0
 #define B_GAIN_MIN	0x60
@@ -2053,6 +2118,19 @@ static void ov8830_awb_dynamic_ccm_gain(u32 frame_index, u32 ae, awb_gain_t  *aw
 		cap_gain[FRAMESIZE_BINNING].r_gain, cap_gain[FRAMESIZE_BINNING].b_gain);
 }
 
+static void ov8830_get_awb_offset(camera_state state, u8 *rgain, u8 *ggain,u8 *bgain)
+{
+	if (state == STATE_PREVIEW) {
+		*bgain = OV8830_AWBOFFSET_VALUE;
+		*ggain = 0x00;
+		*rgain = OV8830_AWBOFFSET_VALUE;
+	} else if (state == STATE_CAPTURE) {
+		*bgain = 0x00;
+		*ggain = 0x00;
+		*rgain = 0x00;
+	}
+}
+
 static void ov8830_get_ccm_pregain(camera_state state, u32 frame_index, u8 *bgain, u8 *rgain)
 {
 	bool binning;
@@ -2130,16 +2208,19 @@ static int ov8830_check_sensor(void)
 
 	if (factory_id == OV8830_SUNNY_FACTORY_ID) {
 		print_info("vendor GPIO id:0x%x, it is Sunny", factory_id);
-		memcpy(ov8830_sensor.vcm, &vcm_dw9714, sizeof(vcm_info_s));
+		memcpy(ov8830_sensor.vcm, &vcm_dw9714_ov8830, sizeof(vcm_info_s));
+		strcpy(ov8830_sensor.info.name,"ov8830_sunny");
 	} else if (factory_id == OV8830_FOXCONN_FACTORY_ID) {
 		print_info("Vendor GPIO id:0x%x, it is Foxconn", factory_id);
 		memcpy(ov8830_sensor.vcm, &vcm_ad5823, sizeof(vcm_info_s));
+		strcpy(ov8830_sensor.info.name,"ov8830_foxconn");
 	} else  if (factory_id == OV8830_SAMSUNG_FACTORY_ID) {
 		print_error("Vendor GPIO id:0x%x, it is Samsung", factory_id);
-		memcpy(ov8830_sensor.vcm, &vcm_dw9714, sizeof(vcm_info_s));
+		memcpy(ov8830_sensor.vcm, &vcm_dw9714_ov8830, sizeof(vcm_info_s));
+		strcpy(ov8830_sensor.info.name,"ov8830_samsung");
 	} else {
 		print_error("Vendor GPIO id:0x%x, not supported yet, use default Sunny", factory_id);
-		memcpy(ov8830_sensor.vcm, &vcm_dw9714, sizeof(vcm_info_s));
+		memcpy(ov8830_sensor.vcm, &vcm_dw9714_ov8830, sizeof(vcm_info_s));
 	}
 
 	ov8830_sensor.vcm->get_vcm_otp = ov8830_get_vcm_otp;
@@ -2261,12 +2342,20 @@ static u32 ov8830_get_override_param(camera_override_type_t type)
 		ret_val = OV8830_MIN_ISO;
 		break;
 
-	case OVERRIDE_AUTO_FPS_GAIN_HIGH:
-		ret_val = OV8830_AUTO_FPS_MAX_GAIN;
+	/* increase frame rate gain threshold */
+	case OVERRIDE_AUTOFPS_GAIN_LOW2MID:
+		ret_val = OV8830_AUTOFPS_GAIN_LOW2MID;
+		break;
+	case OVERRIDE_AUTOFPS_GAIN_MID2HIGH:
+		ret_val = OV8830_AUTOFPS_GAIN_MID2HIGH;
 		break;
 
-	case OVERRIDE_AUTO_FPS_GAIN_LOW:
-		ret_val = OV8830_AUTO_FPS_MIN_GAIN;
+	/* reduce frame rate gain threshold */
+	case OVERRIDE_AUTOFPS_GAIN_MID2LOW:
+		ret_val = OV8830_AUTOFPS_GAIN_MID2LOW;
+		break;
+	case OVERRIDE_AUTOFPS_GAIN_HIGH2MID:
+		ret_val = OV8830_AUTOFPS_GAIN_HIGH2MID;
 		break;
 
 	case OVERRIDE_FPS_MAX:
@@ -2276,6 +2365,10 @@ static u32 ov8830_get_override_param(camera_override_type_t type)
 	case OVERRIDE_FPS_MIN:
 		ret_val = OV8830_MIN_FRAMERATE;
 		break;
+
+    case OVERRIDE_FPS_MIDDLE:
+        ret_val = OV8830_MIDDLE_FRAMERATE;
+        break;
 
 	case OVERRIDE_CAP_FPS_MIN:
 		ret_val = OV8830_MIN_CAP_FRAMERATE;
@@ -2295,9 +2388,111 @@ static u32 ov8830_get_override_param(camera_override_type_t type)
 
 	default:
 		print_error("%s:not override or invalid type %d, use default",__func__, type);
+		break;
 	}
 
 	return ret_val;
+}
+
+static int ov8830_fill_denoise_buf(u8 *ybuf, u16 *uvbuf, u8 size, camera_state state, bool flash_on)
+{
+	u32 ae_th[3];
+	u32 ae_value = get_writeback_gain() * get_writeback_expo() / 0x10;
+	int index = ov8830_sensor.preview_frmsize_index;
+
+	if( (ybuf==NULL)||(uvbuf==NULL)||(size <7 ) ){
+		print_error("%s invalid arguments",__func__);
+		return -1;
+	}
+
+	ybuf[0] = OV8830_ISP_YDENOISE_COFF_1X;
+	ybuf[1] = OV8830_ISP_YDENOISE_COFF_2X;
+	ybuf[2] = OV8830_ISP_YDENOISE_COFF_4X;
+	ybuf[3] = OV8830_ISP_YDENOISE_COFF_8X;
+	ybuf[4] = OV8830_ISP_YDENOISE_COFF_16X;
+	ybuf[5] = OV8830_ISP_YDENOISE_COFF_32X;
+	ybuf[6] = OV8830_ISP_YDENOISE_COFF_64X;
+
+	uvbuf[0] = 0x04; /* gain 1x  uv denoise */
+	uvbuf[1] = 0x04; /* gain 2x  uv denoise */
+	uvbuf[2] = 0x0C; /* gain 4x  uv denoise */
+	uvbuf[3] = 0x10; /* gain 8x  uv denoise */
+	uvbuf[4] = 0x20; /* gain 16x uv denoise */
+	uvbuf[5] = 0x40; /* gain 32x uv denoise */
+	uvbuf[6] = 0x50; /* gain 64x uv denoise */
+
+	if (state == STATE_PREVIEW) {
+		//y denoise
+		ybuf[0] = 1;
+		ybuf[1] = 2;
+		ybuf[2] = 2;
+		ybuf[3] = 2;
+		ybuf[4] = 2;
+		ybuf[5] = 2;
+		ybuf[6] = 2;
+		//uv denoise
+		uvbuf[0] = 2;
+		uvbuf[1] = 4;
+		uvbuf[2] = 4;
+		uvbuf[3] = 4;
+		uvbuf[4] = 4;
+		uvbuf[5] = 4;
+		uvbuf[6] = 4;
+	} else if (flash_on == false) {
+		ae_th[0] = ov8830_sensor.frmsize_list[index].banding_step_50hz * 0x18;
+		ae_th[1] = 3 * ov8830_sensor.frmsize_list[index].banding_step_50hz * 0x10;
+		ae_th[2] = ov8830_sensor.frmsize_list[index].vts * 0x20;
+
+		if (ov8830_sensor.frmsize_list[index].binning == false) {
+			ae_th[0] *= 2;
+			ae_th[1] *= 2;
+			ae_th[2] *= 2;
+		}
+
+		/* simplify dynamic denoise threshold*/
+		if (ae_value <= ae_th[0]) {
+			ybuf[0] = OV8830_ISP_YDENOISE_COFF_1X;
+			ybuf[1] = OV8830_ISP_YDENOISE_COFF_1X;
+		} else {
+			ybuf[0] = OV8830_ISP_YDENOISE_COFF_2X;
+			ybuf[1] = OV8830_ISP_YDENOISE_COFF_2X;
+		}
+	} else {
+		/* should calculated in capture_cmd again. */
+		ybuf[0] = 0;
+		ybuf[1] = 0;
+	}
+
+	return 0;
+}
+
+static int ov8830_get_af_param(camera_af_param_t type)
+{
+	int ret;
+
+	switch(type){
+	case AF_MIN_HEIGHT_RATIO:
+		ret = OV8830_AF_MIN_HEIGHT_RATIO;
+		break;
+	case AF_MAX_FOCUS_STEP:
+		ret = OV8830_AF_MAX_FOCUS_STEP;
+		break;
+	case AF_GSENSOR_INTERVAL_THRESHOLD:
+		ret = OV8830_AF_GSENSOR_INTERVAL_THRESHOLD;
+		break;
+	case AF_WIDTH_PERCENT:
+		ret = OV8830_AF_WIDTH_PERCENT;
+		break;
+	case AF_HEIGHT_PERCENT:
+		ret = OV8830_AF_HEIGHT_PERCENT;
+		break;
+	default:
+		print_error("%s:invalid argument",__func__);
+		ret = -1;
+		break;
+	}
+
+	return ret;
 }
 
 u32 ov8830_get_vts_reg_addr(void)
@@ -2365,7 +2560,17 @@ static int ov8830_reset(camera_power_state power_state)
 */
 static int ov8830_init(void)
 {
+	static bool ov8830_check = false;
 	print_debug("%s  ", __func__);
+
+	if (false == ov8830_check)
+	{
+		if (check_suspensory_camera("OV8830") != 1)
+		{
+			return -ENODEV;
+		}
+		ov8830_check = true;
+	}
 
 	if (!camera_timing_is_match(1)) {
 		print_error("%s: sensor timing don't match.\n", __func__);
@@ -3073,8 +3278,8 @@ void ov8830_update_blc(void)
 
 static void ov8830_get_vcm_otp(u16 *vcm_start, u16 *vcm_end)
 {
-	if (ov8830_vcm_start > (OV8830_VCM_V2H_OFFSET >> 2))
-		*vcm_start = (ov8830_vcm_start << 2) - OV8830_VCM_V2H_OFFSET;
+	if (ov8830_vcm_start > (ov8830_sensor.vcm->startCurrentOffset >> 2))
+		*vcm_start = (ov8830_vcm_start << 2) - ov8830_sensor.vcm->startCurrentOffset;
 	else
 		*vcm_start = 0;
 
@@ -3082,6 +3287,7 @@ static void ov8830_get_vcm_otp(u16 *vcm_start, u16 *vcm_end)
 		*vcm_end = (ov8830_vcm_end << 2) - OV8830_VCM_V2H_OFFSET;
 	else
 		*vcm_end = 0;
+	*vcm_end = (ov8830_vcm_end << 2) ;
 }
 
 static int ov8830_get_sensor_aperture()
@@ -3096,6 +3302,46 @@ static int ov8830_get_equivalent_focus()
 	return OV8830_EQUIVALENT_FOCUS;
 }
 
+int  ov8830_set_isp_extra_param(int mode)
+{
+	print_info("%s",__func__);
+	int isp_reg_size = 0;
+
+if(mode == STATE_PREVIEW)
+{
+	const struct isp_reg_t  isp_param_reg[]={
+
+	{0x1c1be, OV8830_AWBOFFSET_VALUE},//AWB offset B
+	{0x1c1c1, OV8830_AWBOFFSET_VALUE},//AWB offset R
+	};
+	isp_reg_size = ARRAY_SIZE(isp_param_reg);
+	ov8830_write_isp_seq(isp_param_reg, isp_reg_size);
+} else if (mode == STATE_CAPTURE)
+{
+   if(factory_id == OV8830_FOXCONN_FACTORY_ID)
+   {
+	const struct isp_reg_t  isp_param_reg[]={
+
+	{0x1c1be, 0x00},//AWB offset B
+	{0x1c1c1, 0x00},//AWB offset R
+	};
+
+	isp_reg_size = ARRAY_SIZE(isp_param_reg);
+	ov8830_write_isp_seq(isp_param_reg, isp_reg_size);
+   }
+   else if(factory_id == OV8830_SAMSUNG_FACTORY_ID)
+   {
+    const struct isp_reg_t  isp_param_reg[]={
+
+	{0x1c1be, 0x00},//AWB offset B
+	{0x1c1c1, 0x00},//AWB offset R
+	};
+	isp_reg_size = ARRAY_SIZE(isp_param_reg);
+	ov8830_write_isp_seq(isp_param_reg, isp_reg_size);
+   }
+
+}
+}
 /*
  **************************************************************************
  * FunctionName: ov8830_set_default;
@@ -3144,6 +3390,7 @@ static void ov8830_set_default(void)
 	ov8830_sensor.get_vflip = ov8830_get_vflip;
 	ov8830_sensor.update_flip = ov8830_update_flip;
 
+	ov8830_sensor.set_isp_extra_param = ov8830_set_isp_extra_param;
 	strncpy(ov8830_sensor.info.name, "ov8830", sizeof(ov8830_sensor.info.name));
 	ov8830_sensor.interface_type = MIPI1;
 #ifdef MIPI_4LANE
@@ -3195,16 +3442,16 @@ static void ov8830_set_default(void)
 	ov8830_sensor.get_exposure = ov8830_get_exposure;
 
 	ov8830_sensor.set_vts = ov8830_set_vts;
-	ov8830_sensor.get_vts_reg_addr = ov8830_get_vts_reg_addr;
-
+	ov8830_sensor.construct_vts_reg_buf = ov8830_construct_vts_reg_buf;
 	ov8830_sensor.sensor_gain_to_iso = NULL; /* no use now */
 	ov8830_sensor.sensor_iso_to_gain = NULL; /* no use now */
-
+	ov8830_sensor.get_af_param = ov8830_get_af_param;
 	ov8830_sensor.get_sensor_aperture = ov8830_get_sensor_aperture;
 	ov8830_sensor.get_equivalent_focus = ov8830_get_equivalent_focus;
 
 	ov8830_sensor.get_override_param = ov8830_get_override_param;
-
+	ov8830_sensor.fill_denoise_buf = ov8830_fill_denoise_buf;
+	ov8830_sensor.get_awb_offset	 = ov8830_get_awb_offset;
 	ov8830_sensor.get_flash_awb = ov8830_get_flash_awb;
 
 #ifndef OVISP_DEBUG_MODE
@@ -3225,7 +3472,7 @@ static void ov8830_set_default(void)
 
 	/* switch of red clip correcttion for RAW sensor, set it true to open, default close */
 	ov8830_sensor.rcc_enable = true;
-
+	
 	ov8830_sensor.fps_max = 30;
 	ov8830_sensor.fps_min = 15;
 	ov8830_sensor.fps = 24;

@@ -52,6 +52,12 @@
 #define N_TI_WL		22	/* for TI's WL BT, FM, GPS combo chips */
 #define N_TRACESINK	23	/* Trace data routing for MIPI P1149.7 */
 #define N_TRACEROUTER	24	/* Trace data routing for MIPI P1149.7 */
+#define N_RMNET_XMM6260     25      /* RMNET Mux for XMM6260 Modem */
+#define N_GSM0710_QSC	26	/* GSM 0710 Mux for QSC MODEM */
+#define N_RMNET_BALONG         27      /* RMNET Mux for Balong Modem */
+#define N_GSM0710_BALONG 28     /* GSM 0710 Mux for Balong MODEM */
+#define N_GSM0710_MTK	29	/* GSM 0710 Mux for MTK MODEM */
+
 
 /*
  * This character is the same as _POSIX_VDISABLE: it cannot be used as
@@ -472,7 +478,9 @@ extern void proc_clear_tty(struct task_struct *p);
 extern struct tty_struct *get_current_tty(void);
 extern void tty_default_fops(struct file_operations *fops);
 extern struct tty_struct *alloc_tty_struct(void);
-extern int tty_add_file(struct tty_struct *tty, struct file *file);
+extern int tty_alloc_file(struct file *file);
+extern void tty_add_file(struct tty_struct *tty, struct file *file);
+extern void tty_free_file(struct file *file);
 extern void free_tty_struct(struct tty_struct *tty);
 extern void initialize_tty_struct(struct tty_struct *tty,
 		struct tty_driver *driver, int idx);

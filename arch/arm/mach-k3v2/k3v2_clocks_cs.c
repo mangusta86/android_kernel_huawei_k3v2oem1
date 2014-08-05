@@ -24,7 +24,7 @@ static struct clk pll2_parent_clk;
 static struct clk pll3_parent_clk;
 static struct clk clk_480M;
 
-int k3v2_clk_enable_cs(struct clk *clk)
+static int k3v2_clk_enable_cs(struct clk *clk)
 {
 	BUG_ON(clk == NULL);
 	if (clk->parent == &pll2_parent_clk)
@@ -36,18 +36,21 @@ int k3v2_clk_enable_cs(struct clk *clk)
 	return 0;
 }
 
-void k3v2_clk_disable_cs(struct clk *clk)
+static void k3v2_clk_disable_cs(struct clk *clk)
 {
 	BUG_ON(clk == NULL);
 
 	/*disable clock*/
 	clk_disable_set(clk);
+#ifndef CONFIG_K3_CLK_ALWAYS_ON
 	if (clk->parent == &pll2_parent_clk)
 		k3v2_clk_switch_pll(clk, &pll3_parent_clk);
+#endif
 
 	return;
 }
-struct clk_ops clock_ops_cs = {
+
+static struct clk_ops clock_ops_cs = {
 	.enable = k3v2_clk_enable_cs,
 	.disable = k3v2_clk_disable_cs,
 	.round_rate = k3v2_clk_round_rate,
@@ -59,6 +62,7 @@ struct clk_ops clock_ops_cs = {
 	.check_divreg = k3v2_rate_check,
 #endif
 };
+
 static int k3v2_clk_set_rate_hdmim(struct clk *clk, unsigned rate)
 {
 	unsigned long long div = 0;
@@ -162,8 +166,10 @@ static int k3v2_480M_clk_enable(struct clk *clk)
 
 static void k3v2_480M_clk_disble(struct clk *clk)
 {
+#ifndef CONFIG_K3_CLK_ALWAYS_ON
 	if (clk->parent == &pll2_parent_clk)
 		k3v2_clk_switch_pll(clk, &pll3_parent_clk);
+#endif
 	return;
 }
 
@@ -727,7 +733,7 @@ static int k3v2_g2d_clk_enable(struct clk *clk)
 	return 0;
 }
 
-void k3v2_g2d_clk_disable(struct clk *clk)
+static void k3v2_g2d_clk_disable(struct clk *clk)
 {
 	BUG_ON(clk == NULL);
 
@@ -738,8 +744,10 @@ void k3v2_g2d_clk_disable(struct clk *clk)
 	udelay(5);/*50 cycles of 30M HZ clock*/
 	/*disable clock*/
 	clk_disable_set(clk);
+#ifndef CONFIG_K3_CLK_ALWAYS_ON
 	if (clk->parent == &pll2_parent_clk)
 		k3v2_clk_switch_pll(clk, &pll3_parent_clk);
+#endif
 
 	return;
 }
@@ -912,10 +920,12 @@ static void k3v2_pmu32kclk_disable(struct clk *clk)
 
 	/*open pmuspi clock*/
 	clk_enable(&clk_pmuspi);
+#ifndef CONFIG_K3_CLK_ALWAYS_ON
 	/*close 32k clock*/
 	value = readl(clk->enable_reg);
 	value = value & (~(1 << clk->enable_bit));
 	writel(value, clk->enable_reg);
+#endif
 	/*close pmuspi clock*/
 	clk_disable(&clk_pmuspi);
 	wmb();
@@ -1106,7 +1116,5 @@ struct clk_lookup k3v2_clk_lookups_cs[] = {
     {_REGISTER_CLOCK(NULL,  "clk_asp",      clk_asp)},
 	{_REGISTER_CLOCK(NULL,	"clk_edc0_rst",	clk_edc0_rst)},
     {_REGISTER_CLOCK(NULL,  "clk_cec",      clk_cec)},
-    {.dev_id = NULL, .con_id = NULL, .clk = NULL},
-	{NULL, NULL, NULL},
+	{.dev_id = NULL, .con_id = NULL, .clk = NULL},
 };
-

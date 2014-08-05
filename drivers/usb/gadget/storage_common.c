@@ -789,21 +789,17 @@ static ssize_t fsg_store_file(struct device *dev, struct device_attribute *attr,
 	/* Load new medium */
 	if (count > 0 && buf[0]) {
 		pr_info("fsg_store_file: count=%d, buf=%p, curlun=%p\n", count, buf, curlun);
-		if( count>3 && buf!=NULL && 0==memcmp(&buf[count-4], ".iso",4) ){
+		if( count>3 && 0==memcmp(&buf[count-4], ".iso",4) ){
 			pr_info("buf=%s, buf[count-4]=%s\n", buf, &buf[count-4]);
-			if(curlun!=NULL){
-				curlun->cdrom = 1;
-				curlun->ro = 1;
-				curlun->removable = 1;
-				curlun->nofua = 1;
-			}
+			curlun->cdrom = 1;
+			curlun->ro = 1;
+			curlun->removable = 1;
+			curlun->nofua = 1;
 		}else{
-			if(curlun!=NULL){
-				curlun->cdrom = 0;
-				curlun->ro = 0;
-				curlun->removable = 1;
-				curlun->nofua = 1;
-			}
+			curlun->cdrom = 0;
+			curlun->ro = 0;
+			curlun->removable = 1;
+			curlun->nofua = 1;
 		}
 		rc = fsg_lun_open(curlun, buf);
 		if (rc == 0)

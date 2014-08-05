@@ -484,9 +484,9 @@ static void tick_nohz_restart(struct tick_sched *ts, ktime_t now)
 				hrtimer_get_expires(&ts->sched_timer), 0))
 				break;
 		}
-		/* Update jiffies and reread time */
-		tick_do_update_jiffies64(now);
+		/* Reread time and update jiffies */
 		now = ktime_get();
+		tick_do_update_jiffies64(now);
 	}
 }
 
@@ -641,7 +641,7 @@ static void tick_nohz_switch_to_nohz(void)
 	}
 	local_irq_enable();
 
-	printk(KERN_INFO "Switched to NOHz mode on CPU #%d\n", smp_processor_id());
+//	printk(KERN_INFO "Switched to NOHz mode on CPU #%d\n", smp_processor_id());
 }
 
 /*
@@ -811,7 +811,7 @@ void tick_cancel_sched_timer(int cpu)
 		hrtimer_cancel(&ts->sched_timer);
 # endif
 
-	ts->nohz_mode = NOHZ_MODE_INACTIVE;
+	memset(ts, 0, sizeof(*ts));
 }
 #endif
 

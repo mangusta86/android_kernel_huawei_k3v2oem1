@@ -56,11 +56,7 @@
  *	 or macros.
  *
  */
-
 #include <mach/boardid.h>
-
-
-
 
 #include "dwc_os.h"
 #include "dwc_otg_regs.h"
@@ -1973,30 +1969,27 @@ void dwc_otg_core_dev_init(dwc_otg_core_if_t * core_if)
 #endif
 
 	/* The fallowing setting override the above */
-
 	if (DI_CHIP_ID == chipid) {
-
-	/* For 2.93a version modify.we need a fixed fifo cfg. */
-	DWC_WRITE_REG32(&global_regs->gdfifocfg, 0x07800800);
-	DWC_WRITE_REG32(&global_regs->grxfsiz, 0x00000200);
-	DWC_WRITE_REG32(&global_regs->gnptxfsiz, 0x00200200);
-
+		/* For 2.93a version modify.we need a fixed fifo cfg. */
+		DWC_WRITE_REG32(&global_regs->gdfifocfg, 0x07600780);
+		DWC_WRITE_REG32(&global_regs->grxfsiz, 0x00000200);
+		DWC_WRITE_REG32(&global_regs->gnptxfsiz, 0x00200200);
 
 #define DATA_IN_ENDPOINT_TX_FIFO1  0x01000220
 #define DATA_IN_ENDPOINT_TX_FIFO2  0x01000320
 #define DATA_IN_ENDPOINT_TX_FIFO3  0x01000420
-#define DATA_IN_ENDPOINT_TX_FIFO4  0x01000520
-#define DATA_IN_ENDPOINT_TX_FIFO5  0x01000620
-#define DATA_IN_ENDPOINT_TX_FIFO6  0x00200720
-#define DATA_IN_ENDPOINT_TX_FIFO7  0x00200740
-#define DATA_IN_ENDPOINT_TX_FIFO8  0x00100760
-#define DATA_IN_ENDPOINT_TX_FIFO9  0x00100770
-#define DATA_IN_ENDPOINT_TX_FIFO10 0x00000780
-#define DATA_IN_ENDPOINT_TX_FIFO11 0x00000780
-#define DATA_IN_ENDPOINT_TX_FIFO12 0x00000780
-#define DATA_IN_ENDPOINT_TX_FIFO13 0x00000780
-#define DATA_IN_ENDPOINT_TX_FIFO14 0x00000780
-#define DATA_IN_ENDPOINT_TX_FIFO15 0x00000780
+#define DATA_IN_ENDPOINT_TX_FIFO4  0x00200520
+#define DATA_IN_ENDPOINT_TX_FIFO5  0x01000540
+#define DATA_IN_ENDPOINT_TX_FIFO6  0x00200640
+#define DATA_IN_ENDPOINT_TX_FIFO7  0x00200660
+#define DATA_IN_ENDPOINT_TX_FIFO8  0x00200680
+#define DATA_IN_ENDPOINT_TX_FIFO9  0x002006a0
+#define DATA_IN_ENDPOINT_TX_FIFO10 0x002006c0
+#define DATA_IN_ENDPOINT_TX_FIFO11 0x002006e0
+#define DATA_IN_ENDPOINT_TX_FIFO12 0x00200700
+#define DATA_IN_ENDPOINT_TX_FIFO13 0x00200720
+#define DATA_IN_ENDPOINT_TX_FIFO14 0x00100740
+#define DATA_IN_ENDPOINT_TX_FIFO15 0x00100750
 
 		DWC_WRITE_REG32(&global_regs->dtxfsiz[0],DATA_IN_ENDPOINT_TX_FIFO1);
 		DWC_WRITE_REG32(&global_regs->dtxfsiz[1],DATA_IN_ENDPOINT_TX_FIFO2);

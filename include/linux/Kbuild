@@ -364,6 +364,7 @@ header-y += tipc_config.h
 header-y += toshiba.h
 header-y += tty.h
 header-y += types.h
+header-y += uart_output.h
 header-y += udf_fs_i.h
 header-y += udp.h
 header-y += uinput.h

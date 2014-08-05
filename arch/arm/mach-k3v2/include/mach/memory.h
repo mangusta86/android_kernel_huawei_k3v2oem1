@@ -37,7 +37,12 @@
 #define __pfn_to_bus(x)		__pfn_to_phys(x)
 #define __bus_to_pfn(x)		__phys_to_pfn(x)
 
+#ifdef CONFIG_SPARSEMEM
+#define MAX_PHYSMEM_BITS	32
+#define SECTION_SIZE_BITS	27
+#else
 #define MAX_PHYSMEM_BITS        32
 #define SECTION_SIZE_BITS       28
+#endif/* CONFIG_SPARSEMEM */
 
 #endif

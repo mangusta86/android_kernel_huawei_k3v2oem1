@@ -5,8 +5,6 @@
  * Copyright (C) 2008 David Brownell
  * Copyright (C) 2008 by Nokia Corporation
  *
- * Console support Copyright (C) 2010 Brian S. Julin (bri@abrij.org)
- *
  * This code also borrows from usbserial.c, which is
  * Copyright (C) 1999 - 2002 Greg Kroah-Hartman (greg@kroah.com)
  * Copyright (C) 2000 Peter Berger (pberger@brimson.com)
@@ -26,12 +24,10 @@
 #include <linux/delay.h>
 #include <linux/tty.h>
 #include <linux/tty_flip.h>
-#include <linux/console.h>
-
-#include <linux/workqueue.h>
 #include <linux/slab.h>
 
 #include "u_serial.h"
+
 
 /*
  * This component encapsulates the TTY layer glue needed to provide basic
@@ -99,8 +95,6 @@ struct gs_buf {
 struct gs_port {
 	spinlock_t		port_lock;	/* guard port_* access */
 
-	int 			stole_lock;     /* for console oopses */
-  	struct console          port_console;
 	struct gserial		*port_usb;
 	struct tty_struct	*port_tty;
 
@@ -125,9 +119,6 @@ struct gs_port {
 
 	/* REVISIT this state ... */
 	struct usb_cdc_line_coding port_line_coding;	/* 8-N-1 etc */
-
-	struct work_struct	work_register;
-	struct work_struct	work_unregister;
 };
 
 /* increase N_PORTS if you need more */
@@ -162,19 +153,6 @@ static unsigned	n_ports;
 static int gs_buf_alloc(struct gs_buf *gb, unsigned size)
 {
 	gb->buf_buf = kmalloc(size, GFP_KERNEL);
-	if (gb->buf_buf == NULL)
-		return -ENOMEM;
-
-	gb->buf_size = size;
-	gb->buf_put = gb->buf_buf;
-	gb->buf_get = gb->buf_buf;
-
-	return 0;
-}
-
-static int gs_buf_alloc_atomic(struct gs_buf *gb, unsigned size)
-{
-	gb->buf_buf = kmalloc(size, GFP_ATOMIC);
 	if (gb->buf_buf == NULL)
 		return -ENOMEM;
 
@@ -263,37 +241,6 @@ gs_buf_put(struct gs_buf *gb, const char *buf, unsigned count)
 	}
 
 	return count;
-}
-
-/*
- * gs_buf_putr
- *
- * As per gs_buf_put, but add '\r' to any '\n's
- */
-static unsigned
-gs_buf_putr(struct gs_buf *gb, const char *buf, unsigned count)
-{
-	unsigned i;
-	unsigned j;
-	unsigned ret;
-
-	for (i = 0, j = 0;  i < count;  i++) {
-		if (buf[i] != '\n')
-			continue;
-		ret = gs_buf_put(gb, buf + j, i - j);
-		if (ret != i - j)
-			return j + ret;
-		j += ret;
-		/* Do not lose an \n on a buffer seam. */
-		if (gs_buf_space_avail(gb) < 2)
-			return j;
-		gs_buf_put(gb, "\r\n", 2);
-		j++;
-	}
-	if (j < count) {
-		j += gs_buf_put(gb, buf + j, count - j);
-	}
-	return j;
 }
 
 /*
@@ -751,7 +698,6 @@ static int gs_start_io(struct gs_port *port)
 	started = gs_start_rx(port);
 
 	/* unblock any pending writes into our circular buffer */
-	if (!port->port_tty) return status;
 	if (started) {
 		tty_wakeup(port->port_tty);
 	} else {
@@ -957,7 +903,6 @@ static int gs_write(struct tty_struct *tty, const unsigned char *buf, int count)
 	pr_vdebug("gs_write: ttyGS%d (%p) writing %d bytes\n",
 			port->port_num, tty, count);
 
-
 	spin_lock_irqsave(&port->port_lock, flags);
 	if (count)
 		count = gs_buf_put(&port->port_write_buf, buf, count);
@@ -967,86 +912,6 @@ static int gs_write(struct tty_struct *tty, const unsigned char *buf, int count)
 	spin_unlock_irqrestore(&port->port_lock, flags);
 
 	return count;
-}
-
-/* This stolen/adapted from serial/sn_console.c */
-static void gs_console_write(struct console *cons, const char *buf, unsigned count)
-{
-	unsigned long flags = 0;
-	unsigned status;
-	struct gs_port *port;
-
-	port = cons->data;
-
-	/* Just chuck everything if USB side is not up. */
-	if (!port->port_usb) return;
-
-	/* somebody really wants this output, might be an
-	 * oops, kdb, panic, etc.  make sure they get it. */
-	if (spin_is_locked(&port->port_lock)) {
-		char *get = port->port_write_buf.buf_get;
-		char *put = port->port_write_buf.buf_put;
-		int got_lock = 0;
-		int counter;
-
-		/*
-		 * We attempt to determine if someone has died with the
-		 * lock. We wait ~20 secs after the head and tail ptrs
-		 * stop moving and assume the lock holder is not functional
-		 * and plow ahead. If the lock is freed within the time out
-		 * period we re-get the lock and go ahead normally. We also
-		 * remember if we have plowed ahead so that we don't have
-		 * to wait out the time out period again - the asumption
-		 * is that we will time out again.
-		 */
-		for (counter = 0; counter < 150; mdelay(125), counter++) {
-			if (!spin_is_locked(&port->port_lock) || port->stole_lock) {
-				if (!port->stole_lock)
-					break;
-				spin_lock_irqsave(&port->port_lock, flags);
-				got_lock = 1;
-				break;
-			}
-			/* still locked */
-			if ((get != port->port_write_buf.buf_get)
-			    || (put != port->port_write_buf.buf_put)) {
-				put = port->port_write_buf.buf_put;
-				get = port->port_write_buf.buf_get;
-				counter = 0;
-			}
-		}
-		/* Make space by flushing any waiting output */
-		if (port->port_usb)
-			gs_start_tx(port);
-		while (count) {
-			count -= gs_buf_putr(&port->port_write_buf, buf, count);
-			if (port->port_usb) break;
-			/* Flush our stuff immediately */
-			if (!gs_start_tx(port))
-				mdelay(125);
-		}
-		if (got_lock) {
-			spin_unlock_irqrestore(&port->port_lock, flags);
-			port->stole_lock = 0;
-		} else {
-			/* fell thru */
-			port->stole_lock = 1;
-		}
-		return;
-	}
-	port->stole_lock = 0;
-	spin_lock_irqsave(&port->port_lock, flags);
-	/* Flush out any waiting output so we have as much space as possible */
-	if (port->port_usb)
-		status = gs_start_tx(port);
-	while (count) {
-		count -= gs_buf_putr(&port->port_write_buf, buf, count);
-		if (port->port_usb) break;
-		/* Flush our stuff immediately */
-		if (!gs_start_tx(port))
-			mdelay(125);
-	}
-	spin_unlock_irqrestore(&port->port_lock, flags);
 }
 
 static int gs_put_char(struct tty_struct *tty, unsigned char ch)
@@ -1163,49 +1028,6 @@ static const struct tty_operations gs_tty_ops = {
 
 static struct tty_driver *gs_tty_driver;
 
-struct tty_driver *gs_console_device(struct console *cons, int *gidx)
-{
-	struct gs_port *port;
-	port = container_of(cons, struct gs_port, port_console);
-	if (gidx)
-		*gidx = port->port_num;
-	return gs_tty_driver;
-}
-
-static int gs_console_setup (struct console *cons, char *options)
-{
-	struct gs_port *port;
-	int status = 0;
-
-	/* 
-	 * If this is called we are about to become the active console. (?)
-	 *
-	 * That is not what this hook is for, but it serves our purposes.
-	 *
-	 * Since there is no actual tty yet, we have to do some of what is 
-	 * normally done in gs_open.
-	 */
-	port = container_of(cons, struct gs_port, port_console);
-	spin_lock_irq(&port->port_lock);
-	if (port->port_write_buf.buf_buf == NULL) {
-		spin_unlock_irq(&port->port_lock);
-		status = gs_buf_alloc_atomic(&port->port_write_buf, WRITE_BUF_SIZE);
-		spin_lock_irq(&port->port_lock);
-	}
-
-	/* Start the I/O stream */
-	if (port->port_usb) {
-		struct gserial	*gser = port->port_usb;
-
-		gs_start_io(port);
-
-		if (gser->connect)
-			gser->connect(gser);
-	}
-	spin_unlock_irq(&port->port_lock);
-	return status;
-}
-
 static int
 gs_port_alloc(unsigned port_num, struct usb_cdc_line_coding *coding)
 {
@@ -1231,18 +1053,6 @@ gs_port_alloc(unsigned port_num, struct usb_cdc_line_coding *coding)
 	ports[port_num].port = port;
 
 	return 0;
-}
-
-static void gs_register_console_work_handler(struct work_struct *work)
-{
-	struct gs_port	*port = container_of(work, struct gs_port, work_register);
-	register_console(&port->port_console);
-}
-
-static void gs_unregister_console_work_handler(struct work_struct *work)
-{
-	struct gs_port	*port = container_of(work, struct gs_port, work_unregister);
-	unregister_console(&port->port_console);
 }
 
 /**
@@ -1335,22 +1145,6 @@ int gserial_setup(struct usb_gadget *g, unsigned count)
 	pr_debug("%s: registered %d ttyGS* device%s\n", __func__,
 			count, (count == 1) ? "" : "s");
 
-	for (i = 0; i < count; i++) {
-		struct gs_port *p;
-
-		p = ports[i].port;
-		strcpy(p->port_console.name, PREFIX);
-		p->port_console.write  = gs_console_write;
-		p->port_console.device = gs_console_device;
-		p->port_console.setup  = gs_console_setup;
-		p->port_console.flags  = CON_PRINTBUFFER;
-		p->port_console.index  = -1;
-		p->port_console.data   = p;
-
-		INIT_WORK(&p->work_register, gs_register_console_work_handler);
-		INIT_WORK(&p->work_unregister, gs_unregister_console_work_handler);
-	}
-
 	return status;
 fail:
 	while (count--)
@@ -1418,7 +1212,6 @@ void gserial_cleanup(void)
 
 	pr_debug("%s: cleaned up ttyGS* support\n", __func__);
 }
-
 
 /**
  * gserial_connect - notify TTY I/O glue that USB link is active
@@ -1489,8 +1282,6 @@ int gserial_connect(struct gserial *gser, u8 port_num)
 			gser->disconnect(gser);
 	}
 
-	schedule_work(&port->work_register);
-
 	spin_unlock_irqrestore(&port->port_lock, flags);
 
 	return status;
@@ -1521,7 +1312,6 @@ void gserial_disconnect(struct gserial *gser)
 		return;
 
 	/* tell the TTY glue not to do I/O here any more */
-	schedule_work(&port->work_unregister);
 	spin_lock_irqsave(&port->port_lock, flags);
 
 	/* REVISIT as above: how best to track this? */

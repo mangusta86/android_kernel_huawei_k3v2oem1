@@ -108,7 +108,7 @@ extern struct k3_bq27510_device_info *g_battery_measure_by_bq27510_device;
 /*extern a notifier list for charging notification*/
 extern struct blocking_notifier_head notifier_list_bat;
 
-u32 wakeup_timer_seconds;
+extern u32 wakeup_timer_seconds;
 
 
 struct k3_bq24161_i2c_client *k3_bq24161_client;
@@ -1734,7 +1734,9 @@ static int k3_bq24161_charger_suspend(struct i2c_client *client,
         if(di->battery_full){
             if (!wake_lock_active(&(di->charger_wake_lock))){
                 cancel_delayed_work(&di->bq24161_charger_work);
-                k3v2_pm_wakeup_on_timer(300,0);
+//                k3v2_pm_wakeup_on_timer(300,0);
+                if((wakeup_timer_seconds > 300) || !wakeup_timer_seconds)
+                    wakeup_timer_seconds = 300;
             }
         }
     }
@@ -1746,7 +1748,7 @@ static int k3_bq24161_charger_resume(struct i2c_client *client)
 {
     struct k3_bq24161_device_info *di = i2c_get_clientdata(client);
     if(di->charger_source == POWER_SUPPLY_TYPE_MAINS){
-        k3v2_wakeup_timer_disable();
+//        k3v2_wakeup_timer_disable();
         dev_info(di->dev, "k3v2_wakeup_timer_disable\n");
 	    k3_bq24161_config_voltage_reg(di);
         schedule_delayed_work(&di->bq24161_charger_work, msecs_to_jiffies(0));

@@ -23,9 +23,13 @@
 #include <linux/mutex.h>
 #include <linux/stat.h>
 #include <linux/slab.h>
-
+#include <linux/suspend.h>
 #include <asm/atomic.h>
 #include <asm/uaccess.h>
+#include <mach/platform.h>
+#include <mach/io.h>
+#include <asm/io.h>
+#include <mach/memory.h>
 
 static DEFINE_MUTEX(mem_sysfs_mutex);
 
@@ -172,6 +176,8 @@ static ssize_t show_mem_removable(struct sys_device *dev,
 		container_of(dev, struct memory_block, sysdev);
 
 	for (i = 0; i < sections_per_block; i++) {
+		if (!present_section_nr(mem->start_section_nr + i))
+			continue;
 		pfn = section_nr_to_pfn(mem->start_section_nr + i);
 		ret &= is_mem_section_removable(pfn, PAGES_PER_SECTION);
 	}
@@ -224,13 +230,48 @@ int memory_isolate_notify(unsigned long val, void *v)
 }
 
 /*
+ * The probe routines leave the pages reserved, just as the bootmem code does.
+ * Make sure they're still that way.
+ */
+static bool pages_correctly_reserved(unsigned long start_pfn,
+					unsigned long nr_pages)
+{
+	int i, j;
+	struct page *page;
+	unsigned long pfn = start_pfn;
+
+	/*
+	 * memmap between sections is not contiguous except with
+	 * SPARSEMEM_VMEMMAP. We lookup the page once per section
+	 * and assume memmap is contiguous within each section
+	 */
+	for (i = 0; i < sections_per_block; i++, pfn += PAGES_PER_SECTION) {
+		if (WARN_ON_ONCE(!pfn_valid(pfn)))
+			return false;
+		page = pfn_to_page(pfn);
+
+		for (j = 0; j < PAGES_PER_SECTION; j++) {
+			if (PageReserved(page + j))
+				continue;
+
+			printk(KERN_WARNING "section number %ld page number %d "
+				"not reserved, was it already online?\n",
+				pfn_to_section_nr(pfn), j);
+
+			return false;
+		}
+	}
+
+	return true;
+}
+
+/*
  * MEMORY_HOTPLUG depends on SPARSEMEM in mm/Kconfig, so it is
  * OK to have direct references to sparsemem variables in here.
  */
 static int
 memory_block_action(unsigned long phys_index, unsigned long action)
 {
-	int i;
 	unsigned long start_pfn, start_paddr;
 	unsigned long nr_pages = PAGES_PER_SECTION * sections_per_block;
 	struct page *first_page;
@@ -238,26 +279,13 @@ memory_block_action(unsigned long phys_index, unsigned long action)
 
 	first_page = pfn_to_page(phys_index << PFN_SECTION_SHIFT);
 
-	/*
-	 * The probe routines leave the pages reserved, just
-	 * as the bootmem code does.  Make sure they're still
-	 * that way.
-	 */
-	if (action == MEM_ONLINE) {
-		for (i = 0; i < nr_pages; i++) {
-			if (PageReserved(first_page+i))
-				continue;
-
-			printk(KERN_WARNING "section number %ld page number %d "
-				"not reserved, was it already online?\n",
-				phys_index, i);
-			return -EBUSY;
-		}
-	}
-
 	switch (action) {
 		case MEM_ONLINE:
 			start_pfn = page_to_pfn(first_page);
+
+			if (!pages_correctly_reserved(start_pfn, nr_pages))
+				return -EBUSY;
+
 			ret = online_pages(start_pfn, nr_pages);
 			break;
 		case MEM_OFFLINE:
@@ -628,6 +656,85 @@ int unregister_memory_section(struct mem_section *section)
 	return remove_memory_block(0, section, 0);
 }
 
+static void set_ddr_mr17(unsigned long rank, unsigned long arg)
+{
+	unsigned long reg;
+	reg = ((arg&0xff)<<16)|(0x11<<8)|(((~(1<<rank))&0xf)<<4)|(0x2);
+	printk(KERN_INFO "set_ddr_mr17: set_ddr_mr16: rank=0x%x,arg=0x%x,reg=0x%x", rank, arg, reg);
+	writel(reg, IO_ADDRESS(REG_BASE_DDRC_CFG) + 0x024);
+	writel(0x1, IO_ADDRESS(REG_BASE_DDRC_CFG) + 0x028);
+	while(readl(IO_ADDRESS(REG_BASE_DDRC_CFG) + 0x028));
+}
+
+static int memory_all_try_hotplug(unsigned long action)
+{
+	unsigned int i;
+	int err = 0;
+	struct memory_block *mem;
+	int block_refresh_bank = 0;
+
+	if (MEM_ONLINE == action) {
+		writel(0, IO_ADDRESS(REG_BASE_SCTRL) + 0x324);
+#if 0
+		set_ddr_mr17(0, 0);
+		set_ddr_mr17(1, 0);
+		set_ddr_mr17(2, 0);
+		set_ddr_mr17(3, 0);
+#endif
+	}
+
+	for (i = 0; i < NR_MEM_SECTIONS; i++) {
+		if (!present_section_nr(i))
+			continue;
+		mem = find_memory_block(__nr_to_section(i));
+		if (mem) {
+			if (MEM_ONLINE == action) {
+				err = memory_block_change_state(mem, MEM_ONLINE, MEM_OFFLINE);
+				if (err)
+					printk(KERN_ERR "memory_all_try_hotplug: hotplug nr_i=%d maybe already online",i);
+			} else if (MEM_OFFLINE == action) {
+				err = memory_block_change_state(mem, MEM_OFFLINE, MEM_ONLINE);
+				if (!err) {
+					block_refresh_bank |= 1<<i;
+					printk(KERN_ERR "memory_all_try_hotplug: hotplug nr_i=%d remove success, block_refresh_bank = 0x%x",i,block_refresh_bank);
+				} else {
+					printk(KERN_ERR "memory_all_try_hotplug: hotplug nr_i=%d remove fail",i);
+				}
+			}
+		}
+	}
+
+	if (MEM_OFFLINE == action) {
+		writel((block_refresh_bank<<16)|0x1, IO_ADDRESS(REG_BASE_SCTRL) + 0x324);
+#if 0
+		set_ddr_mr17(0, block_refresh_bank);
+		set_ddr_mr17(1, block_refresh_bank);
+		set_ddr_mr17(2, block_refresh_bank>>8);
+		set_ddr_mr17(3, block_refresh_bank>>8);
+#endif
+	}
+	return 0;
+}
+static int memory_sr_hotplug_event(struct notifier_block *this, unsigned long event,
+								void *ptr)
+{
+	switch (event) {
+		case PM_SUSPEND_PREPARE:
+			memory_all_try_hotplug(MEM_OFFLINE);
+			break;
+		case PM_POST_SUSPEND:
+			memory_all_try_hotplug(MEM_ONLINE);;
+			break;
+		default:
+			return NOTIFY_DONE;
+	}
+	return NOTIFY_DONE;
+}
+
+static struct notifier_block memory_sr_hotplug_notifier = {
+		.notifier_call = memory_sr_hotplug_event,
+};
+
 /*
  * Initialize the sysfs support for memory devices...
  */
@@ -659,6 +766,10 @@ int __init memory_dev_init(void)
 			ret = err;
 	}
 
+	err = register_pm_notifier(&memory_sr_hotplug_notifier);
+	if (!ret)
+		ret = err;
+
 	err = memory_probe_init();
 	if (!ret)
 		ret = err;
@@ -669,7 +780,8 @@ int __init memory_dev_init(void)
 	if (!ret)
 		ret = err;
 out:
-	if (ret)
+	if (ret) {
 		printk(KERN_ERR "%s() failed: %d\n", __func__, ret);
-	return ret;
+		unregister_pm_notifier(&memory_sr_hotplug_notifier);
+	}return ret;
 }

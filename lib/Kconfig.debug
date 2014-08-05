@@ -10,6 +10,15 @@ config PRINTK_TIME
 	  in kernel startup.  Or add printk.time=1 at boot-time.
 	  See Documentation/kernel-parameters.txt
 
+
+config IO_COMPATIBILITY_DIFFRENT_LCD
+	bool "io compatiability diffr"
+	default n
+	help
+	  this macroinstrction indicate open or close "full hd
+	  and hd iomux unitary" operate.
+
+
 config DEFAULT_MESSAGE_LOGLEVEL
 	int "Default message log level (1-7)"
 	range 1 7

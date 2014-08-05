@@ -42,7 +42,9 @@
 #include <linux/dmaengine.h>
 #include <linux/dma-mapping.h>
 #include <linux/scatterlist.h>
-
+#ifdef CONFIG_ARCH_K3V2
+#include <linux/mux.h>
+#endif
 /*
  * This macro is used to define some register default values.
  * reg is masked with mask, the OR:ed with an (again masked)
@@ -411,6 +413,10 @@ struct pl022 {
 	char				*dummypage;
 	dma_cap_mask_t			mask;
 #endif
+#ifdef CONFIG_ARCH_K3V2
+	struct iomux_block *io_block;
+	struct block_config *io_block_config;
+#endif
 };
 
 /**
@@ -557,9 +563,13 @@ static void giveback(struct pl022 *pl022)
 	amba_pclk_disable(pl022->adev);
 	amba_vcore_disable(pl022->adev);
 #ifdef CONFIG_ARCH_K3V2
-	plat = pl022->master_info;
+	/*plat = pl022->master_info;
 	if (plat && plat->exit)
-		plat->exit();
+		plat->exit();*/
+	if (blockmux_set(pl022->io_block, pl022->io_block_config, LOWPOWER)) {
+		pr_err("%s: blockmux_set error.\n", __func__);
+		return;
+	}
 #endif
 }
 
@@ -1675,9 +1685,13 @@ static void pump_messages(struct work_struct *work)
 	amba_pclk_enable(pl022->adev);
 	clk_enable(pl022->clk);
 #ifdef CONFIG_ARCH_K3V2
-	plat = pl022->master_info;
-	if (plat && plat->init)
-		plat->init();
+	/*plat = pl022->master_info;
+	    if (plat && plat->init)
+		plat->init();*/
+	if (blockmux_set(pl022->io_block, pl022->io_block_config, NORMAL)) {
+		pr_err("%s: blockmux_set error.\n", __func__);
+		return;
+	}
 #endif
 	restore_state(pl022);
 	flush(pl022);
@@ -2355,6 +2369,25 @@ pl022_probe(struct amba_device *adev, const struct amba_id *id)
 		dev_err(&adev->dev, "probe - problem initializing queue\n");
 		goto err_init_queue;
 	}
+#ifdef CONFIG_ARCH_K3V2
+	char block_name[20] = {0};
+	sprintf(block_name, "block_spi%d", master->bus_num);
+	pl022->io_block = iomux_get_block(block_name);
+	if (!pl022->io_block) {
+		dev_err(&adev->dev, "%s: iomux_get_block(%s) error.\n",
+			__func__, block_name);
+		status = -EIO;
+		goto err_init_queue;
+	}
+
+	pl022->io_block_config = iomux_get_blockconfig(block_name);
+	if (!pl022->io_block_config) {
+		dev_err(&adev->dev, "%s: iomux_get_blockconfig(%s) error.\n",
+			__func__, block_name);
+		status = -EIO;
+		goto err_init_queue;
+	}
+#endif
 	status = start_queue(pl022);
 	if (status != 0) {
 		dev_err(&adev->dev, "probe - problem starting queue\n");

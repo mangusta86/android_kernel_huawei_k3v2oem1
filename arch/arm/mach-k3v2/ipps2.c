@@ -61,6 +61,8 @@
 #include "ipps_para.h"
 #endif
 
+#include <mach/product_feature_sel.h>
+
 #define MODULE_NAME			"ipps-v2"
 #define DEFAULT_FW_NAME		"ipps/ipps-v2.bin"
 #define ES_FW_NAME			"ipps/ipps-v2-es.bin"
@@ -99,7 +101,6 @@
 #define MCU_CMD_TEMP_ON		(0x71)
 #define MCU_CMD_TEMP_OFF	(0x70)
 
-#define CONFIG_CPU_MAX_FREQ (1400000)
 
 union param {
 	struct {
@@ -738,6 +739,15 @@ static void trim_patch(struct ipps2 *ipps2, int hpm_value)
 
 extern int get_cpu_max_freq(void);
 
+#define EPRJ_F1 1612000
+#define EPRJ_F2 1716000
+#define EPRJ_F3 1820000
+#define EPRJ_F4 1924000
+#define EPRJ_F5 2067000
+#define EPRJ_F6 2132000
+
+#define EPRJ_IPPS2_OVERCLOCKING	EPRJ_F3
+
 static void cpu_profile_adjust(struct ipps2 *ipps2)
 {
 	int max_freq,index,index_freq;
@@ -745,8 +755,10 @@ static void cpu_profile_adjust(struct ipps2 *ipps2)
 	unsigned long efuse0, efuse2, efuse3;
 	union param *p;
 
-#ifdef  CONFIG_CPU_MAX_FREQ
-	max_freq = CONFIG_CPU_MAX_FREQ;
+//#ifdef  CONFIG_CPU_MAX_FREQ
+//	max_freq = CONFIG_CPU_MAX_FREQ;
+#ifdef EPRJ_IPPS2_OVERCLOCKING
+	max_freq = EPRJ_IPPS2_OVERCLOCKING;
 #else
 	efuse0 = readl(IO_ADDRESS(REG_BASE_PCTRL)+0x1DC);
 	efuse_version = (efuse0 >> 29) & 0x07;
@@ -757,7 +769,6 @@ static void cpu_profile_adjust(struct ipps2 *ipps2)
 		efuse3 = readl(IO_ADDRESS(REG_BASE_PCTRL)+0x1D0);
 
 		cpu_level = (efuse0 >> 18) & 0x3F;
-
 		cpu_iddq = ((efuse2 & 0x01) << 7) | (efuse3 >> 25);
 		date = (efuse2 >> 17) & 0x1FFF;
 		dev_info(ipps2->idev->dev, "efuse info:%d,%d,%d,%d\n", efuse_version, cpu_level, cpu_iddq, date);
@@ -786,7 +797,6 @@ static void cpu_profile_adjust(struct ipps2 *ipps2)
 		dev_info(ipps2->idev->dev, "efuse info:%d,%d,%d\n", efuse_version, cpu_level, update_level);
 		if (update_level > 2) {
 			index = cpu_level - (update_level - 2);
-
 		} else {
 			index = cpu_level + update_level;
 		}
@@ -838,7 +848,7 @@ static void firmware_request_complete(const struct firmware *fw,
 
 	if (NULL == ipps2) {
 		pr_err("%s %d platform_get_drvdata NULL\n", __func__, __LINE__);
-		return ;
+		return -1;
 	}
 
 	if (NULL == fw || fw->size != RAM_SIZE) {
@@ -876,6 +886,14 @@ static void firmware_request_complete(const struct firmware *fw,
 		idev->object = IPPS_OBJ_CPU | IPPS_OBJ_GPU | IPPS_OBJ_TEMP;
 		ipps2->shadow[DDR_STATUS_OFFSET] = 0x0;
 	}
+
+	#ifdef CONFIG_EXTRAL_DYNAMIC_DCDC
+	if(get_product_feature(PROD_FEATURE_GPU_DCDC_SUPPLY))
+	{
+		idev->object &= ~IPPS_OBJ_GPU;
+		ipps2->shadow[GPU_STATUS_OFFSET] = 0x0;
+	}
+	#endif
 
 	idev->command = mcu_cmd_proc;
 	mcu_enable(ipps2);
@@ -969,7 +987,6 @@ int ipps2_probe(struct platform_device *pdev)
 			GFP_KERNEL,
 			dev,
 			firmware_request_complete);
-
 	if (ret) {
 		dev_err(dev, "cannot load firmware (err=%d)\n", ret);
 		goto err_free_irq;

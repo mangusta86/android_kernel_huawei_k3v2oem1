@@ -46,7 +46,7 @@ struct k3v2_led {
 int k3v2_backlight_ctrl(struct k3v2_led *pLed)
 {
 	if (pLed->bOpenBacklight) {
-		writel((DR1_ENABLE | BRIGHTNESS_5), DR1_CTRL);
+		writel((DR1_ENABLE | BRIGHTNESS_10), DR1_CTRL);
 		writel(BRIGHTNESS_ON_LEVEL7 << BRIGHTNESS_ON_BIT, DR1_TIM_CONT1);
 	} else {
 		writel(DR1_DISABLE, DR1_CTRL);

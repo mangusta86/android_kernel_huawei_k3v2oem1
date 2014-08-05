@@ -61,6 +61,23 @@ int k3_ispio_read_reg(i2c_index_t index, u8 i2c_addr, u16 reg, u16 *val, i2c_len
     return isp_sensor_reg_ctl->isp_read_sensor_reg(index, i2c_addr, reg, val, length);
 }
 EXPORT_SYMBOL(k3_ispio_read_reg);
+/*
+ **************************************************************************
+ * FunctionName: k3_ispio_read_seq;
+ * Description : The interface that call isp_read_sensor_seq function of ispv1 file;
+ * Input       : the parameter is the same as the parameter of isp_read_sensor_seq;
+ * Output      : NA;
+ * ReturnValue : NA;
+ * Other       : NA;
+ **************************************************************************
+ */
+int k3_ispio_read_seq(i2c_index_t index, u8 i2c_addr,
+		        struct _sensor_reg_t *seq, u32 size, i2c_length length)
+{
+	return isp_sensor_reg_ctl->isp_read_sensor_seq(index, i2c_addr, seq, size, length);
+}
+
+EXPORT_SYMBOL(k3_ispio_read_seq);
 
 /*
  **************************************************************************
@@ -243,6 +260,25 @@ int k3_ispgpio_power_sensor(camera_sensor *sensor,
 	return ret;
 }
 EXPORT_SYMBOL(k3_ispgpio_power_sensor);
+
+/*
+ **************************************************************************
+ * FunctionName: k3_ispio_i2c_ioconfig;
+ * Description : i2c io config;
+ * Input       : NA;
+ * Output      : NA;
+ * ReturnValue : NA;
+ * Other       : NA;
+ **************************************************************************
+ */
+int k3_ispio_i2c_ioconfig(camera_sensor *sensor, camera_power_state power_state)
+{
+
+	print_debug("enter %s", __func__);
+
+	return ispio_hw_ctl->i2c_ioconfig(power_state, sensor->interface_type);
+}
+EXPORT_SYMBOL(k3_ispio_i2c_ioconfig);
 
 /*
  **************************************************************************

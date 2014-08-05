@@ -4,6 +4,8 @@
 #include <linux/platform_device.h>
 #include <linux/gpio.h>
 
+#define MODEM_XMM6260   "xmm6260"
+#define MODEM_DEVICE_BOOT(type)   "xmm_power"  //type"_boot"
 
 enum xmm_gpio_index {
 	XMM_RESET,
@@ -14,6 +16,8 @@ enum xmm_gpio_index {
 	XMM_SLAVE_WAKEUP,
 	XMM_POWER_IND,
 	XMM_RESET_IND,
+	XMM_SIM_TRIGGER_D,
+	XMM_SIM_INI_CLK, 
 	XMM_GPIO_NUM
 };
 

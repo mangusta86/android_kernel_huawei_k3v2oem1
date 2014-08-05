@@ -206,6 +206,7 @@ struct mshci_host {
 #define MSHCI_QUIRK_EXTERNAL_CARD_DETECTION		(1 << 4)
 #define MSHCI_QUIRK_WLAN_DETECTION		(1 << 5)
 #define MSHCI_QUIRK_TUNING_ENABLE		(1 << 6)
+#define MSHCI_QUIRK_TI_WL18XX   (1 << 7 )       //z00186406 add to give ti wl18xx a quirk
 
 	int			irq;		/* Device IRQ */
 	void __iomem		*ioaddr;	/* Mapped address */
@@ -274,6 +275,7 @@ struct mshci_host {
 	u32			working;
 #define MMC_HOST_BUSY            (1<<0)
 #define MMC_HOST_FREE            (0<<0)
+	struct work_struct       mshci_delete_timer_work;
 	unsigned long		private[0] ____cacheline_aligned;
 };
 
@@ -308,6 +310,7 @@ static inline u32 mshci_readl(struct mshci_host *host, int reg)
 extern struct mshci_host *mshci_alloc_host(struct device *dev,
 					   size_t priv_size);
 extern void mshci_free_host(struct mshci_host *host);
+extern void mshci_disconnect(struct mshci_host *host);
 
 static inline void *mshci_priv(struct mshci_host *host)
 {

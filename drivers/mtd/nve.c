@@ -268,7 +268,7 @@ static int nve_restore(struct NVE_struct *nve)
 		}
 		id = 1;
 	} else {
-		nve_ramdisk_temp = (u_char *)kzalloc(NVE_PARTITION_SIZE, GFP_ATOMIC);
+		nve_ramdisk_temp = (u_char *)kzalloc(NVE_PARTITION_SIZE, GFP_KERNEL);
 
 		if (NULL == nve_ramdisk_temp) {
 			printk(KERN_ERR "[NVE][%s]failed to allocate ramdisk temp buffer.\n", __func__);
@@ -366,7 +366,7 @@ static int nve_do_index_table(struct NVE_struct *nve)
 		kfree(nve->nve_index_table);
 		nve->nve_index_table = NULL;
 	}
-	nve->nve_index_table = kzalloc(nve_header->valid_items * sizeof(struct NVE_index), GFP_ATOMIC);
+	nve->nve_index_table = kzalloc(nve_header->valid_items * sizeof(struct NVE_index), GFP_KERNEL);
 
 	if (NULL == nve->nve_index_table) {
 		printk(KERN_ERR "[NVE] nve_do_index_table failed to allocate index table.\n");
@@ -471,7 +471,7 @@ static int nve_open_ex(void)
 
 	/*if NV has been initiallized,then skip following code in this function*/
 	if (nve->initialized > 0) {
-		printk(KERN_INFO "[NVE][%s]:NV has been initialized!\n", __func__);
+		//printk(KERN_INFO "[NVE][%s]:NV has been initialized!\n", __func__);
 		goto out;
 	}
 
@@ -603,7 +603,7 @@ int nve_direct_access(struct nve_info_user *user_info)
 		user_info->valid_size = NVE_NV_DATA_SIZE;
 	} else if (0 == user_info->valid_size) {
 		user_info->valid_size = nve_index->nv_size;
-		printk(KERN_WARNING "[NVE]Bad parameter,inputed NV length is 0,will be reassigned according to NV inedx table\n");
+		//printk(KERN_WARNING "[NVE]Bad parameter,inputed NV length is 0,will be reassigned according to NV inedx table\n");
 	}
 
 	nv_data = nve->nve_ramdisk + nve_index->nv_offset + sizeof(struct NV_header);
@@ -710,15 +710,6 @@ static long nve_ioctl(struct file *file, u_int cmd, u_long arg)
 				up(&nv_sem);
 				return -EFAULT;
 			}
-	               printk("[NVE][%s]current_id = %d,ioctl = %d.\n", __func__, nve->nve_current_id,info.nv_operation);
-                       if(info.nv_operation)
-                       {
-                           if (nve_do_index_table(nve))
-                           {
-                              printk("[NVE]nve_ioctl,read nv from emmc error,nve_current_id = %d.\n",nve->nve_current_id);
-                              return -EFAULT;
-                           }
-                       }
 
 			nve_header = (struct NVE_partition_header *)(nve->nve_ramdisk + PARTITION_HEADER_OFFSET);
 
@@ -734,7 +725,7 @@ static long nve_ioctl(struct file *file, u_int cmd, u_long arg)
 				printk(KERN_WARNING "[NVE]Bad parameter,inputed NV length is bigger than 104,the surplus will be neglected\n");
 				info.valid_size = NVE_NV_DATA_SIZE;
 			} else if (info.valid_size == 0) {
-				printk(KERN_WARNING "[NVE]Bad parameter,inputed NV length is 0,will be reassigned according to NV inedx table\n");
+				//printk(KERN_WARNING "[NVE]Bad parameter,inputed NV length is 0,will be reassigned according to NV inedx table\n");
 				info.valid_size = nve_index->nv_size;
 			}
 
@@ -790,7 +781,7 @@ static int __init init_nve(void)
 	/*semaphore initial*/
 	sema_init(&nv_sem, 1);
 
-	my_nve = nve = kzalloc(sizeof(struct NVE_struct), GFP_ATOMIC);
+	my_nve = nve = kzalloc(sizeof(struct NVE_struct), GFP_KERNEL);
 
 	if (nve == NULL) {
 		printk(KERN_ERR "[NVE][%s]failed to allocate driver data in line %d.\n", __func__, __LINE__);
@@ -798,7 +789,7 @@ static int __init init_nve(void)
 	}
 
 	memset (nve, 0x0, sizeof(struct NVE_struct));
-	nve->nve_ramdisk= (u_char *)kzalloc(NVE_PARTITION_SIZE, GFP_ATOMIC);
+	nve->nve_ramdisk= (u_char *)kzalloc(NVE_PARTITION_SIZE, GFP_KERNEL);
 
 	if (NULL == nve->nve_ramdisk) {
 		printk(KERN_ERR "[NVE][%s]failed to allocate ramdisk buffer in line %d.\n", __func__, __LINE__);

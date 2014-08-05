@@ -1250,10 +1250,10 @@ static int __cpuinit k3v2_cpu_init(struct cpufreq_policy *policy)
 {
 	int result = 0;
 
-	if (policy->cpu != 0) {
+/*	if (policy->cpu != 0) {
 		pr_err("[%s] %d cpu=%d\n", __func__, __LINE__, policy->cpu);
 	}
-
+*/
 	policy->cpuinfo.transition_latency = 1 * 1000;
 
 	if (!cpufreq_table) {
@@ -1315,21 +1315,13 @@ static int __cpuinit k3v2_cpu_init(struct cpufreq_policy *policy)
 	policy->max = PARAM_MAX(cpu);
 
 	if (policy->cpu == 0) {
-
-#ifdef CONFIG_K3V2_DVFSEN
-	if (!(RUNMODE_FLAG_FACTORY == runmode_is_factory() && 1 == get_boot_into_recovery_flag())) {
-		unsigned int umode = IPPS_ENABLE;
-		ipps_set_mode(&ipps_client, IPPS_OBJ_CPU, &umode);
-	}
-#endif
-
 		/*add qos notifier*/
 		k3v2_qos_add_notifier();
 		k3v2_pm_qos_add();
 		pm_qos_add_request(&g_ippspolicy, PM_QOS_IPPS_POLICY,
 			PM_QOS_IPPS_POLICY_DEFAULT_VALUE);
 	}
-
+    printk("%s x.\n", __func__);
 	return 0;
 
 ERROR:
@@ -1357,7 +1349,7 @@ ERROR:
 static int k3v2_cpu_exit(struct cpufreq_policy *policy)
 {
 	if (policy->cpu != 0) {
-		pr_err("[%s] %d cpu=%d\n", __func__, __LINE__, policy->cpu);
+//		pr_err("[%s] %d cpu=%d\n", __func__, __LINE__, policy->cpu);
 		return -EINVAL;
 	}
 
@@ -1413,8 +1405,8 @@ static void ippsclient_add(struct ipps_device *device)
 	if (0 != ret)
 		pr_err("[%s] cpufreq_register_driver err=%x\n", __func__, ret);
 
-	register_hotcpu_notifier(&hotcpu_prepare_notifier);
-	register_hotcpu_notifier(&hotcpu_later_notifier);
+	ret = register_hotcpu_notifier(&hotcpu_prepare_notifier);
+	ret = register_hotcpu_notifier(&hotcpu_later_notifier);
 }
 
 static void ippsclient_remove(struct ipps_device *device)

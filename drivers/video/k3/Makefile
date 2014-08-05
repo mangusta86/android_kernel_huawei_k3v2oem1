@@ -19,13 +19,14 @@ k3fb-objs := edc_reg.o \
 	panel/mipi_panasonic_VVX10F002A00.o \
 	panel/mipi_cmi_OTM1280A.o \
 	panel/mipi_jdi_OTM1282B.o \
-	panel/mipi_cmi_PT045TN07.o
+	panel/mipi_cmi_PT045TN07.o \
+	panel/mipi_toshiba_MDY90.o
 
 EXTRA_CFLAGS += -Iarch/arm/mach-k3v2 \
 		-Idrivers/video/k3 \
 		-Idrivers/video/k3/panel
 
-ifeq ($(CONFIG_K3_HDMI_SII9134),y)
+ifeq ($(CONFIG_K3_HDMI),y)
 EXTRA_CFLAGS += -DHDMI_DISPLAY
 endif
 

@@ -51,6 +51,25 @@
 #define irq_finish(irq) do { } while (0)
 #endif
 
+#ifdef CONFIG_K3V2_RAMDUMP
+/* irq number for each cpu */
+static unsigned int irqs_on_cpus[CONFIG_NR_CPUS];
+
+static inline void mark_cpu_irq(unsigned int cpu, unsigned int irq)
+{
+	if (likely(cpu < CONFIG_NR_CPUS)) {
+		irqs_on_cpus[cpu] = irq;
+	}
+}
+
+static inline void clear_cpu_irq(int cpu)
+{
+	if (likely(cpu < CONFIG_NR_CPUS)) {
+		irqs_on_cpus[cpu] = 0xffffffff;
+	}
+}
+#endif /* CONFIG_K3V2_RAMDUMP */
+
 unsigned long irq_err_count;
 
 int arch_show_interrupts(struct seq_file *p, int prec)
@@ -81,6 +100,9 @@ asm_do_IRQ(unsigned int irq, struct pt_regs *regs)
 	irq_enter();
 
 	DEBUG_LED_IRQ_ENTER(smp_processor_id(), irq);
+#ifdef CONFIG_K3V2_RAMDUMP
+	mark_cpu_irq(smp_processor_id(), irq);
+#endif /* CONFIG_K3V2_RAMDUMP */
 	/*
 	 * Some hardware gives randomly wrong interrupts.  Rather
 	 * than crashing, do something sensible.
@@ -92,6 +114,9 @@ asm_do_IRQ(unsigned int irq, struct pt_regs *regs)
 	} else {
 		generic_handle_irq(irq);
 	}
+#ifdef CONFIG_K3V2_RAMDUMP
+	clear_cpu_irq(smp_processor_id());
+#endif /* CONFIG_K3V2_RAMDUMP */
 	DEBUG_LED_IRQ_EXIT(smp_processor_id(), irq);
 
 	/* AT91 specific workaround */
@@ -122,6 +147,9 @@ void set_irq_flags(unsigned int irq, unsigned int iflags)
 
 void __init init_IRQ(void)
 {
+#ifdef CONFIG_K3V2_RAMDUMP
+        memset(irqs_on_cpus, 0xff, sizeof(irqs_on_cpus));
+#endif /* CONFIG_K3V2_RAMDUMP */
 	machine_desc->init_irq();
 }
 

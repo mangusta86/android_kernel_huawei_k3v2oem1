@@ -606,11 +606,7 @@ static int rndis_init_response(int configNr, rndis_init_msg_type *buf)
 	resp->DeviceFlags = cpu_to_le32(RNDIS_DF_CONNECTIONLESS);
 	resp->Medium = cpu_to_le32(RNDIS_MEDIUM_802_3);
 	resp->MaxPacketsPerTransfer = cpu_to_le32(1);
-	resp->MaxTransferSize = cpu_to_le32(
-		  params->dev->mtu
-		+ sizeof(struct ethhdr)
-		+ sizeof(struct rndis_packet_msg_type)
-		+ 22);
+	resp->MaxTransferSize = cpu_to_le32(16384);
 	resp->PacketAlignmentFactor = cpu_to_le32(0);
 	resp->AFListOffset = cpu_to_le32(0);
 	resp->AFListSize = cpu_to_le32(0);

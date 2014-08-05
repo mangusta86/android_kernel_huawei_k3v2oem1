@@ -71,6 +71,9 @@ Problem NO.         Name        Time         Reason
 #include	<mach/gpio.h>
 #include	<asm/io.h>
 #include	<linux/mux.h>
+#ifdef CONFIG_HUAWEI_HW_DEV_DCT
+#include <linux/hw_dev_dec.h>
+#endif
 
 #define GPIO_BOLCK_NAME "block_gsensor"
 
@@ -671,6 +674,7 @@ static ssize_t attr_set_polling_rate(struct device *dev,
 		return -EINVAL;
 	}
 	mutex_lock(&acc->lock);
+	if(interval_ms < 10) interval_ms = 10;
 	acc->pdata->poll_interval = interval_ms;
 	lis3dh_acc_update_odr(acc, interval_ms);
 	mutex_unlock(&acc->lock);
@@ -1249,10 +1253,11 @@ static int lis3dh_acc_probe(struct i2c_client *client,
 	}
 
 	dev_info(&client->dev, "Read lis3dh chip ok, ID is 0x%x\n", chipid);
-    err = set_sensor_chip_info(ACC, "ST LIS3DH");
+	err = set_sensor_chip_info(ACC, "ST LIS3DH");
 	if (err) {
 		dev_err(&client->dev, "set_sensor_chip_info error\n");
 	}
+
 
 	err = lis3dh_config_gpio(&client->dev, acc);
 	if (err) {
@@ -1401,6 +1406,11 @@ static int lis3dh_acc_probe(struct i2c_client *client,
 	mutex_unlock(&acc->lock);
 
 	dev_dbg(&client->dev, "%s: probed complete\n", LIS3DH_ACC_DEV_NAME);
+
+#ifdef CONFIG_HUAWEI_HW_DEV_DCT
+        /* detect current device successful, set the flag as present */
+        set_hw_dev_flag(DEV_I2C_G_SENSOR);
+#endif
 
 	return 0;
 

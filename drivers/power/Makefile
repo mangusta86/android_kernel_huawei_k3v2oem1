@@ -2,6 +2,9 @@
 obj-$(CONFIG_BATTERY_K3_BQ27510)	+= k3_bq27510.o
 obj-$(CONFIG_BATTERY_K3)		+= k3_battery_monitor.o
 obj-$(CONFIG_BATTERY_K3_BQ24161)	+= k3_bq24161.o
+#obj-$(CONFIG_BATTERY_BQ27510)   += bq27510_battery.o
+#obj-$(CONFIG_BQ_BCI_BATTERY)    += bq_bci_battery.o
+#obj-$(CONFIG_CHARGER_BQ2419x)   += bq2419x_charger.o
 
 power_supply-y				:= power_supply_core.o
 power_supply-$(CONFIG_SYSFS)		+= power_supply_sysfs.o
@@ -39,3 +42,4 @@ obj-$(CONFIG_CHARGER_ISP1704)	+= isp1704_charger.o
 obj-$(CONFIG_CHARGER_MAX8903)	+= max8903_charger.o
 obj-$(CONFIG_CHARGER_TWL4030)	+= twl4030_charger.o
 obj-$(CONFIG_CHARGER_GPIO)	+= gpio-charger.o
+obj-$(CONFIG_EXTRAL_DYNAMIC_DCDC) += extral_dynamic_dcdc.o

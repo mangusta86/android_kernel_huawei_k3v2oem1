@@ -18,6 +18,7 @@
 
 #ifndef __K3_EDID_H__
 #define __K3_EDID_H__
+#include <linux/mhl/mhl.h>
 
 #define HDMI_DEFAULT_PCM_PLAY        1 //release: 1
 
@@ -223,9 +224,16 @@
 
 /* invalid timing code */
 #define INVALID_VALUE   -1
-/* timing order of mhl not support, refer to timing_order[]*/
-#define MHL_NOT_SUPPORT_TIMING_ORDER  7
-#define MHL_NOT_SUPPORT_TIMING_ORDER_1080P  10
+#ifdef MHL_SII8240
+#define MHL_NOT_SUPPORT_TIMING_ORDER  12
+#define MHL_NOT_SUPPORT_TIMING_ORDER_1080P  12
+#elif defined(MHL_SII9244)
+#define MHL_NOT_SUPPORT_TIMING_ORDER  6
+#define MHL_NOT_SUPPORT_TIMING_ORDER_1080P  9
+#else
+#define MHL_NOT_SUPPORT_TIMING_ORDER  6
+#define MHL_NOT_SUPPORT_TIMING_ORDER_1080P  9
+#endif
 #define HDMI_TIMING_1080P_XRES      1920
 #define HDMI_TIMING_1080P_YRES      1080
 
