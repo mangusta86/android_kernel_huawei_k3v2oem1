@@ -19,6 +19,12 @@
 #include "core.h"
 #include "mmc_ops.h"
 
+/* Enum of power state */
+enum sd_type {
+    SDHC = 0,
+    SDXC,
+};
+
 /* The debugfs functions are optimized away when CONFIG_DEBUG_FS isn't set. */
 static int mmc_ios_show(struct seq_file *s, void *data)
 {
@@ -161,6 +167,23 @@ static int mmc_clock_opt_set(void *data, u64 val)
 DEFINE_SIMPLE_ATTRIBUTE(mmc_clock_fops, mmc_clock_opt_get, mmc_clock_opt_set,
 	"%llu\n");
 
+static int mmc_sdxc_opt_get(void *data, u64 *val)
+{
+	struct mmc_card	*card = data;
+
+	if (mmc_card_ext_capacity(card))
+	{
+		*val = SDXC;
+		printk(KERN_INFO "sd card SDXC type is detected\n");
+		return 0;
+	}
+	*val = SDHC;
+	printk(KERN_INFO "sd card SDHC type is detected\n");
+	return 0;
+}
+DEFINE_SIMPLE_ATTRIBUTE(mmc_sdxc_fops, mmc_sdxc_opt_get,
+			NULL, "%llu\n");
+
 void mmc_add_host_debugfs(struct mmc_host *host)
 {
 	struct dentry *root;
@@ -288,9 +311,16 @@ void mmc_add_card_debugfs(struct mmc_card *card)
 {
 	struct mmc_host	*host = card->host;
 	struct dentry	*root;
+	struct dentry   *sdxc_root;
 
 	if (!host->debugfs_root)
 		return;
+
+	sdxc_root = debugfs_create_dir("sdxc_root", host->debugfs_root);
+	if (IS_ERR(sdxc_root))
+		return;
+	if (!sdxc_root)
+		goto err;
 
 	root = debugfs_create_dir(mmc_card_id(card), host->debugfs_root);
 	if (IS_ERR(root))
@@ -301,6 +331,7 @@ void mmc_add_card_debugfs(struct mmc_card *card)
 		 * create the directory. */
 		goto err;
 
+	card->debugfs_sdxc = sdxc_root;
 	card->debugfs_root = root;
 
 	if (!debugfs_create_x32("state", S_IRUSR, root, &card->state))
@@ -316,15 +347,23 @@ void mmc_add_card_debugfs(struct mmc_card *card)
 					&mmc_dbg_ext_csd_fops))
 			goto err;
 
+	if (mmc_card_sd(card))
+		if (!debugfs_create_file("sdxc", S_IRUSR, sdxc_root, card,
+					&mmc_sdxc_fops))
+			goto err;
+
 	return;
 
 err:
 	debugfs_remove_recursive(root);
+	debugfs_remove_recursive(sdxc_root);
 	card->debugfs_root = NULL;
+	card->debugfs_sdxc = NULL;
 	dev_err(&card->dev, "failed to initialize debugfs\n");
 }
 
 void mmc_remove_card_debugfs(struct mmc_card *card)
 {
 	debugfs_remove_recursive(card->debugfs_root);
+	debugfs_remove_recursive(card->debugfs_sdxc);
 }

@@ -45,6 +45,7 @@ struct cyttsp4_device_access_platform_data {
 };
 
 #define CY_CMD_IN_DATA_OFFSET_VALUE 0
+#define CY_CMD_LCL_IDAC_OFFSET 1
 
 #define CY_CMD_OUT_STATUS_OFFSET 0
 #define CY_CMD_RET_PNL_OUT_ELMNT_SZ_OFFS_H 2
@@ -67,4 +68,10 @@ enum scanDataTypeList {
 	CY_BAL_DIFF,
 };
 
+enum check_data_type{
+	CY_CHK_MUT_RAW,
+	CY_CHK_SELF_RAW,
+	CY_CHK_MUT_IDAC,
+	CY_CHK_SELF_IDAC,
+};
 #endif /* _LINUX_CYTTSP4_DEVICE_ACCESS_H */

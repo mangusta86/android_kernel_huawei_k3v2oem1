@@ -139,18 +139,6 @@
 #define REG_ISP_FOCUS_nT_contrast_diff		(0x1cca2)
 
 /* target Y definitions */
-#ifdef USE_MATE_CAMERA_SETTINGS
-#define DEFAULT_TARGET_Y_LOW			0x2c
-#define DEFAULT_TARGET_Y_HIGH			0x4c
-#elif  USE_EDGE_CAMERA_SETTINGS
-#define DEFAULT_TARGET_Y_LOW			0x30  //for edge
-#define DEFAULT_TARGET_Y_HIGH			0x50  //for edge
-#else
-#define DEFAULT_TARGET_Y_LOW			0x30  //fangchao modify
-#define DEFAULT_TARGET_Y_HIGH			0x50  //fangchao modify
-#endif
-#define DEFAULT_TARGET_Y_FLASH			0x30
-#define D2_DEFAULT_TARGET_Y_FLASH		0x30
 
 #define METERING_CWA_WIDTH_PERCENT		60
 #define METERING_CWA_HEIGHT_PERCENT	60
@@ -161,6 +149,18 @@
 #define METERING_CWA_HEIGHT_PERCENT_FOR_SECONDARY_CAMERA	55
 #define METERING_SPOT_WIDTH_PERCENT_FOR_SECONDARY_CAMERA	55
 #define METERING_SPOT_HEIGHT_PERCENT_FOR_SECONDARY_CAMERA	55
+
+#define METERING_ROIWIN_BRIGHT_PERCENT	40
+#define METERING_ROIWIN_SPORTBRIGHT_PERCENT	20
+#define METERING_ROIWIN_DARK_PERCENT		85
+
+#define METERING_AECAGC_WINDOW_PERCENT	85
+#define METERING_AECAGC_WINDOW_PERCENT_FOR_SECONDARY_CAMERA	80
+
+#define MIN_METERING_RAW_WIDTH			80
+#define MIN_METERING_RAW_HEIGHT			60
+#define MIN_STAT_RAW_WIDTH			120
+#define MIN_STAT_RAW_HEIGHT			90
 
 /* AE registers */
 #define REG_ISP_CURRENT_Y				(0x1c75e)
@@ -189,10 +189,6 @@
 #define REG_ISP_AECAGC_STATWIN_TOP			(0x66403)
 #define REG_ISP_AECAGC_STATWIN_RIGHT		(0x66405)
 #define REG_ISP_AECAGC_STATWIN_BOTTOM		(0x66407)
-
-#define METERING_AECAGC_WINDOW_PERCENT	85
-
-#define METERING_AECAGC_WINDOW_PERCENT_FOR_SECONDARY_CAMERA	80
 
 #define REG_ISP_AECAGC_CENTER_LEFT			(0x66409)
 #define REG_ISP_AECAGC_CENTER_LEFT_SHORT	(0x6640b)
@@ -251,7 +247,7 @@
 /* AF from one stage to another, should hold some frames first */
 #define FOCUS_PARAM_STAGE_HOLDING_FRAMES	1
 
-/* 
+/*
  * decide Picture CAF first stage should try or not.
  * if current position >= 1/RANGE_OF_TRY and <= (RANGE_OF_TRY - 1)/RANGE_OF_TRY
  * Picture CAF should first try.
@@ -283,7 +279,7 @@
 #define CAF_STAT_COMPARE_FRAMES \
 	(CAF_STAT_COMPARE_END_FRAME - CAF_STAT_COMPARE_START_FRAME + 1)
 
-#define CAF_STAT_SKIP_FRAME		15
+#define CAF_STAT_SKIP_FRAME		6
 
 #define CAF_STAT_FRAME			6
 #define CAF_STAT_FRAME_LOW		4
@@ -302,16 +298,20 @@
 #define FOCUS_PARAM_CAF_RESTART_DIFF_XYZ		0x40
 
 #define FLASH_TEST_MAX_COUNT	30
-#define FLASH_CAP_RAW_OVER_EXPO	0xe0
-#define FLASH_PREFLASH_LOWLIGHT_TH	0x20
-#define FLASH_PREVIEW_LOWCT_TH	0x140
 
 #define ISP_LUM_WIN_WIDTH_NUM	8
 #define ISP_LUM_WIN_HEIGHT_NUM	6
 
-#define D2_FLASH_CAP2PRE_RATIO	0x03
 
 /* struct definition */
+
+typedef enum {
+	METERING_STATWIN_NORMAL = 0,
+	METERING_STATWIN_ENHANCE_DARK,
+	METERING_STATWIN_ENHANCE_BRIGHT,
+	METERING_STATWIN_ENHANCE_SPOTBRIGHT,
+} METERING_STATWIN_MODE;
+
 typedef enum {
 	FOCUS_STATE_STOPPED = 0,
 	FOCUS_STATE_CAF_PREPARING,
@@ -554,8 +554,11 @@ focus_state_e get_focus_state(void);
 bool afae_ctrl_is_valid(void);
 
 int ispv1_set_gsensor_stat(axis_triple *xyz);
-int ispv1_set_ae_statwin(pic_attr_t *pic_attr, u32 zoom);
+int ispv1_set_ae_statwin(pic_attr_t *pic_attr, coordinate_s *center, METERING_STATWIN_MODE statwin_mode, u32 zoom);
 void ispv1_wakeup_focus_schedule(bool force_flag);
+
+int ispv1_get_raw_lum_info_ex(lum_stat_st *lum_stat);
+int ispv1_get_focus_code_ex();
 
 void ispv1_get_raw_lum_info(aec_data_t *ae_data, u32 stat_unit_area);
 u32 ispv1_get_stat_unit_area(void);

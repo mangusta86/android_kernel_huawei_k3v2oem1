@@ -104,6 +104,10 @@
 #define	OCP_CURRENT_PROTECT_MASK	0x2
 
 #define HI6421_BUCK_ENA					0x1     /* BUCK_ENA */
+/*irda enable clk_26M*/
+#define	TCXO_CTRL	(0x4f <<2)
+#define   HI6421_CLK_26_EN 0x03
+
 #define HI6421_BUCK_ENA_MASK			0x1		/* BUCK_MASK */
 #define HI6421_BUCK012_VSEL_MASK		0x7F		/* BUCK0 BUCK1 BUCK2 VSEL - [6:0] */
 #define HI6421_BUCK345_VSEL_MASK		        0x07		/* BUCK3 BUCK4 BUCK5 VSEL - [2:0] */

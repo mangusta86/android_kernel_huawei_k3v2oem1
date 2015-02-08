@@ -330,7 +330,8 @@ static int wl1271_scan_send(struct wl1271 *wl, struct ieee80211_vif *vif,
 	cmd->add_broadcast = 0;
 
 	/* TODO: figure this ones out */
-	cmd->urgency = 0;
+	/* Send scan command in high priority */
+	cmd->urgency = 1;
 	cmd->protect = 0;
 
 	/* TODO: take num_probe from req if available */

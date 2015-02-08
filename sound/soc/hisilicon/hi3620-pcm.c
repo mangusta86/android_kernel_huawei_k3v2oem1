@@ -87,6 +87,8 @@
 /* sleep time to check DMA & IRS state */
 #define HI3620_MIN_DMA_TIME_US  ( 22000 ) /*time of one period*/
 #define HI3620_MAX_DMA_TIME_US  ( 25000 )
+#define HI3620_MIN_STOP_DMA_TIME_US ( 1000 )
+#define HI3620_MAX_STOP_DMA_TIME_US ( 2000 )
 
 #define SPDIF_OUTPUT_ONLY       ( 2 )
 #define SPDIF_OUTPUT_ENABLE     ( 1 )
@@ -331,6 +333,28 @@ static void wait_dma_stop(unsigned int bits)
         if ((der | irsr) & bits) {
             usleep_range(HI3620_MIN_DMA_TIME_US,
                 HI3620_MAX_DMA_TIME_US);
+        } else {
+            break;
+        }
+    } while(--i);
+
+    if (!i)
+        loge("%s exit with der=%#x, irsr=%#x\n", __FUNCTION__, der, irsr);
+}
+
+static void check_and_stop_rxdma(void)
+{
+    unsigned int der = 0;
+    unsigned int irsr = 0;
+    unsigned int i = 3;
+
+    do {
+        der = hi3620_reg_read(ASP_DER) & RX_DMAS;
+        irsr = hi3620_reg_read(ASP_IRSR) & RX_DMAS;
+        if (der | irsr) {
+            hi3620_reg_write(RX_DMAS, ASP_DSTOP);
+            usleep_range(HI3620_MIN_STOP_DMA_TIME_US,
+                HI3620_MAX_STOP_DMA_TIME_US);
         } else {
             break;
         }
@@ -1026,13 +1050,9 @@ static int hi3620_pcm_rx_enable(struct snd_pcm_hw_params *params)
     hi3620_reg_write(value, SIO0_I2S_16BIT);
 
     /* ENABLE RX DMA INTERRUPT */
-    wait_dma_stop(RX_DMAS);
+    check_and_stop_rxdma();
     hi3620_reg_write(RX_DMAS, ASP_ICR);
     hi3620_set_bits(RX_DMAS | ASP_BUS_ERROR, ASP_IER);
-
-    /* CONFIG SIO INTERFACE FOR CP */
-    hi3620_reg_write((SIO_RX_ENABLE | SIO_RX_FIFO), SIO0_I2S_CLR);
-    hi3620_set_bits((SIO_RX_ENABLE | SIO_RX_FIFO), SIO0_I2S_SET);
 
     return 0;
 }
@@ -1040,9 +1060,9 @@ static int hi3620_pcm_rx_enable(struct snd_pcm_hw_params *params)
 static void hi3620_pcm_rx_disable(void)
 {
     /* disable DMA interrupt */
-    hi3620_clr_bits(RX_DMAS, ASP_IER);
     hi3620_reg_write(0, ASP_RX);
     hi3620_reg_write(SIO_RX_ENABLE | SIO_RX_FIFO, SIO0_I2S_CLR);
+    hi3620_clr_bits(RX_DMAS, ASP_IER);
 }
 
 static int hi3620_pcm_asp_hw_params(struct snd_pcm_substream *substream,
@@ -1101,7 +1121,7 @@ static int hi3620_pcm_asp_hw_free(struct snd_pcm_substream *substream)
         /* disable clk. for pb, we don't care the value of eroute*/
         hi3620_pcm_clk_disable(AUDIO_ROUTE_PCM_DAC_ONLY);
     } else {
-        wait_dma_stop(RX_DMAS);
+        check_and_stop_rxdma();
         hi3620_pcm_rx_disable();
         hi3620_pcm_clk_disable(AUDIO_ROUTE_CAP);
     }
@@ -1130,7 +1150,7 @@ static int hi3620_pcm_asp_prepare(struct snd_pcm_substream *substream)
         wait_dma_stop((TX0_DMAS  | TX1_DMAS));
         hi3620_reg_write(TX01_NEWSONG, ASP_TXNSSR); /* clear fifo */
     } else {
-        wait_dma_stop(RX_DMAS);
+        check_and_stop_rxdma();
     }
 
     return 0;
@@ -1199,6 +1219,10 @@ static int hi3620_pcm_asp_trigger(struct snd_pcm_substream *substream, int cmd)
             prtd->period_next = (prtd->period_next + 1) % num_periods;
             enable_dma(RX_DMA_B, runtime->dma_addr, prtd->period_next, period_size);
             prtd->period_next = (prtd->period_next + 1) % num_periods;
+
+            /* CONFIG SIO INTERFACE FOR CP */
+            hi3620_reg_write((SIO_RX_ENABLE | SIO_RX_FIFO), SIO0_I2S_CLR);
+            hi3620_set_bits((SIO_RX_ENABLE | SIO_RX_FIFO), SIO0_I2S_SET);
         }
         break;
 

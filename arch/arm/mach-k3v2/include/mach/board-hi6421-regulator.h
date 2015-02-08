@@ -607,3 +607,23 @@ static struct platform_device hi6421_regulator_device = {
 	.num_resources = ARRAY_SIZE(hi6421_regulator_resources),
 	.resource = hi6421_regulator_resources,
 };
+
+#ifdef CONFIG_EXTRAL_DYNAMIC_DCDC
+static struct regulator_consumer_supply extral_dynamic_dcdc_consumers[] = {
+	REGULATOR_SUPPLY("gpu-vcc", NULL),
+};
+
+
+static struct regulator_init_data extral_dynamic_dcdc_regulator = {
+		.constraints = {
+			.name = "VCC_EXTRAL_DYNAMIC_DCDC",
+			.valid_modes_mask	= REGULATOR_MODE_NORMAL
+					| REGULATOR_MODE_IDLE,
+			.valid_ops_mask = REGULATOR_CHANGE_VOLTAGE |
+			REGULATOR_CHANGE_STATUS | REGULATOR_CHANGE_MODE,
+			.always_on = 0,
+		},
+		.num_consumer_supplies = ARRAY_SIZE(extral_dynamic_dcdc_consumers),
+		.consumer_supplies = extral_dynamic_dcdc_consumers,
+};
+#endif

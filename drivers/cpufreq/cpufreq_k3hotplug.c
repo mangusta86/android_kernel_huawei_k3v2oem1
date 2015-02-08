@@ -38,10 +38,14 @@ struct pm_qos_lst {
 
 static struct pm_qos_request_list g_cpumaxlimits;
 static struct pm_qos_request_list g_cpuminlimits;
+static struct pm_qos_request_list g_cpublock;
+static struct pm_qos_request_list g_ddrblock;
 
 static struct pm_qos_lst pm_qos_list[] = {
 {&g_cpumaxlimits, PM_QOS_CPU_MAX_PROFILE, PM_QOS_CPU_MAXPROFILE_DEFAULT_VALUE},
 {&g_cpuminlimits, PM_QOS_CPU_MIN_PROFILE, PM_QOS_CPU_MINPROFILE_DEFAULT_VALUE},
+{&g_cpublock, PM_QOS_CPU_PROFILE_BLOCK, PM_QOS_CPU_BLKPROFILE_DEFAULT_VALUE},
+{&g_ddrblock, PM_QOS_DDR_PROFILE_BLOCK, PM_QOS_DDR_BLKPROFILE_DEFAULT_VALUE},
 };
 
 static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
@@ -77,7 +81,7 @@ struct cpu_num_limit gcpu_num_limit = {
 /***************************cpu hotplug*************************/
 #ifndef NO_CPU_HOTPLUG
 
-#define DEFAULT_HOTPLUG_IN_LOAD			(85)
+#define DEFAULT_HOTPLUG_IN_LOAD			(95)
 #define DEFAULT_HOTPLUG_OUT_LOAD		(3)
 #define DEFAULT_DIFFERENTIAL			(10)
 
@@ -134,6 +138,8 @@ static struct ipps_client vcc_ipps_client = {
 	.remove = ippsclient_remove
 };
 #endif
+
+extern unsigned int get_boot_into_recovery_flag(void);
 
 static inline cputime64_t get_cpu_idle_time(unsigned int cpu, cputime64_t *wall)
 {
@@ -366,6 +372,17 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 			dbs_timer_init();
 			k3hotplug_pm_qos_add();
 			register_pm_notifier(&hotplug_pm_nb);
+
+			if ((RUNMODE_FLAG_FACTORY == runmode_is_factory())
+				&& (0 == get_boot_into_recovery_flag())) {
+#ifdef CONFIG_IPPS_SUPPORT
+				uippsmode = IPPS_ENABLE;
+				ipps_set_mode(&vcc_ipps_client, IPPS_OBJ_CPU, &uippsmode);
+#endif
+				/*block cpu profile 400M and DDR 360M as factory before.*/
+				pm_qos_update_request(&g_cpublock, 400000);
+				pm_qos_update_request(&g_ddrblock, 360000);
+			}
 		}
 
 		mutex_unlock(&dbs_mutex);

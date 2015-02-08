@@ -326,7 +326,8 @@ static void report_lsensor_input_event(struct cm3320_info *lpi, bool resume)
 	int ret = 0;
 	uint16_t red, green, blue;
 	//uint16_t CCTI,CCT,luxValue;
-	int CCTI,CCT,luxValue,gain;
+	int CCTI,luxValue,gain;
+	int CCT = 0;
 	int BG_Ratio;
 	int RG_Ratio;
 	int RB_Ratio;
@@ -719,7 +720,7 @@ static ssize_t cm3320_show_enable_als_sensor(struct device *dev,
 	struct i2c_client *client = to_i2c_client(dev);
 	struct cm3320_info *lpi = i2c_get_clientdata(client);
 
-	return sprintf(buf, "%d\n", lpi->als_enable);
+	return snprintf(buf, PAGE_SIZE, "%d\n", lpi->als_enable);
 }
 
 static ssize_t cm3320_store_enable_als_sensor(struct device *dev,
@@ -757,7 +758,7 @@ static ssize_t cm3320_show_als_poll_delay(struct device *dev,
 	struct i2c_client *client = to_i2c_client(dev);
 	struct cm3320_info *lpi  = i2c_get_clientdata(client);
 
-	return sprintf(buf, "%d\n", lpi->polling_delay);	// return in micro-second
+	return snprintf(buf, PAGE_SIZE, "%d\n", lpi->polling_delay);	// return in micro-second
 }
 
 static ssize_t cm3320_store_als_poll_delay(struct device *dev,
@@ -786,7 +787,7 @@ static ssize_t cm3320_show_als_rgb_value(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
 	struct i2c_client *client = to_i2c_client(dev);
-	struct cm3320_info *lpi  = i2c_get_clientdata(client);
+	//struct cm3320_info *lpi  = i2c_get_clientdata(client);
 #if 1
 
 	rgb_data[0] = (uint8_t)color_data[0] ;
@@ -811,8 +812,8 @@ static ssize_t cm3320_show_als_color_value(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
 	struct i2c_client *client = to_i2c_client(dev);
-	struct cm3320_info *lpi  = i2c_get_clientdata(client);
-	return sprintf(buf, "%d\n", color_value);
+	//struct cm3320_info *lpi  = i2c_get_clientdata(client);
+	return snprintf(buf, PAGE_SIZE, "%d\n", color_value);
 
 }
 
@@ -958,8 +959,8 @@ static int lightsensor_setup(struct cm3320_info *lpi)
 
 	return ret;
 
-err_unregister_ls_input_device:
-	input_unregister_device(lpi->ls_input_dev);
+/*err_unregister_ls_input_device:
+	input_unregister_device(lpi->ls_input_dev);*/
 err_free_ls_input_device:
 	input_free_device(lpi->ls_input_dev);
 	return ret;
@@ -968,7 +969,9 @@ err_free_ls_input_device:
 static int cm3320_setup(struct cm3320_info *lpi)
 {
 	int ret = 0;
-	int RED,GREEN,BLUE;
+	int RED=CM3320_CMD1_RD_SEL_R;
+	int GREEN=CM3320_CMD1_RD_SEL_G;
+	int BLUE=CM3320_CMD1_RD_SEL_B;
 
 	als_power(1);
 	msleep(5);
@@ -1069,23 +1072,13 @@ static int cm3320_probe(struct i2c_client *client,
 		printk("%s:now we use rgb_sensor for lux !\n",__func__);
 	}
 	else{
+		kfree(lpi);
 		return ret;
 	}
 
 	/*D("[CM3320] %s: client->irq = %d\n", __func__, client->irq);*/
 
 	lpi->i2c_client = client;
-#if 0
-	pdata = client->dev.platform_data;
-	if (!pdata) {
-		pr_err("[CM3320 error]%s: Assign platform_data error!!\n",
-			__func__);
-		ret = -EBUSY;
-		goto err_platform_data_null;
-	}
-#endif
-//del 20120618
-	//lpi->irq = client->irq;
 
 	i2c_set_clientdata(client, lpi);
 	//lpi->power = pdata->power;
@@ -1186,7 +1179,7 @@ err_cm3320_setup:
 	mutex_destroy(&als_get_value_mutex);
 err_create_singlethread_workqueue:
 //err_platform_data_null:
-//	kfree(lpi);
+	kfree(lpi);
 	return ret;
 }
 

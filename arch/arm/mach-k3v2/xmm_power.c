@@ -48,6 +48,9 @@
 #include <net/netlink.h>
 #include <linux/skbuff.h>
 #include <linux/mutex.h>
+#include <hsad/config_interface.h>
+#include "mach/modem_boot.h"
+
 MODULE_LICENSE("GPL");
 
 
@@ -57,6 +60,7 @@ MODULE_LICENSE("GPL");
 #define MAX_ENUM_RETRY          15
 #define MAX_HSIC_RESET_RETRY    3
 #define MAX_MODEM_RESET_CHECK_TIMES   10
+#define MAX_RESUME_RETRY_TIME   3
 
 /* Enum of power state */
 enum xmm_power_s_e {
@@ -71,6 +75,7 @@ enum xmm_power_s_e {
 	XMM_POW_S_USB_L3,
 };
 
+static DEFINE_MUTEX(power_sem);
 static enum xmm_power_s_e  xmm_curr_power_state;
 static struct wake_lock xmm_wakelock;
 static struct workqueue_struct *workqueue;
@@ -98,9 +103,10 @@ static struct block_config *xmm_iomux_config;
 #define GPIO_SLAVE_WAKEUP       xmm_driver_plat_data->gpios[XMM_SLAVE_WAKEUP].gpio
 #define GPIO_POWER_IND          xmm_driver_plat_data->gpios[XMM_POWER_IND].gpio
 #define GPIO_RESET_IND          xmm_driver_plat_data->gpios[XMM_RESET_IND].gpio
+#define GPIO_TRIGGER_D          xmm_driver_plat_data->gpios[XMM_SIM_TRIGGER_D].gpio
+#define GPIO_SIM_INI_CLK        xmm_driver_plat_data->gpios[XMM_SIM_INI_CLK].gpio
 
-
-#define XMM_NETLINK         21
+#define XMM_NETLINK         NETLINK_XMM
 static struct sock *xmm_nlfd = NULL;
 DEFINE_MUTEX(receive_sem);
 static unsigned int xmm_rild_pid = 0;
@@ -366,6 +372,17 @@ static void notify_usb_resume(void)
 	set_fs(oldfs);
 }
 
+static void simcard_detect_enable(void)
+{
+	gpio_set_value(GPIO_TRIGGER_D, 1);
+	gpio_set_value(GPIO_SIM_INI_CLK, 1);
+	accu_udelay(1);
+	gpio_set_value(GPIO_SIM_INI_CLK, 0);
+	accu_udelay(1);
+	gpio_set_value(GPIO_SIM_INI_CLK, 1);
+	accu_udelay(1);
+	gpio_set_value(GPIO_TRIGGER_D, 0);
+}
 
 /* Do CP power on */
 static void xmm_power_on(void)
@@ -413,8 +430,10 @@ static ssize_t cp_shutdown_store(struct device *dev,struct device_attribute *att
 {
     int value=0;
 
+    if (sscanf(buf, "%d", &value) != 1)
+        return -EINVAL;
+
     mutex_lock(&cp_shutdown_mutex);
-    sscanf(buf, "%d", &value);
     pr_info("\nXMD: %s. [cp_shutdown] %d -> %d;\n",__func__,cp_shutdown,value);
     cp_shutdown= value;
     mutex_unlock(&cp_shutdown_mutex);
@@ -560,6 +579,11 @@ static void xmm_power_l3_resume(struct work_struct *work)
 {
 	int i;
 	for (i=0; i<MAX_HSIC_RESET_RETRY; i++) {
+		if (xmm_curr_power_state != XMM_POW_S_USB_L3) {
+			pr_info("xmm_power: resume not in L3 state %d\n",xmm_curr_power_state);
+			return;
+		}
+
 		enable_usb_hsic(true);
 		msleep(10);
 		if (gpio_get_value(GPIO_HOST_WAKEUP)) {
@@ -588,10 +612,6 @@ static void xmm_power_l3_resume(struct work_struct *work)
 static void xmm_power_reset_work(struct work_struct *work)
 {
 	/* TODO: add pm func here */
-	if (cp_shutdown_get() == false){
-		notify_mdm_off_to_pm();
-		pr_info("notify modem hardware shutdown to PM");
-	}
 	int i = 0;
 	while(i++ < MAX_MODEM_RESET_CHECK_TIMES) {
 		msleep(10);
@@ -603,6 +623,11 @@ static void xmm_power_reset_work(struct work_struct *work)
 
 	if (i >= MAX_MODEM_RESET_CHECK_TIMES)
 		pr_notice("xmm_power: modem hardware reset\n");
+
+	if (cp_shutdown_get() == false){
+		notify_mdm_off_to_pm();
+		pr_info("notify modem hardware shutdown to PM");
+	}
 
 	xmm_change_notify_event(XMM_STATE_OFF);
 }
@@ -648,6 +673,16 @@ static void free_reset_isr(struct device *dev)
 	reset_isr_register = 0;
 }
 
+static ssize_t xmm_power_get(struct device *dev,
+                 struct device_attribute *attr,
+                 char *buf)
+{
+    ssize_t ret = xmm_curr_power_state;
+
+    printk("~~~~~~~~~~~~~~~~~~~~~~ ret=%d\n", ret);
+    return sprintf(buf, "%d\n", ret);
+}
+
 static ssize_t xmm_power_set(struct device *dev,
 			     struct device_attribute *attr,
 			     const char *buf, size_t count)
@@ -656,15 +691,18 @@ static ssize_t xmm_power_set(struct device *dev,
 	int i;
 	unsigned long flags;
 	struct xmm_power_plat_data *plat = dev->platform_data;
+	unsigned long tio;
 
 	dev_info(dev, "Power set to %s\n", buf);
 
 	if (sscanf(buf, "%d", &state) != 1)
 		return -EINVAL;
 
+	mutex_lock(&power_sem);
 	if (state == POWER_SET_ON) {
 		xmm_power_change_state(XMM_POW_S_INIT_ON);
 		free_reset_isr(dev);
+		cancel_work_sync(&l3_resume_work);
 
 		if (plat && plat->flashless) {
 			/* For flashless, enable USB to enumerate with CP's bootrom */
@@ -675,6 +713,7 @@ static ssize_t xmm_power_set(struct device *dev,
 			xmm_power_change_state(XMM_POW_S_WAIT_READY);
 		}
 
+		simcard_detect_enable();
 		xmm_power_on();
 		msleep(20);
 		gpio_lowpower_set(NORMAL);
@@ -692,6 +731,7 @@ static ssize_t xmm_power_set(struct device *dev,
 		if (i == MAX_HSIC_RESET_RETRY){
 			/* Fail to enumarte, make caller to know */
 			dev_err(dev, "boot rom enum retry failed\n");
+			mutex_unlock(&power_sem);
 			return -1;
 		}
 	}
@@ -711,7 +751,7 @@ static ssize_t xmm_power_set(struct device *dev,
 		gpio_lowpower_set(LOWPOWER);
 	}
 	else if (state == POWER_SET_DL_FINISH){
-		unsigned long tio = msecs_to_jiffies(5000);
+		tio = msecs_to_jiffies(5000);
 		xmm_power_change_state(XMM_POW_S_WAIT_READY);
 		enable_usb_hsic(false);
 		gpio_set_value(GPIO_HOST_ACTIVE, 0);
@@ -720,6 +760,7 @@ static ssize_t xmm_power_set(struct device *dev,
 					tio);
 		if (tio == 0) {
 			dev_err(dev, "Wait modem system on timeout\n");
+			mutex_unlock(&power_sem);
 			return -1;
 		}
 
@@ -735,6 +776,7 @@ static ssize_t xmm_power_set(struct device *dev,
 		if (i == MAX_HSIC_RESET_RETRY) {
 			/* Failed to enumarte, make caller to know */
 			dev_err(dev, "system enum retry failed\n");
+			mutex_unlock(&power_sem);
 			return 0;
 		}
 		request_reset_isr(dev);
@@ -789,7 +831,7 @@ static ssize_t xmm_power_set(struct device *dev,
 		pr_info("20\n");
 	}
 #endif
-
+	mutex_unlock(&power_sem);
 	return count;
 }
 
@@ -865,9 +907,22 @@ static ssize_t xmm_delay_set(struct device *dev,
 	return count;
 }
 
+/*------------------------------ SYSFS "modem_state" ------------------------------*/
+static ssize_t modem_state_show(struct device *dev, struct device_attribute *attr, char *buf)
+{
+    if( gpio_get_value(GPIO_RESET_IND)==0 )
+        return ( snprintf(buf,PAGE_SIZE,"%s\n", modem_state_str[MODEM_STATE_OFF]) );
+    else {
+        if( reset_isr_register==1 )
+            return ( snprintf(buf,PAGE_SIZE,"%s\n", modem_state_str[MODEM_STATE_READY]) );
+        else
+            return ( snprintf(buf,PAGE_SIZE,"%s\n", modem_state_str[MODEM_STATE_POWER]) );
+    }
+}
 
 
-static DEVICE_ATTR(state, S_IRUGO | S_IWUSR, NULL, xmm_power_set);
+static DEVICE_ATTR(modem_state, S_IRUGO, modem_state_show, NULL);
+static DEVICE_ATTR(state, S_IRUGO | S_IWUSR, xmm_power_get, xmm_power_set);
 /* gpio and delay are for debug */
 static DEVICE_ATTR(gpio, S_IRUGO | S_IWUSR, xmm_gpio_get, xmm_gpio_set);
 static DEVICE_ATTR(delay, S_IRUGO | S_IWUSR, NULL, xmm_delay_set);
@@ -941,6 +996,9 @@ static irqreturn_t host_wakeup_isr(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+
+extern  int hisik3_ehci_bus_post_suspend_register( struct device *dev, void (*fn)(void) );
+extern  int hisik3_ehci_bus_pre_resume_register( struct device *dev, void (*fn)(void) );
 static int xmm_power_probe(struct platform_device *pdev)
 {
 	int status = -1;
@@ -1005,6 +1063,21 @@ static int xmm_power_probe(struct platform_device *pdev)
 		goto error;
 	}
 
+	status = device_create_file(&(pdev->dev), &dev_attr_modem_state);
+	if (status) {
+		dev_err(&pdev->dev, "Failed to create sysfs modem_state entry\n");
+		goto error;
+	}
+
+    //Register hisik3_ehci_bus_post_suspend and hisik3_ehci_bus_pre_resume function for dynamic compatible with multi modem
+    status = hisik3_ehci_bus_post_suspend_register( NULL, xmm_power_runtime_idle );
+    if (status)
+        dev_info(&pdev->dev, "Warning: Register hisik3_ehci_bus_post_suspend fn failed!\n");
+
+    status = hisik3_ehci_bus_pre_resume_register( NULL, xmm_power_runtime_resume );
+    if (status)
+        dev_info(&pdev->dev, "Warning: Register hisik3_ehci_bus_pre_resume fn failed!\n");
+
 	/* Initialize works */
 	workqueue = create_singlethread_workqueue("xmm_power_workqueue");
 	if (!workqueue) {
@@ -1060,8 +1133,8 @@ static int xmm_power_remove(struct platform_device *pdev)
 
 int xmm_power_suspend(struct platform_device *pdev, pm_message_t state)
 {
-	dev_info(&pdev->dev, "suspend+\n");
 	unsigned long flags;
+	dev_info(&pdev->dev, "suspend+\n");
 
 	spin_lock_irqsave(&xmm_state_lock, flags);
 	if (xmm_curr_power_state == XMM_POW_S_USB_L2) {
@@ -1126,6 +1199,7 @@ EXPORT_SYMBOL_GPL(xmm_power_runtime_idle);
 
 void xmm_power_runtime_resume()
 {
+      int i = 0;
 	if (xmm_curr_power_state == XMM_POW_S_USB_L2
 	|| xmm_curr_power_state == XMM_POW_S_USB_L2_TO_L0) {
 		if (gpio_get_value(GPIO_HOST_WAKEUP)) {
@@ -1136,20 +1210,39 @@ void xmm_power_runtime_resume()
 			/* If resume just after suspending, the modem may fail
 			   to resume, check this case and delay for awhile */
 			while (time_before_eq(jiffies, least_time)) {
-				pr_info("xmm_power: suspending delayed\n");
+				if (gpio_get_value(GPIO_HOST_WAKEUP) == 0) {
+					pr_info("xmm_power: CP want to wakeup AP too\n");
+					return;
+				}
+				else
+					pr_info("xmm_power: suspending delayed\n");
+
 				msleep(10);
 			}
 
-			gpio_set_value(GPIO_SLAVE_WAKEUP, 1);
-			tio = jiffies + msecs_to_jiffies(200);
-			while (time_before_eq(jiffies, tio)) {
-				msleep(1);
-				if (gpio_get_value(GPIO_HOST_WAKEUP) == 0)
+			while(i < MAX_RESUME_RETRY_TIME) {
+				gpio_set_value(GPIO_SLAVE_WAKEUP, 1);
+				tio = jiffies + msecs_to_jiffies(200);
+				while (time_before_eq(jiffies, tio)) {
+					msleep(10);
+					if (gpio_get_value(GPIO_HOST_WAKEUP) == 0)
+						break;
+				}
+
+				if (gpio_get_value(GPIO_HOST_WAKEUP) != 0) {
+					pr_err("xmm_power: Wait for resume USB timeout, retry\n");
+					gpio_set_value(GPIO_SLAVE_WAKEUP, 0);
+					msleep(10);
+				}
+				else {
 					break;
+				}
+				i++;
 			}
 
-			if (gpio_get_value(GPIO_HOST_WAKEUP) != 0)
-				pr_err("xmm_power: Wait for resume USB timeout.\n");
+			if(i == MAX_RESUME_RETRY_TIME) {
+				pr_err("xmm_power: Wait for resume USB timeout, No Method to Resolve\n");
+			}
 		}
 	}
 	else {
@@ -1162,6 +1255,15 @@ EXPORT_SYMBOL_GPL(xmm_power_runtime_resume);
 
 static int __init xmm_power_init(void)
 {
+    int ret = -1;
+
+        ret = get_modem_type( "xmm6260" );
+        pr_info("MODEM#%s: get_modem_type \"%s\". %d\n","xmm_power","xmm6260",ret);
+        if( ret<=0 ) {
+            pr_err("MODEM#%s: modem \"%s\" not support on this board. %d\n","xmm_power","xmm6260",ret);
+            return( -1 );
+        }
+
 	platform_driver_register(&xmm_power_driver);
 	spin_lock_init(&xmm_state_lock);
 	xmm_netlink_init();

@@ -28,13 +28,21 @@
 #include <linux/interrupt.h>
 #include <linux/irq.h>
 #include <linux/input.h>
+#include	<linux/earlysuspend.h>
 #include "apds990x.h"
 #include <linux/board_sensors.h>
+#ifdef CONFIG_HUAWEI_HW_DEV_DCT
+#include <linux/hw_dev_dec.h>
+#endif
 #include <linux/gpio.h>
 #include <mach/gpio.h>
 #include <asm/io.h>
 #include <linux/mux.h>
 #include <linux/wakelock.h>
+#include <hsad/config_interface.h>
+#include <linux/mtd/nve_interface.h>
+
+
 #define DEBUG 1
 #define CLOSESENSOR_PIN "gpio_126"
 static struct wake_lock wlock;
@@ -59,6 +67,20 @@ static struct wake_lock wlock;
  */
  #define  MAX_ADC_PROX_VALUE  1022
  #define  PS_FIRST_VALUE      550
+#define 	FAR_THRESHOLD(x)		(min_proximity_value<(x)?(x):min_proximity_value)
+#define 	NEAR_THRESHOLD(x)		((FAR_THRESHOLD(x) + apds_990x_pwindows_value - 1)>1022?1022:(FAR_THRESHOLD(x) + apds_990x_pwindows_value - 1))
+#define  	MAX_FAR_THRESHOLD  MAX_ADC_PROX_VALUE - apds_990x_pwindows_value-1//723
+
+#define  DELAY_FOR_DATA_RADY            300
+
+#define  COLOR_LCD_ID_BLACK	1
+#define  COLOR_LCD_ID_WHITE	2
+#define  COLOR_LCD_ID_PINK	3
+#define  COLOR_LCD_ID_NONE	0
+
+#define  COLOR_NV_BLACK	0
+#define  COLOR_NV_PINK	1
+#define  COLOR_NV_WHITE	2
 
 static int apds990x_gpio_init(enum pull_updown new_mode, char *pin_name);
 static int lux_old = 300;
@@ -67,7 +89,14 @@ static int min_proximity_value;
 static int apds_990x_pwindows_value = 300;
 static int apds_990x_pwave_value = 150;
 static int ps_h, ps_l = 0;
+static int ps_pulse_count=5;
 static int als_polling_count;
+static unsigned int apds_type = 0;
+static unsigned int threshold_value = 0;
+static int tp_color_for_edge = 0;
+extern unsigned int lcd_product_id;
+static int read_nv = 0;
+
 static int apds990x_set_command(struct i2c_client *client, int command)
 {
 	struct apds990x_data *data = i2c_get_clientdata(client);
@@ -85,6 +114,56 @@ static int apds990x_set_command(struct i2c_client *client, int command)
 	ret = i2c_smbus_write_byte(client, clearInt);
 	mutex_unlock(&data->update_lock);
 
+	return ret;
+}
+static int read_tp_color_from_nv()
+{
+	int ret;
+	struct nve_info_user user_info;
+
+	user_info.nv_operation = 1;
+	user_info.nv_number = 16;
+	user_info.valid_size = 15;
+	strcpy(user_info.nv_name, "TPCOLOR");
+	//printk("-----valid_szie=%d----\n", user_info.valid_size);
+	if (ret = nve_direct_access(&user_info))
+	{
+		printk(KERN_ERR "nve_direct_access read error(%d)\n", ret);
+		return 0;
+	}
+	if(!strncmp(user_info.nv_data, "pink", 4)) ret = COLOR_NV_PINK;
+	else if(!strncmp(user_info.nv_data, "white", 5)) ret = COLOR_NV_WHITE;
+	else if(!strncmp(user_info.nv_data, "black", 5)) ret = COLOR_NV_BLACK;
+	else
+	{
+		printk("err: read_tp_color_from_nv read unormal value!!\n");
+		ret = COLOR_NV_WHITE;
+	}
+	return ret;
+}
+
+
+//write offset value to nv partation
+static int write_tp_color_to_nv()
+{
+	int ret;
+	struct nve_info_user user_info;
+	user_info.nv_operation = 0;
+	user_info.nv_number = 16;
+	user_info.valid_size = 15;
+	strcpy(user_info.nv_name, "TPCOLOR");
+
+	user_info.nv_data[0] = 'w';
+	user_info.nv_data[1] = 'h';
+	user_info.nv_data[2] = 'i';
+	user_info.nv_data[3] = 't';
+	user_info.nv_data[4] = 'e';
+	if (ret = nve_direct_access(&user_info))
+	{
+		printk(KERN_ERR "nve_direct_access write error(%d)\n", ret);
+		return -1;
+	}
+	printk( "write gsensor_offset (%d %d %d )\n",user_info.nv_data[0],user_info.nv_data[1],user_info.nv_data[2]);
 	return ret;
 }
 
@@ -328,18 +407,18 @@ static void apds990x_change_ps_threshold(struct i2c_client *client)
         if ((data->ps_data + apds_990x_pwave_value) < min_proximity_value && (data->ps_data > 0))
         {
             min_proximity_value = data->ps_data + apds_990x_pwave_value;
-            i2c_smbus_write_word_data(client, CMD_WORD|APDS990x_PILTL_REG, min_proximity_value);
-            i2c_smbus_write_word_data(client, CMD_WORD|APDS990x_PIHTL_REG, (min_proximity_value + apds_990x_pwindows_value));
+            i2c_smbus_write_word_data(client, CMD_WORD|APDS990x_PILTL_REG, FAR_THRESHOLD(threshold_value));
+            i2c_smbus_write_word_data(client, CMD_WORD|APDS990x_PIHTL_REG, NEAR_THRESHOLD(threshold_value));
         }
 //	printk("ps_data = %d min_proximity_value = %d pthreshold_h = %d pthresold_l= %d\n",data->psdata,min_proximity_value,pthreshold_h,pthreshold_l);
         pthreshold_h = i2c_smbus_read_word_data(client,CMD_WORD| APDS990x_PIHTL_REG);
         pthreshold_l = i2c_smbus_read_word_data(client, CMD_WORD|APDS990x_PILTL_REG);
 		/* far-to-near detected */
-	//printk("ps_data = %d min_proximity_value = %d pthreshold_h = %d pthresold_l= %d\n",data->ps_data,min_proximity_value,pthreshold_h,pthreshold_l);
+//	printk("ps_data = %d min_proximity_value = %d pthreshold_h = %d pthresold_l= %d\n",data->ps_data,min_proximity_value,pthreshold_h,pthreshold_l);
         if (data->ps_data >= pthreshold_h)
         {
             data->ps_detection = 1;
-            i2c_smbus_write_word_data(client, CMD_WORD|APDS990x_PILTL_REG, min_proximity_value);
+            i2c_smbus_write_word_data(client, CMD_WORD|APDS990x_PILTL_REG, FAR_THRESHOLD(threshold_value));
 			i2c_smbus_write_word_data(client, CMD_WORD|APDS990x_PIHTL_REG, 1023);
             input_report_abs(data->input_dev_ps, ABS_DISTANCE, 0);/* FAR-to-NEAR detection */
 	     input_sync(data->input_dev_ps);
@@ -350,7 +429,7 @@ static void apds990x_change_ps_threshold(struct i2c_client *client)
         {
             data->ps_detection = 0;
             //i2c_smbus_write_word_data(client, CMD_WORD|APDS990x_PILTL_REG, 0);
-            i2c_smbus_write_word_data(client, CMD_WORD|APDS990x_PIHTL_REG, min_proximity_value + apds_990x_pwindows_value);
+            i2c_smbus_write_word_data(client, CMD_WORD|APDS990x_PIHTL_REG, NEAR_THRESHOLD(threshold_value));
             input_report_abs(data->input_dev_ps, ABS_DISTANCE, 1);/* NEAR-to-FAR detection */
 	    input_sync(data->input_dev_ps);
         }
@@ -358,7 +437,7 @@ static void apds990x_change_ps_threshold(struct i2c_client *client)
         else
         {
             printk("Wrong status!\n");
-            i2c_smbus_write_word_data(client, CMD_WORD|APDS990x_PILTL_REG, min_proximity_value);
+            i2c_smbus_write_word_data(client, CMD_WORD|APDS990x_PILTL_REG, FAR_THRESHOLD(threshold_value));
         }
 
 		pthreshold_h = i2c_smbus_read_word_data(client,CMD_WORD| APDS990x_PIHTL_REG);
@@ -394,8 +473,7 @@ static void apds990x_change_als_threshold(struct i2c_client *client)
 		input_sync(data->input_dev_ps);
 
 		//i2c_smbus_write_word_data(client, CMD_WORD|APDS990x_PILTL_REG, 0);
-		i2c_smbus_write_word_data(client, CMD_WORD|APDS990x_PIHTL_REG, min_proximity_value + apds_990x_pwindows_value);
-
+	       i2c_smbus_write_word_data(client, CMD_WORD|APDS990x_PIHTL_REG, NEAR_THRESHOLD(threshold_value));
 		data->pilt = 0;
 		data->piht = data->ps_threshold;
 
@@ -437,7 +515,7 @@ static void apds990x_reschedule_work(struct apds990x_data *data,
 	 * change the scheduled time that's why we have to cancel it first.
 	 */
 	__cancel_delayed_work(&data->dwork);
-	schedule_delayed_work(&data->dwork, delay);
+	queue_delayed_work(data->ps_wq, &data->dwork, delay);
 
 	/* spin_unlock_irqrestore(&data->update_lock, flags); */
 }
@@ -445,8 +523,7 @@ static void apds990x_reschedule_work(struct apds990x_data *data,
 /* ALS polling routine */
 static void apds990x_als_polling_work_handler(struct work_struct *work)
 {
-	struct apds990x_data *data = container_of(work,
-		struct apds990x_data, als_dwork.work);
+	struct apds990x_data *data = container_of(work, struct apds990x_data, als_dwork.work);
 	struct i2c_client *client = data->client;
 	int cdata, irdata, pdata;
 	int luxValue = 0;
@@ -454,20 +531,20 @@ static void apds990x_als_polling_work_handler(struct work_struct *work)
 	cdata = i2c_smbus_read_word_data(client, CMD_WORD | APDS990x_CDATAL_REG);
 	irdata = i2c_smbus_read_word_data(client, CMD_WORD | APDS990x_IRDATAL_REG);
 	pdata = i2c_smbus_read_word_data(client, CMD_WORD | APDS990x_PDATAL_REG);
-       if(irdata < 0 ||cdata < 0 || pdata < 0)
-       {
-           dev_err(&client->dev, "apds990x: als read i2c read fail!cdata(%d),irdata(%d),pdata(%d)\n", cdata, irdata, pdata);
-       }
+	if(irdata < 0 ||cdata < 0 || pdata < 0)
+	{
+	   dev_err(&client->dev, "apds990x: als read i2c read fail!cdata(%d),irdata(%d),pdata(%d)\n", cdata, irdata, pdata);
+	}
 	luxValue = LuxCalculation(client, cdata, irdata);
-       if(luxValue < 0)
-       {
-           input_report_abs(data->input_dev_als, ABS_MISC, lux_old); // report the lux level
-           input_sync(data->input_dev_als);
-           dev_err(&client->dev,"apds990x:luxvaule = %d!\n", luxValue);
-           return;
-       }
+	if(luxValue < 0)
+	{
+	   input_report_abs(data->input_dev_als, ABS_MISC, lux_old); // report the lux level
+	   input_sync(data->input_dev_als);
+	   dev_err(&client->dev,"apds990x:luxvaule = %d!\n", luxValue);
+	   return;
+	}
 	luxValue = luxValue < 10000 ? luxValue : 10000;
-    lux_old = luxValue;
+	lux_old = luxValue;
 	//printk("%s: lux = %d cdata = %d  irdata = %d pdata = %d \n", __func__, luxValue, cdata, irdata, pdata);
 
 	/* check PS under sunlight */
@@ -481,8 +558,7 @@ static void apds990x_als_polling_work_handler(struct work_struct *work)
 		input_sync(data->input_dev_ps);
 
 		//i2c_smbus_write_word_data(client, CMD_WORD|APDS990x_PILTL_REG, 0);
-		i2c_smbus_write_word_data(client, CMD_WORD|APDS990x_PIHTL_REG, min_proximity_value + apds_990x_pwindows_value);
-
+		i2c_smbus_write_word_data(client, CMD_WORD|APDS990x_PIHTL_REG, NEAR_THRESHOLD(threshold_value));
 		data->pilt = 0;
 		data->piht = data->ps_threshold;
 
@@ -498,12 +574,11 @@ static void apds990x_als_polling_work_handler(struct work_struct *work)
 			luxValue = luxValue + als_polling_count%2;
 		als_polling_count++;
 	}
-    input_report_abs(data->input_dev_als, ABS_MISC, luxValue); /* report the lux level */
-    input_sync(data->input_dev_als);
+	input_report_abs(data->input_dev_als, ABS_MISC, luxValue); /* report the lux level */
+	input_sync(data->input_dev_als);
 
 	/* restart timer */
-	schedule_delayed_work(&data->als_dwork,
-		msecs_to_jiffies(data->als_poll_delay));
+	schedule_delayed_work(&data->als_dwork, msecs_to_jiffies(data->als_poll_delay));
 }
 
 /* PS interrupt routine */
@@ -566,9 +641,7 @@ static void apds990x_work_handler(struct work_struct *work)
 
 	i2c_smbus_write_byte_data(client,
 		CMD_BYTE | APDS990x_ENABLE_REG, data->enable);
-    enable_irq(client->irq);
-	wake_unlock(&wlock);
-
+	enable_irq(client->irq);
 }
 
 /* assume this is ISR */
@@ -576,8 +649,8 @@ static irqreturn_t apds990x_interrupt(int vec, void *info)
 {
 	struct i2c_client *client = (struct i2c_client *)info;
 	struct apds990x_data *data = i2c_get_clientdata(client);
-	wake_lock(&wlock);
-    disable_irq_nosync(client->irq);
+	wake_lock_timeout(&wlock,HZ/2);
+        disable_irq_nosync(client->irq);
 	apds990x_reschedule_work(data, 0);
 
 	return IRQ_HANDLED;
@@ -630,9 +703,9 @@ static ssize_t apds990x_store_enable_ps_sensor(struct device *dev,
 		if (data->enable_ps_sensor == 0) {
 
 			data->enable_ps_sensor = 1;
-            spin_lock_irqsave(&data->update_lock.wait_lock, flags);
-            __cancel_delayed_work(&data->als_dwork);
-            spin_unlock_irqrestore(&data->update_lock.wait_lock, flags);
+			spin_lock_irqsave(&data->update_lock.wait_lock, flags);
+			__cancel_delayed_work(&data->als_dwork);
+			spin_unlock_irqrestore(&data->update_lock.wait_lock, flags);
 			apds990x_set_enable(client,0); /* Power Off */
 			apds990x_set_atime(client, 0xfa); /* 27.2ms */
 			apds990x_set_ptime(client, 0xff); /* 2.72ms */
@@ -643,25 +716,25 @@ static ssize_t apds990x_store_enable_ps_sensor(struct device *dev,
 
 			apds990x_set_pilt(client, 0);
 			apds990x_set_piht(client, PS_FIRST_VALUE);
-			min_proximity_value = MAX_ADC_PROX_VALUE - apds_990x_pwindows_value; //reset min_proximity_value when enable ps
 
 			apds990x_set_ailt( client, 0);
 			apds990x_set_aiht( client, 0xffff);
 
 			apds990x_set_pers(client, 0x33); /* 3 persistence */
 			apds990x_set_enable(client, 0x27);	 /* only enable PS interrupt */
-			msleep(200);
+
 			spin_lock_irqsave(&data->update_lock.wait_lock, flags);
-			schedule_delayed_work(&data->als_dwork, msecs_to_jiffies(data->als_poll_delay));	// 100ms
+			schedule_delayed_work(&data->als_dwork, msecs_to_jiffies(DELAY_FOR_DATA_RADY));
 			spin_unlock_irqrestore(&data->update_lock.wait_lock, flags);
 		}
 	}
-	 else {
+	 else 
+	 {
 		/*turn off p sensor - kk 25 Apr 2011 we can't turn off the entire sensor, the light sensor may be needed by HAL*/
 		data->enable_ps_sensor = 0;
 		if (data->enable_als_sensor) {
-            spin_lock_irqsave(&data->update_lock.wait_lock, flags);
-            __cancel_delayed_work(&data->als_dwork);
+			spin_lock_irqsave(&data->update_lock.wait_lock, flags);
+			__cancel_delayed_work(&data->als_dwork);
 			spin_unlock_irqrestore(&data->update_lock.wait_lock, flags);
 			// reconfigute light sensor setting
 			apds990x_set_enable(client,0); /* Power Off */
@@ -673,18 +746,17 @@ static ssize_t apds990x_store_enable_ps_sensor(struct device *dev,
 			/* apds990x_set_control(client, 0x20);*/ /* 100mA, IR-diode, 1X PGAIN, 1X AGAIN */
 
 			/* 50mA, IR-diode, 1X PGAIN, 16X AGAIN */
-            apds990x_set_control(client, 0x20); /* 100mA, IR-diode, 1X PGAIN, 16X AGAIN */
-            apds990x_set_pers(client, 0x33); /* 3 persistence */
+			apds990x_set_control(client, 0x20); /* 100mA, IR-diode, 1X PGAIN, 16X AGAIN */
+			apds990x_set_pers(client, 0x33); /* 3 persistence */
 
 			apds990x_set_enable(client, 0x3);	 /* only enable light sensor */
-            msleep(200);
 
 			spin_lock_irqsave(&data->update_lock.wait_lock, flags);
-			schedule_delayed_work(&data->als_dwork, msecs_to_jiffies(data->als_poll_delay));	// 100ms
-
+			schedule_delayed_work(&data->als_dwork, msecs_to_jiffies(DELAY_FOR_DATA_RADY));
 			spin_unlock_irqrestore(&data->update_lock.wait_lock, flags);
-
-		} else {
+		} 
+		else 
+		{
 			apds990x_set_enable(client, 0);
 
 			spin_lock_irqsave(&data->update_lock.wait_lock, flags);
@@ -703,7 +775,6 @@ static ssize_t apds990x_store_enable_ps_sensor(struct device *dev,
 				__func__);
 			return err;
 		}
-
 	}
 
 
@@ -777,9 +848,7 @@ static ssize_t apds990x_store_enable_als_sensor(struct device *dev,
 			 * change the scheduled time that's why we have to cancel it first.
 			 */
 			__cancel_delayed_work(&data->als_dwork);
-			schedule_delayed_work(&data->als_dwork,
-				msecs_to_jiffies(data->als_poll_delay));
-
+			schedule_delayed_work(&data->als_dwork, msecs_to_jiffies(DELAY_FOR_DATA_RADY));
 			spin_unlock_irqrestore(&data->update_lock.wait_lock, flags);
 		}
 	} else {
@@ -861,9 +930,9 @@ static ssize_t apds990x_store_als_poll_delay(struct device *dev,
 
 	/* the minimum is 2.72ms = 2720 us, maximum is 696.32ms */
 	poll_delay = 256 - (val / 2720);
-	if (poll_delay >= 256)
-		data->als_atime = 255;
-	else if (poll_delay < 0)
+	/*if (poll_delay >= 256)
+		data->als_atime = 255;*/
+	if (poll_delay < 0)
 		data->als_atime = 0;
 	else
 		data->als_atime = poll_delay;
@@ -917,30 +986,64 @@ static ssize_t apds990x_store_ps_enable(struct device *dev,
 				attr, buf, count);
 		data->ps_lock = 0;
 
+		min_proximity_value = MAX_FAR_THRESHOLD;//MAX_ADC_PROX_VALUE - apds_990x_pwindows_value;
 		input_report_abs(data->input_dev_ps, ABS_DISTANCE, 1);
 		input_sync(data->input_dev_ps);
 	}
 	return count;
 }
 
+
+
 static DEVICE_ATTR(ps_enable, 0664,
 				   apds990x_show_ps_enable, apds990x_store_ps_enable);
+
 static ssize_t apds990x_show_pdata_value(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
 	struct i2c_client *client = to_i2c_client(dev);
 	struct apds990x_data *data = i2c_get_clientdata(client);
 	data->ps_data = i2c_smbus_read_word_data(client, CMD_WORD|APDS990x_PDATAL_REG);
-	return sprintf(buf, "%d\n", data->ps_data);
+	return snprintf(buf, PAGE_SIZE, "%d\n", data->ps_data);
 }
+
+
 static DEVICE_ATTR(pdata_value, 0664,
 				   apds990x_show_pdata_value, NULL);
+
+static ssize_t apds990x_show_cdata_value(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+	int cdata=0;
+	cdata = i2c_smbus_read_word_data(client, CMD_WORD | APDS990x_CDATAL_REG);
+	return snprintf(buf, PAGE_SIZE, "%d\n", cdata);
+}
+
+static DEVICE_ATTR(cdata_value, 0664,
+				   apds990x_show_cdata_value, NULL);
+
+
+static ssize_t apds990x_show_rdata_value(struct device *dev,
+				struct device_attribute *attr, char *buf)
+{
+	struct i2c_client *client = to_i2c_client(dev);
+	int rdata=0;
+	rdata = i2c_smbus_read_word_data(client, CMD_WORD | APDS990x_IRDATAL_REG);
+	return snprintf(buf, PAGE_SIZE, "%d\n", rdata);
+}
+
+static DEVICE_ATTR(rdata_value, 0664,
+				   apds990x_show_rdata_value, NULL);
+
 static struct attribute *apds990x_attributes[] = {
 	&dev_attr_enable_ps_sensor.attr,
 	&dev_attr_enable_als_sensor.attr,
 	&dev_attr_als_poll_delay.attr,
 	&dev_attr_ps_enable.attr,
 	&dev_attr_pdata_value.attr,
+	&dev_attr_cdata_value.attr,
+	&dev_attr_rdata_value.attr,
 	NULL
 };
 
@@ -955,7 +1058,7 @@ static const struct attribute_group apds990x_attr_group = {
 
 static int apds990x_init_client(struct i2c_client *client)
 {
-	struct apds990x_data *data = i2c_get_clientdata(client);
+	//struct apds990x_data *data = i2c_get_clientdata(client);
 	int err;
 	int id;
 
@@ -1023,6 +1126,41 @@ err:
 	return ret;
 }
 
+#ifdef CONFIG_HAS_EARLYSUSPEND
+static int apds990x_early_suspend(struct early_suspend *h)
+{
+	struct apds990x_data *data = container_of(h, struct apds990x_data, early_suspend);
+	struct i2c_client *client = data->client;
+	unsigned long flags;
+	dev_dbg(&client->dev, "%s: apds990x try to suspend\n", __func__);
+
+	if (!data->enable_ps_sensor && data->enable_als_sensor) {
+		spin_lock_irqsave(&data->update_lock.wait_lock, flags);
+		__cancel_delayed_work(&data->als_dwork);
+		spin_unlock_irqrestore(&data->update_lock.wait_lock, flags);
+		i2c_smbus_write_byte_data(client, CMD_BYTE | APDS990x_ENABLE_REG, 0);
+	}
+
+	return 0;
+}
+
+static int apds990x_later_resume(struct early_suspend *h)
+{
+	struct apds990x_data *data = container_of(h, struct apds990x_data, early_suspend);
+	struct i2c_client *client = data->client;
+	unsigned long flags;
+	dev_dbg(&client->dev, "%s: apds990x try to resume\n", __func__);
+	if (!data->enable_ps_sensor && data->enable_als_sensor) {
+		i2c_smbus_write_byte_data(client, CMD_BYTE | APDS990x_ENABLE_REG, data->enable);
+		spin_lock_irqsave(&data->update_lock.wait_lock, flags);
+		__cancel_delayed_work(&data->als_dwork);
+		schedule_delayed_work(&data->als_dwork, msecs_to_jiffies(data->als_poll_delay));
+		spin_unlock_irqrestore(&data->update_lock.wait_lock, flags);
+	}
+	return 0;
+}
+#endif
+
 /*
  * I2C init/probing/exit functions
  */
@@ -1033,10 +1171,12 @@ static int __devinit apds990x_probe(struct i2c_client *client,
 {
 	struct apds990x_data *data;
 	int err = 0;
-        apds_990x_pwindows_value = 180;
-        apds_990x_pwave_value = 230;
-    min_proximity_value = MAX_ADC_PROX_VALUE - apds_990x_pwindows_value;
-
+		apds_990x_pwave_value = 250;
+		threshold_value = 400;
+	ps_pulse_count=5;
+	apds_990x_pwindows_value = 300;
+	min_proximity_value = MAX_FAR_THRESHOLD;//MAX_ADC_PROX_VALUE - apds_990x_pwindows_value;
+	printk("apds990x:pwave=%d, threshold=%d.\n", apds_990x_pwave_value, threshold_value);
 	if (!i2c_check_functionality(client->adapter,
 		I2C_FUNC_SMBUS_BYTE)) {
 
@@ -1066,6 +1206,11 @@ static int __devinit apds990x_probe(struct i2c_client *client,
 	dev_dbg(&client->dev, "enable = %x\n", data->enable);
 
 	mutex_init(&data->update_lock);
+       data->ps_wq = create_singlethread_workqueue("ps_wq");
+       	if (!data->ps_wq) {
+		dev_err(&client->dev, "failed to create ps workqueue!\n");
+		goto exit_kfree;
+	}
 	INIT_DELAYED_WORK(&data->dwork, apds990x_work_handler);
 	INIT_DELAYED_WORK(&data->als_dwork, apds990x_als_polling_work_handler);
 	/* Initialize the APDS990x chip */
@@ -1163,17 +1308,19 @@ static int __devinit apds990x_probe(struct i2c_client *client,
 	}
 
 #ifdef CONFIG_HUAWEI_SENSORS_INPUT_INFO
+    if(false == get_rgb_sensor_type()) {
            err = set_sensor_chip_info(ALS, "AVAGO APDS9900 ");
 	    if (err) {
 		    dev_err(&client->dev, "set_sensor_chip_info error\n");
 	    }
-	err = set_sensor_input(ALS, data->input_dev_als->dev.kobj.name);
-	if (err) {
-		sysfs_remove_group(&client->dev.kobj, &apds990x_attr_group);
-		dev_err(&client->dev, "%s, set_sensor_input als error: %s\n",
-		       __func__, data->input_dev_als->name);
-		goto exit_unregister_dev_ps;
-	}
+	    err = set_sensor_input(ALS, data->input_dev_als->dev.kobj.name);
+	    if (err) {
+		   sysfs_remove_group(&client->dev.kobj, &apds990x_attr_group);
+		   dev_err(&client->dev, "%s, set_sensor_input als error: %s\n",
+		          __func__, data->input_dev_als->name);
+		   goto exit_unregister_dev_ps;
+	    }
+    }
        err = set_sensor_chip_info(PS, "AVAGO APDS9900 ");
 	    if (err) {
 		    dev_err(&client->dev, "set_sensor_chip_info error\n");
@@ -1186,8 +1333,19 @@ static int __devinit apds990x_probe(struct i2c_client *client,
 		goto exit_unregister_dev_ps;
 	}
 #endif
+#ifdef CONFIG_HAS_EARLYSUSPEND
+	data->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
+	data->early_suspend.suspend = apds990x_early_suspend;
+	data->early_suspend.resume = apds990x_later_resume;
+	register_early_suspend(&data->early_suspend);
+#endif
 	dev_dbg(&client->dev, "%s support ver. %s enabled\n",
 		__func__, DRIVER_VERSION);
+
+#ifdef CONFIG_HUAWEI_HW_DEV_DCT
+    /* detect current device successful, set the flag as present */
+        set_hw_dev_flag(DEV_I2C_L_SENSOR);
+#endif
 
 	return 0;
 
@@ -1208,9 +1366,12 @@ exit_gpio_request:
 	if (client->irq >= 0)
 	gpio_free(irq_to_gpio(client->irq));
 exit_kfree:
+        if (data->ps_wq)
+		destroy_workqueue(data->ps_wq);
 	i2c_set_clientdata(client, NULL);
 	kfree(data);
 	data = NULL;
+
 exit:
 	return err;
 }
@@ -1256,6 +1417,9 @@ static void apds990x_shutdown(struct i2c_client *client)
 	__cancel_delayed_work(&data->dwork);
 	__cancel_delayed_work(&data->als_dwork);
 
+        if (data->ps_wq)
+		destroy_workqueue(data->ps_wq);
+
 	/* Power down the device */
 	apds990x_set_enable(client, 0);
 	if (apds990x_gpio_init(PULLUP, CLOSESENSOR_PIN) < 0)
@@ -1265,60 +1429,6 @@ static void apds990x_shutdown(struct i2c_client *client)
 	printk("[%s] -\n", __func__);
 }
 
-
-#ifdef CONFIG_PM
-
-static int apds990x_suspend(struct i2c_client *client, pm_message_t mesg)
-{
-
-    struct apds990x_data *data = i2c_get_clientdata(client);
-    unsigned long flags;
-	printk("[%s] +\n", __func__);
-    dev_dbg(&client->dev, "%s: apds990x try to suspend\n",
-		__func__);
-
-	if (!data->enable_ps_sensor && data->enable_als_sensor) {
-			spin_lock_irqsave(&data->update_lock.wait_lock, flags);
-			__cancel_delayed_work(&data->als_dwork);
-			spin_unlock_irqrestore(&data->update_lock.wait_lock, flags);
-			i2c_smbus_write_byte_data(client, CMD_BYTE | APDS990x_ENABLE_REG, 0);
-	}
-
-
-	printk("[%s] -\n", __func__);
-	return 0;
-}
-
-static int apds990x_resume(struct i2c_client *client)
-{
-	struct apds990x_data *data = i2c_get_clientdata(client);
-	unsigned long flags;
-	printk("[%s] +\n", __func__);
-	dev_dbg(&client->dev, "%s: apds990x try to resume\n", __func__);
-    if (!data->enable_ps_sensor && data->enable_als_sensor) {
-		i2c_smbus_write_byte_data(client,
-		CMD_BYTE | APDS990x_ENABLE_REG, data->enable);
-
-		spin_lock_irqsave(&data->update_lock.wait_lock, flags);
-
-		__cancel_delayed_work(&data->als_dwork);
-		schedule_delayed_work(&data->als_dwork,
-			msecs_to_jiffies(data->als_poll_delay));
-
-		spin_unlock_irqrestore(&data->update_lock.wait_lock, flags);
-	}
-
-	printk("[%s] -\n", __func__);
-
-	return 0;
-}
-
-#else
-
-#define apds990x_suspend	NULL
-#define apds990x_resume		NULL
-
-#endif /* CONFIG_PM */
 
 static const struct i2c_device_id apds990x_id[] = {
 	{ "apds990x", 0 },
@@ -1331,8 +1441,6 @@ static struct i2c_driver apds990x_driver = {
 		.name	= APDS990x_DRV_NAME,
 		.owner	= THIS_MODULE,
 	},
-	.suspend = apds990x_suspend,
-	.resume	= apds990x_resume,
 	.probe	= apds990x_probe,
 	.remove	= __devexit_p(apds990x_remove),
 	.shutdown = apds990x_shutdown,

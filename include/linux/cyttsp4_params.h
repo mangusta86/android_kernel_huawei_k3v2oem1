@@ -19,7 +19,7 @@ static const uint8_t cyttsp4_param_regs[] = {
 	0xFC, 0x07,  /* CONFIG_DATA_SIZE */
 	0xFC, 0x07,  /* CONFIG_DATA_MAX_SIZE */
 	0x4C, 0x00, 0x00, 0x00,  /* SDK_CTRL_CFG_SIZE */
-	0x17, 0x00,  /* CONFIG_VER */
+	0x29, 0x00,  /* CONFIG_VER */
 	0x01,  /* PANELID_ENABLE */
 	0x24,  /* IMO_FREQ_MHZ */
 	0xC4, 0x1D,  /* X_LEN_PHY */
@@ -68,8 +68,8 @@ static const uint8_t cyttsp4_param_regs[] = {
 	0x00, 0x00, 0x00, 0x00, 
 	0x00, 0x00, 0x00, 0x00,  /* Reserved56 */
 	0x18, 0x00, 0x00, 0x00,  /* GRIP_CFG_SIZE */
-	0x00, 0x00,  /* GRIP_XEDG_A */
-	0x00, 0x00,  /* GRIP_XEDG_B */
+	0x0A, 0x00,  /* GRIP_XEDG_A */
+	0x0A, 0x00,  /* GRIP_XEDG_B */
 	0x00, 0x00,  /* GRIP_XEXC_A */
 	0x00, 0x00,  /* GRIP_XEXC_B */
 	0x00, 0x00,  /* GRIP_YEDG_A */
@@ -97,10 +97,10 @@ static const uint8_t cyttsp4_param_regs[] = {
 	0x8C, 0x00, 0x00, 0x00,  /* T_COMP_RECAL_SELF_HIGH */
 	0xD8, 0xFF, 0xFF, 0xFF,  /* T_COMP_RECAL_SELF_LOW */
 	0x01, 0x00, 0x00, 0x00,  /* CHARGER_ARMOR_ENABLE */
-	0x00, 0x00, 0x00, 0x00,  /* AFH_ENABLE */
+	0x01, 0x00, 0x00, 0x00,  /* AFH_ENABLE */
 	0x08, 0x00, 0x00, 0x00,  /* AFH_LISTENING_SCAN_COUNT */
 	0x06, 0x00, 0x00, 0x00,  /* AFH_LISTEN_SCAN_CYCLE_REPEATS */
-	0x32, 0x00, 0x00, 0x00,  /* CA_BLOCK_NOISE_THRESHOLD */
+	0x0E, 0x00, 0x00, 0x00,  /* CA_BLOCK_NOISE_THRESHOLD */
 	0x03, 0x00, 0x00, 0x00,  /* CA_BLOCK_NOISE_HYSTERESIS */
 	0xD0, 0x07, 0x00, 0x00,  /* CA_DEFAULT_REVERT_TIME */
 	0x01, 0x00,  /* CA_SMART_H2O_REJECT */
@@ -165,12 +165,12 @@ static const uint8_t cyttsp4_param_regs[] = {
 	0x00, 0x00,  /* Reserved298 */
 	0x07,  /* CA_ALT_NUM_SUB_CONV_MUTUAL */
 	0x02,  /* CA_ALT_ACQUISITION_FLAGS */
-	0x3C,  /* AFH_ALT_TX_PERIOD1 */
+	0x7F,  /* AFH_ALT_TX_PERIOD1 */
 	0x00,  /* Reserved339 */
 	0xE8, 0x03,  /* AFH_ALT_TX_PERIOD1_MUTUAL_SCALE_FACTOR */
 	0x0C,  /* AFH_ALT_TX_PERIOD1_MUTUAL_TX_VOLTAGE */
-	0x03,  /* AFH_ALT_TX_PULSES1 */
-	0x3C,  /* AFH_ALT_TX_PERIOD2 */
+	0x02,  /* AFH_ALT_TX_PULSES1 */
+	0x3D,  /* AFH_ALT_TX_PERIOD2 */
 	0x00,  /* Reserved345 */
 	0xE8, 0x03,  /* AFH_ALT_TX_PERIOD2_MUTUAL_SCALE_FACTOR */
 	0x0C,  /* AFH_ALT_TX_PERIOD2_MUTUAL_TX_VOLTAGE */
@@ -185,15 +185,15 @@ static const uint8_t cyttsp4_param_regs[] = {
 	0x02,  /* XY_FILT_IIR_SLOW_COEFF */
 	0x00,  /* XY_FILT_IIR_FAST_COEFF */
 	0x01,  /* XY_FILT_Z_IIR_COEFF */
-	0x32, 0x00,  /* XY_FILT_XY_SLOW_THR */
-	0xFF, 0x00,  /* XY_FILT_XY_FAST_THR */
+	0x05, 0x00,  /* XY_FILT_XY_SLOW_THR */
+	0x1E, 0x00,  /* XY_FILT_XY_FAST_THR */
 	0xF0,  /* XY_FILTER_MASK_CA */
 	0x02,  /* XY_FILT_IIR_SLOW_COEFF_CA */
 	0x00,  /* XY_FILT_IIR_FAST_COEFF_CA */
 	0x01,  /* XY_FILT_Z_IIR_COEFF_CA */
 	0x32, 0x00,  /* XY_FILT_XY_SLOW_THR_CA */
-	0xFF, 0x00,  /* XY_FILT_XY_FAST_THR_CA */
-	0x01,  /* XY_FILT_ADAPTIVE_IIR_FILTER */
+	0x64, 0x00,  /* XY_FILT_XY_FAST_THR_CA */
+	0x00,  /* XY_FILT_ADAPTIVE_IIR_FILTER */
 	0x0C,  /* XY_FILT_ADAPTIVE_IIR_FILTER_DISTANCE */
 	0x00, 0x00, 0x00, 0x00, 
 	0x00, 0x00, 0x00, 0x00, 
@@ -209,7 +209,7 @@ static const uint8_t cyttsp4_param_regs[] = {
 	0x00, 0x00, 0x00,  /* Reserved429 */
 	0x20,  /* ID_COORDS_CFG_SIZE */
 	0x02,  /* LRG_OBJ_CFG */
-	0x15,  /* MAX_FAT_FINGER_SIZE */
+	0x1C,  /* MAX_FAT_FINGER_SIZE */
 	0x07,  /* MIN_FAT_FINGER_SIZE */
 	0x50,  /* MAX_FAT_FINGER_SIZE_GLOVE */
 	0x50,  /* MIN_FAT_FINGER_SIZE_GLOVE */
@@ -223,8 +223,8 @@ static const uint8_t cyttsp4_param_regs[] = {
 	0x40, 0x00, 0x00, 0x00,  /* Z_SCALING */
 	0x01,  /* RX_LINE_FILTER */
 	0x00,  /* MULTI_TOUCH_DEBOUNCE */
-	0x2C, 0x01,  /* CA_FINGER_THRESHOLD_MUTUAL */
-	0x64, 0x00,  /* FINGER_THRESH_MUTUAL_HYST */
+	0x90, 0x01,  /* CA_FINGER_THRESHOLD_MUTUAL */
+	0xFA, 0x00,  /* FINGER_THRESH_MUTUAL_HYST */
 	0x02,  /* RX_LINE_FILTER_DEBOUNCE */
 	0x00,  /* CLIPPING_X_LOW */
 	0x00,  /* CLIPPING_X_HIGH */
@@ -276,7 +276,7 @@ static const uint8_t cyttsp4_param_regs[] = {
 	0x00,  /* LO_REPORT_TOUCH  */
 	0x78, 0x00,  /* THINGLOVE_THRESH_SELF */
 	0xC8, 0x00,  /* THINGLOVE_THRESH_MUTUAL */
-	0x64, 0x00,  /* THINGLOVE_MODE_HYST_MUTUAL */
+	0xFA, 0x00,  /* THINGLOVE_MODE_HYST_MUTUAL */
 	0x14, 0x05,  /* SD_ENTER_PEAK_THOLD */
 	0xA4, 0x06,  /* SD_EXIT_PEAK_THOLD */
 	0x09,  /* SD_SIZE_THOLD */
@@ -352,7 +352,7 @@ static const uint8_t cyttsp4_param_regs[] = {
 	0x50,  /* BL_FILT_BAL */
 	0x50,  /* BL_FILT_BTN_MUT */
 	0x50,  /* BL_FILT_BTN_SELF */
-	0x32,  /* CMF_THR_MUT */
+	0x96,  /* CMF_THR_MUT */
 	0x1E,  /* CMF_THR_SELF */
 	0x0C,  /* CMF_THR_BAL */
 	0x0C,  /* CMF_THR_BTN_MUT */
@@ -468,11 +468,11 @@ static const uint8_t cyttsp4_param_regs[] = {
 	0x01, 0x00, 0x00, 0x00,  /* MEDIAN_EN */
 	0x02, 0x00, 0x00, 0x00,  /* SCANNING_MODE_MUTUAL */
 	0x02, 0x00, 0x00, 0x00,  /* SCANNING_MODE_BUTTON */
-	0x0F, 0x00,  /* DETECT_CHARGER_THRESHOLD */
+	0x0C, 0x00,  /* DETECT_CHARGER_THRESHOLD */
 	0x00,  /* CA_LX_SCAN_MODE */
 	0x00,  /* SUB_SLOT_SCAN */
 	0x6E,  /* NOISE_METRIC1_THRESHOLD */
-	0x56,  /* NOISE_METRIC2_THRESHOLD */
+	0x37,  /* NOISE_METRIC2_THRESHOLD */
 	0x32,  /* NOISE_METRIC3_THRESHOLD */
 	0x01,  /* AFH_DYNAMIC_THRSH_ENABLE */
 	0x04,  /* ADC_CONFIG */
@@ -704,30 +704,33 @@ static const uint8_t cyttsp4_param_regs[] = {
 	0x00, 0x00, 0x00, 0x00, 
 	0x00, 0x00,  /* CDC_SLOT_TABLE */
 	0x00, 0x00,  /* Reserved1998 */
-	0x1A,  /* PASSIVESTYLUS_SIZE */
-	0x14,  /* MAX_FAT_FINGER_SIZE_STYLUS */
-	0x0A,  /* MIN_FAT_FINGER_SIZE_STYLUS */
+	0x20,  /* PASSIVESTYLUS_SIZE */
+	0x08,  /* MAX_FAT_FINGER_SIZE_STYLUS */
+	0x08,  /* MIN_FAT_FINGER_SIZE_STYLUS */
 	0x00,  /* STYLUS_DEBOUNCE */
-	0x32, 0x00,  /* STYLUS_THRESH_SELF */
-	0x6E, 0x00,  /* STYLUS_THRESH_MUTUAL */
-	0x6E, 0x00,  /* BL_THR_MUT_STYLUS */
-	0x32, 0x00,  /* BL_THR_SELF_STYLUS */
+	0x1E, 0x00,  /* STYLUS_THRESH_SELF */
+	0x3C, 0x00,  /* STYLUS_THRESH_MUTUAL */
+	0x28, 0x00,  /* BL_THR_MUT_STYLUS */
+	0x19, 0x00,  /* BL_THR_SELF_STYLUS */
 	0xF0,  /* XY_FILTER_MASK_STYLUS */
 	0x02,  /* XY_FILT_IIR_SLOW_COEFF_STYLUS */
-	0x00,  /* XY_FILT_IIR_FAST_COEFF_STYLUS */
+	0x01,  /* XY_FILT_IIR_FAST_COEFF_STYLUS */
 	0x02,  /* XY_FILT_Z_IIR_COEFF_STYLUS */
-	0x1E, 0x00,  /* XY_FILT_XY_SLOW_THR_STYLUS */
-	0xC8, 0x00,  /* XY_FILT_XY_FAST_THR_STYLUS */
+	0x05, 0x00,  /* XY_FILT_XY_SLOW_THR_STYLUS */
+	0x1E, 0x00,  /* XY_FILT_XY_FAST_THR_STYLUS */
 	0x0C,  /* CMF_THR_MUT_STYLUS */
 	0x0C,  /* CMF_THR_SELF_STYLUS */
-	0x20, 0x03,  /* FINGER_THRESH_MUTUAL_HYST_STYLUS */
+	0x26, 0x02,  /* FINGER_THRESH_MUTUAL_HYST_STYLUS */
 	0xC8,  /* STYLUS_FORBID_AFTER_TOUCH_LIFT */
+	0x01,  /* STYLUS_PALM_REJECTION_ENABLE */
+	0x7E, 0x03,  /* STYLUS_FILTERCONFIG_MASK */
+	0xF0, 0x00,  /* STYLUS_PALM_TIMEOUT */
+	0x0A,  /* STYLUS_MODE_EXIT_DELAY */
+	0x02,  /* STYLUS_TIP_SEARCH_RANGE */
 	0x00, 0x00, 0x00, 0x00, 
 	0x00, 0x00, 0x00, 0x00, 
-	0x00, 0x00, 0x00, 0x00, 
-	0x00, 0x00, 0x00, 0x00, 
-	0x00, 0x00, 0x00,  /* Reserved2025 */
-	0x30, 0x45,  /* CONFIG_CRC */
+	0x00, 0x00, 0x00, 0x00,  /* Reserved2032 */
+	0xF4, 0x75,  /* CONFIG_CRC */
 };
 
 /* Touchscreen Parameters Field Sizes (Writable: 0:Readonly; 1:Writable) */
@@ -1213,7 +1216,12 @@ static const uint16_t cyttsp4_param_size[] = {
 	1, /* CMF_THR_SELF_STYLUS */
 	2, /* FINGER_THRESH_MUTUAL_HYST_STYLUS */
 	1, /* STYLUS_FORBID_AFTER_TOUCH_LIFT */
-	19, /* Reserved2025 */
+	1, /* STYLUS_PALM_REJECTION_ENABLE */
+	2, /* STYLUS_FILTERCONFIG_MASK */
+	2, /* STYLUS_PALM_TIMEOUT */
+	1, /* STYLUS_MODE_EXIT_DELAY */
+	1, /* STYLUS_TIP_SEARCH_RANGE */
+	12, /* Reserved2032 */
 	2, /* CONFIG_CRC */
 };
 
@@ -1700,7 +1708,12 @@ static const uint8_t cyttsp4_param_addr[] = {
 	0xED, 0xE5, /* CMF_THR_SELF_STYLUS */
 	0xED, 0xE6, /* FINGER_THRESH_MUTUAL_HYST_STYLUS */
 	0xED, 0xE8, /* STYLUS_FORBID_AFTER_TOUCH_LIFT */
-	0xED, 0xE9, /* Reserved2025 */
+	0xED, 0xE9, /* STYLUS_PALM_REJECTION_ENABLE */
+	0xED, 0xEA, /* STYLUS_FILTERCONFIG_MASK */
+	0xED, 0xEC, /* STYLUS_PALM_TIMEOUT */
+	0xED, 0xEE, /* STYLUS_MODE_EXIT_DELAY */
+	0xED, 0xEF, /* STYLUS_TIP_SEARCH_RANGE */
+	0xED, 0xF0, /* Reserved2032 */
 	0xED, 0xFC, /* CONFIG_CRC */
 };
 

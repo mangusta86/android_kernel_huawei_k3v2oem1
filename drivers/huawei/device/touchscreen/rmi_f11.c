@@ -27,7 +27,37 @@
 #include <linux/input.h>
 #include <linux/rmi.h>
 #include "rmi_driver.h"
+#include <linux/atomic.h>
+#include <../drivers/huawei/device/touchkey/synaptics_SO340010.h>
+#include <hsad/config_interface.h>
+#include <linux/usb/hiusb_android.h>
+#include "rmi_f01.h"
+#include <linux/time.h>
+#include <linux/rtc.h>
+#include <linux/android_alarm.h>
+#include <linux/ktime.h>
 
+#define PEN_MOV_LENGTH      50   //move length (pixels)
+#define FINGER_REL_TIME     300  //the time pen checked after finger released shouldn't less than this value(ms)
+#define FILTER_GLOVE_NUMBER 4
+
+enum TP_state_machine {
+	INIT_STATE = 0,
+	ZERO_STATE = 1,
+	FINGER_STATE = 2,
+	GLOVE_STATE = 3
+};
+enum TP_state_machine  touch_state = INIT_STATE;
+
+static struct timespec curr_time[FILTER_GLOVE_NUMBER] = {{0,0}};
+
+static struct timespec pre_finger_time[FILTER_GLOVE_NUMBER] = {{0,0}};
+
+static int touch_pos_x[FILTER_GLOVE_NUMBER] = {-1, -1, -1, -1};
+static int touch_pos_y[FILTER_GLOVE_NUMBER] = {-1, -1, -1, -1};
+static u8 finger_state_reg = 0;
+
+static int touch_axis_align_value = 0;
 #define RESUME_REZERO (1 && defined(CONFIG_PM))
 #if RESUME_REZERO
 #include <linux/delay.h>
@@ -63,6 +93,24 @@
 #define DEFAULT_MIN_ABS_MT_TRACKING_ID 1
 #define DEFAULT_MAX_ABS_MT_TRACKING_ID 10
 #define MAX_NAME_LENGTH 256
+
+#define DEFAULT10_SENSITIVITY 0x8FAF
+#define DEFAULT32_SENSITIVITY 0x8F8F
+#define DEFAULT10_SENSITIVITY_GLOVE 0xcfcf
+#define DEFAULT32_SENSITIVITY_GLOVE 0xcfcf
+
+struct input_dev *up_input_dev = NULL;
+
+/*TK in water condition start*/
+#define DRY_MODE                    0
+#define WET_MODE                    1
+#define DEFAULT10_DRY               0x6800
+#define DEFAULT32_DRY               0x606A
+#define DEFAULT10_WET               0x5800
+#define DEFAULT32_WET               0x5058
+#define MODE_CHANGE_CNT             100
+u8 tp_charger_set = 0;          /*usb detect*/
+/*TK in water condition end*/
 
 static ssize_t f11_flip_show(struct device *dev,
 				   struct device_attribute *attr, char *buf);
@@ -138,7 +186,8 @@ static int rmi_f11_reset(struct rmi_function_container *fc);
 static int rmi_f11_register_devices(struct rmi_function_container *fc);
 
 static void rmi_f11_free_devices(struct rmi_function_container *fc);
-
+atomic_t tp_last_status = ATOMIC_INIT(TP_FINGER);
+EXPORT_SYMBOL(tp_last_status);
 
 static struct device_attribute attrs[] = {
 	__ATTR(flip, RMI_RO_ATTR_1, f11_flip_show, f11_flip_store),
@@ -156,6 +205,9 @@ static struct device_attribute attrs[] = {
 	__ATTR(rezero, RMI_RO_ATTR_1, rmi_show_error, f11_rezero_store)
 };
 
+extern atomic_t touch_is_pressed;
+extern u32 time_finger_up ;
+extern void set_tk_sensitivity(uint8_t tp_status);
 
 union f11_2d_commands {
 	struct {
@@ -539,6 +591,7 @@ struct f11_2d_sensor {
 	u8 *data_pkt;
 	int pkt_size;
 	u8 sensor_index;
+
 	struct rmi_f11_virtualbutton_map virtualbutton_map;
 	char input_name[MAX_NAME_LENGTH];
 	char input_phys[MAX_NAME_LENGTH];
@@ -555,6 +608,16 @@ struct f11_data {
 	bool rezero_on_resume;
 #endif
 	struct f11_2d_sensor sensors[F11_MAX_NUM_OF_SENSORS];
+
+	int touchkey_sensitivity;
+	bool jdi_tk_enable;
+	/*usb charger detect start*/
+	struct work_struct usb_work;
+	struct notifier_block nb;
+	unsigned long usb_event;
+	u8 water_mode;
+	u8 water_cnt;
+	/*usb charger detect end*/
 };
 
 enum finger_state_values {
@@ -585,10 +648,6 @@ static struct attribute_group attrs_control29_30 = GROUP(attrs_ctrl29_30);
 
 /** F11_INACCURATE state is overloaded to indicate pen present. */
 #define F11_PEN F11_INACCURATE
-static int lcd_x, lcd_y;
-static int ts_x_max = 0;
-static int ts_y_max = 0;
-static int ts_clalibretion_y = 0;
 
 static int get_tool_type(struct f11_2d_sensor *sensor, u8 finger_state) {
 	if (sensor->sens_query.query9.has_pen && finger_state == F11_PEN)
@@ -628,6 +687,96 @@ static void rmi_f11_rel_pos_report(struct f11_2d_sensor *sensor, u8 n_finger)
 	input_sync(sensor->mouse_input);
 }
 
+static void rmi_f11_set_current_touch_status(u8 finger_state)
+{
+	finger_state_reg = finger_state;
+}
+
+static u8 rmi_f11_get_current_touch_status(void)
+{
+	return finger_state_reg;
+}
+
+/*initialize variable*/
+static void rmi_f11_filter_glove_init(void)
+{
+	int i;
+	touch_state = INIT_STATE;
+	for (i = 0; i < FILTER_GLOVE_NUMBER; i++) {
+		pre_finger_time[i].tv_sec = 0;
+		pre_finger_time[i].tv_nsec = 0;
+		touch_pos_x[i] = -1;
+		touch_pos_y[i] = -1;
+	}
+}
+
+/*
+  * Description: filger the illegal signal while touching with finger.
+  * Return Value: 1 means this signal is legal; 0 means this signal is illegal and should be ignored.
+  * Parameters: @n_finger  the index of this signal.
+  *             @x         the X axis of this signal.
+  *             @y         the Y axis of this signal.
+  */
+static int rmi_f11_filter_illegal_glove(u8 n_finger, int x, int y)
+{
+	u8  report_flag = 0;
+	long interval_time;
+	u8 new_mode;
+
+	new_mode = rmi_f11_get_current_touch_status();
+	new_mode = new_mode >> (2*n_finger);
+	new_mode = new_mode & 0x03;
+
+	if (new_mode == TP_FINGER) { /*the new interrupt is a finger signal*/
+		touch_state = FINGER_STATE;
+		report_flag = 1;
+	} else if (new_mode == TP_GLOVE) { /*the new interrupt is a glove signal.*/
+		switch (touch_state) {
+			case INIT_STATE:
+				report_flag = 1;
+				touch_state = GLOVE_STATE;
+				break;
+
+			case FINGER_STATE:
+				ktime_get_ts(&curr_time[n_finger]);
+				interval_time = (curr_time[n_finger].tv_sec - pre_finger_time[n_finger].tv_sec)*1000
+					+ (curr_time[n_finger].tv_nsec - pre_finger_time[n_finger].tv_nsec)/1000000;
+				if (interval_time > 0 && interval_time <= FINGER_REL_TIME) {
+					ktime_get_ts(&pre_finger_time[n_finger]);
+				} else {
+					touch_state = ZERO_STATE;
+				}
+				break;
+
+			case ZERO_STATE:
+				if((touch_pos_x[n_finger] == -1) && (touch_pos_y[n_finger] == -1)) {
+					touch_pos_x[n_finger] = x;
+					touch_pos_y[n_finger] = y;
+				} else {
+					if (((touch_pos_x[n_finger] - x)*(touch_pos_x[n_finger] - x)
+						+ (touch_pos_y[n_finger] - y)*(touch_pos_y[n_finger] - y))
+						>= (PEN_MOV_LENGTH * PEN_MOV_LENGTH)) {
+						touch_state = GLOVE_STATE;
+					}
+				}
+				break;
+
+			case GLOVE_STATE:
+				report_flag = 1;
+				break;
+
+			default:
+				pr_err("%s error: touch_state = %d\n", __func__, touch_state);
+				break;
+		}
+	}else {
+		//pr_err("%s error:cur_mode=%d\n", __func__, new_mode);
+		report_flag = 1;
+	}
+
+	return report_flag;
+}
+
 static void rmi_f11_abs_pos_report(struct f11_2d_sensor *sensor,
 					u8 finger_state, u8 n_finger)
 {
@@ -637,11 +786,26 @@ static void rmi_f11_abs_pos_report(struct f11_2d_sensor *sensor,
 	int x, y, z;
 	int w_x, w_y, w_max, w_min, orient;
 	int temp;
+	bool flip_x = axis_align->flip_x;
+	bool flip_y = axis_align->flip_y;
 
 	if (prev_state && !finger_state) {
 		/* this is a release */
 		x = y = z = w_max = w_min = orient = 0;
+
+		time_finger_up = (u32)ktime_to_ms(ktime_get());
+		atomic_set(&touch_is_pressed, 0);   //remember to  add it to  probe and suspend.
 		input_mt_sync(sensor->input);
+		sensor->finger_tracker[n_finger] = finger_state;
+
+		if (n_finger < FILTER_GLOVE_NUMBER) {
+			touch_pos_x[n_finger] = -1;
+			touch_pos_y[n_finger] = -1;
+			if (touch_state == FINGER_STATE) {/*this is a finger release*/
+			 	ktime_get_ts(&pre_finger_time[n_finger]);
+			}
+		}
+
 		return;
 	} else if (!prev_state && !finger_state) {
 		/* nothing to report */
@@ -668,10 +832,33 @@ static void rmi_f11_abs_pos_report(struct f11_2d_sensor *sensor,
 
 		orient = w_x > w_y ? 1 : 0;
 
-		if (axis_align->flip_x)
+		/* here distinguishing edge product or P2 product.
+		** for P2: flip_x = false, flip_y=false;
+		** for edge: flip_x = truth, flip_y=truth;
+		*/
+
+		switch(touch_axis_align_value){
+
+			case E_FLIP_X_FALSE_Y_FALSE:
+				break;
+			case E_FLIP_X_FALSE_Y_TRUE:
+				flip_y = !(axis_align->flip_y);
+				break;
+			case E_FLIP_X_TRUE_Y_FALSE:
+				flip_x = !(axis_align->flip_x);
+				break;
+			case E_FLIP_X_TRUE_Y_TRUE:
+				flip_x = !(axis_align->flip_x);
+				flip_y = !(axis_align->flip_y);
+				break;
+			default:
+				break;
+		}
+
+		if (flip_x)
 			x = max(sensor->max_x - x, 0);
 
-		if (axis_align->flip_y)
+		if (flip_y)
 			y = max(sensor->max_y - y, 0);
 
 		/*
@@ -693,9 +880,16 @@ static void rmi_f11_abs_pos_report(struct f11_2d_sensor *sensor,
 
 	}
 
+	atomic_set(&touch_is_pressed, 1);
 	pr_debug("%s: f_state[%d]:%d - x:%d y:%d z:%d w_max:%d w_min:%d\n",
 		__func__, n_finger, finger_state, x, y, z, w_max, w_min);
 
+	if (n_finger < FILTER_GLOVE_NUMBER) {
+		if (rmi_f11_filter_illegal_glove(n_finger, x, y) == 0) {
+		    sensor->finger_tracker[n_finger] = finger_state;
+		    return;
+		}
+	}
 #ifndef CONFIG_RMI4_F11_PEN
 	/* Some UIs ignore W of zero, so we fudge it to 1 for pens. */
 	if (sensor->sens_query.query9.has_pen &&
@@ -705,10 +899,6 @@ static void rmi_f11_abs_pos_report(struct f11_2d_sensor *sensor,
 	}
 #endif
 
-	x = (x*lcd_x)/ts_x_max;
-	y = (y*ts_clalibretion_y)/ts_y_max;
-	pr_debug("%s: f_state[%d]:%d - x:%d y:%d z:%d w_max:%d w_min:%d\n",
-		__func__, n_finger, finger_state, x, y, z, w_max, w_min);
 #ifdef ABS_MT_PRESSURE
 	input_report_abs(sensor->input, ABS_MT_PRESSURE, z);
 #endif
@@ -718,6 +908,7 @@ static void rmi_f11_abs_pos_report(struct f11_2d_sensor *sensor,
 	input_report_abs(sensor->input, ABS_MT_POSITION_X, x);
 	input_report_abs(sensor->input, ABS_MT_POSITION_Y, y);
 	input_report_abs(sensor->input, ABS_MT_TRACKING_ID, n_finger);
+	input_report_key(sensor->input, BTN_TOUCH, 1);    //judging finger_down
 #ifdef	CONFIG_RMI4_F11_PEN
 	if (sensor->sens_query.query9.has_pen) {
 		input_report_abs(sensor->input, ABS_MT_TOOL_TYPE,
@@ -729,6 +920,19 @@ static void rmi_f11_abs_pos_report(struct f11_2d_sensor *sensor,
 	input_mt_sync(sensor->input);
 	sensor->finger_tracker[n_finger] = finger_state;
 }
+
+
+void send_UP_MSG_in_resume(void)
+{
+	if (up_input_dev == NULL) {
+		pr_err("%s up_input_dev==NULL", __func__);
+		return;
+	}
+	input_report_key(up_input_dev, BTN_TOUCH, 0);
+	input_mt_sync(up_input_dev);
+	input_sync(up_input_dev);
+}
+EXPORT_SYMBOL(send_UP_MSG_in_resume);
 
 #ifdef CONFIG_RMI4_VIRTUAL_BUTTON
 static int rmi_f11_virtual_button_handler(struct f11_2d_sensor *sensor)
@@ -787,7 +991,7 @@ static void rmi_f11_finger_handler(struct f11_2d_sensor *sensor)
 		if (sensor->data.rel_pos)
 			rmi_f11_rel_pos_report(sensor, i);
 	}
-	input_report_key(sensor->input, BTN_TOUCH, finger_pressed_count);
+	//input_report_key(sensor->input, BTN_TOUCH, finger_pressed_count);
 	input_sync(sensor->input);
 }
 
@@ -1359,9 +1563,7 @@ static void f11_set_abs_params(struct rmi_function_container *fc, int index)
 	int device_y_max =
 		instance_data->dev_controls.ctrl0_9->sensor_max_y_pos;
 	int x_min, x_max, y_min, y_max;
-	ts_x_max = device_x_max + 1;
-	ts_y_max = device_y_max + 1;	
-	ts_clalibretion_y = lcd_x * ts_y_max / ts_x_max;
+
 	if (sensor->axis_align.swap_axes) {
 		int temp = device_x_max;
 		device_x_max = device_y_max;
@@ -1402,17 +1604,10 @@ static void f11_set_abs_params(struct rmi_function_container *fc, int index)
 			DEFAULT_MIN_ABS_MT_TRACKING_ID,
 			DEFAULT_MAX_ABS_MT_TRACKING_ID, 0, 0);
 	/* TODO get max_x_pos (and y) from control registers. */
-	#if 0
 	input_set_abs_params(input, ABS_MT_POSITION_X,
 			x_min, x_max, 0, 0);
 	input_set_abs_params(input, ABS_MT_POSITION_Y,
 			y_min, y_max, 0, 0);
-	#endif
-	input_set_abs_params(input, ABS_MT_POSITION_X,
-			x_min, lcd_x - 1, 0, 0);
-	input_set_abs_params(input, ABS_MT_POSITION_Y,
-			y_min, lcd_y - 1, 0, 0);
-
 #ifdef	CONFIG_RMI4_F11_PEN
 	if (sensor->sens_query.query9.has_pen)
 		input_set_abs_params(input, ABS_MT_TOOL_TYPE,
@@ -1427,9 +1622,6 @@ static int rmi_f11_init(struct rmi_function_container *fc)
 	rc = rmi_f11_initialize(fc);
 	if (rc < 0)
 		goto err_free_data;
-
-	lcd_x = LCD_X_QHD;
-	lcd_y = LCD_Y_QHD;
 
 	rc = rmi_f11_register_devices(fc);
 	if (rc < 0)
@@ -1558,6 +1750,39 @@ static int rmi_f11_initialize(struct rmi_function_container *fc)
 	return 0;
 }
 
+/*add For usb detect start*/
+static int rmi_usb_notifier_call(struct notifier_block *nb,
+		unsigned long event, void *data)
+{
+	struct f11_data *f11 = container_of(nb, struct f11_data, nb);
+	f11->usb_event = event;
+	schedule_work(&f11->usb_work);
+
+	return NOTIFY_OK;
+}
+static int rmi_usb_charger_work(struct work_struct *work)
+{
+	struct f11_data *f11 = container_of(work, struct f11_data, usb_work);
+
+	switch(f11->usb_event) {
+		case CHARGER_TYPE_USB:
+		case CHARGER_TYPE_BC_USB:
+		case CHARGER_TYPE_NON_STANDARD:
+		case CHARGER_TYPE_STANDARD:
+			tp_charger_set = (1<<5) | 1;
+    			pr_info("k3ts, %s: USB connected\n", __func__);
+    			break;
+		case CHARGER_REMOVED:
+    			tp_charger_set = 1;
+    			pr_info("k3ts, %s: USB removed\n", __func__);
+    			break;
+		default:
+    			pr_info("k3ts, %s: unknow USB event\n", __func__);
+    			break;
+	}
+	return 0;
+}
+/*add For usb detect end*/
 static int rmi_f11_register_devices(struct rmi_function_container *fc)
 {
 	struct rmi_device *rmi_dev = fc->rmi_dev;
@@ -1597,6 +1822,9 @@ static int rmi_f11_register_devices(struct rmi_function_container *fc)
 		set_bit(EV_SYN, input_dev->evbit);
 		set_bit(EV_KEY, input_dev->evbit);
 		set_bit(EV_ABS, input_dev->evbit);
+
+		set_bit(BTN_TOUCH, input_dev->keybit);
+		up_input_dev = input_dev;
 #ifdef INPUT_PROP_DIRECT
 		set_bit(INPUT_PROP_DIRECT, input_dev->propbit);
 #endif
@@ -1686,6 +1914,31 @@ static int rmi_f11_register_devices(struct rmi_function_container *fc)
 		}
 
 	}
+
+	f11->touchkey_sensitivity = get_touchkey_sensitivity_glove();
+	dev_info(&fc->dev, "touchkey_sensitivity = %d\n", f11->touchkey_sensitivity);
+
+	/*distinguish P2 or edge start*/
+	touch_axis_align_value = get_touchscreen_axis_align();//change coordinate direction 
+	dev_dbg(&fc->dev,"touch_axis_align_value = %d\n", touch_axis_align_value);
+
+	f11->jdi_tk_enable = get_touchkey_enable();//if has touchkey
+	dev_dbg(&fc->dev,"jdi_tk_enable = %d\n", f11->jdi_tk_enable);
+	/*distinguish P2 or edge end*/
+
+	/*USB charger detect start*/
+	if (f11->touchkey_sensitivity==1) {
+		msleep(25);
+		INIT_WORK(&f11->usb_work, rmi_usb_charger_work);
+		f11->nb.notifier_call = rmi_usb_notifier_call;
+		rc = hiusb_charger_registe_notifier(&f11->nb);
+		if (rc < 0) {
+			dev_err(&fc->dev, "k3ts, %s: failed to register hiusb_charger_registe_notifier\n", __func__);
+		}
+	}
+	f11->water_mode = DRY_MODE;
+	f11->water_cnt = 0;
+	/*USB charger detect end*/
 
 	return 0;
 
@@ -1786,14 +2039,127 @@ static int rmi_f11_reset(struct rmi_function_container *fc)
 	return 0;
 }
 
+static int rmi_f11_read_finger_state(struct rmi_function_container *fc)
+{
+	struct rmi_device *rmi_dev = fc->rmi_dev;
+	int touchkey_sensitivity = ((struct f11_data *)fc->data)->touchkey_sensitivity;
+	int rc;
+	u8 finger_state = 0;
+	u16 f51_custom_CTRL03 = 0x0015;
+
+	if (touchkey_sensitivity == 0) {   
+        	rc = rmi_read_block(rmi_dev,
+        			f51_custom_CTRL03,
+        			(u8 *)&finger_state, sizeof(finger_state));
+        	if (rc < 0) {
+        		dev_err(&fc->dev,
+        			"Failed to read f51_custom_CTRL03, code: %d.\n", rc);
+        		return rc;
+        	}
+		rmi_f11_set_current_touch_status(finger_state);
+	}
+	return 0;
+}
+
+/*
+* when touchkey_sensitivity equals 0,
+* it means to switch TK's sensitivity by tp_status which shows figer or glove.
+* when touchkey_sensitivity equals 1,
+* it means to switch TK's sensitivity by water proof.
+*/
+static int rmi_f11_set_tk_sensitivity(struct rmi_function_container *fc)
+{
+	struct rmi_device *rmi_dev = fc->rmi_dev;
+	int touchkey_sensitivity = ((struct f11_data *)fc->data)->touchkey_sensitivity;
+	int rc;
+	u8 glove_mode = 0;
+
+	if (touchkey_sensitivity == 0) {
+		glove_mode = rmi_f11_get_current_touch_status() & 0x03;
+		if ((atomic_read(&tp_last_status) == TP_FINGER) && (glove_mode == TP_GLOVE)) {
+			set_tk_sensitivity(TP_GLOVE);
+			atomic_set(&tp_last_status, TP_GLOVE) ;
+		} else if ((atomic_read(&tp_last_status) == TP_GLOVE) && (glove_mode == TP_FINGER)) {
+			set_tk_sensitivity(TP_FINGER);
+			atomic_set(&tp_last_status, TP_FINGER) ;
+		}
+	}else if(touchkey_sensitivity == 1)  {
+            u8 charger_set;
+            union f01_device_status device_status;
+
+            /*usb charger detect start*/
+            #if 0
+            if (tp_charger_set & 1) {
+                rc = rmi_read_block(rmi_dev, 0x004F, &charger_set, sizeof(charger_set));
+                if (rc < 0) {
+                    dev_err(&fc->dev, "Failed to read reg 0x004F, code: %d.\n", rc);
+                    return rc;
+                }
+                /*obtain the information of tp_charger_set bit5*/
+                charger_set = (charger_set & (~(1<<5))) | (tp_charger_set & (1<<5));
+
+                rc = rmi_write_block(rmi_dev, 0x004F, &charger_set, sizeof(charger_set));
+                if (rc < 0) {
+                    dev_err(&fc->dev, "Failed to write reg 0x004F, code: %d.\n", rc);
+                    return rc;
+                }
+                dev_info(&fc->dev, "%s: charger_set=%d, tp_charger_set=%d\n", __func__, charger_set, tp_charger_set);
+                tp_charger_set &= (1<<5);
+            }
+            #endif
+            /*usb charger detect end*/
+
+            /*TK in water condition start*/
+            rc = rmi_read_block(rmi_dev, 0x0013, (u8 *)&device_status, sizeof(device_status));
+            if (rc < 0) {
+                dev_err(&fc->dev, "Failed to read reg 0x0013, code: %d.\n", rc);
+                return rc;
+            }
+
+            if (device_status.wet == 1) {
+                if ((((struct f11_data *)fc->data)->water_mode == DRY_MODE)
+                        && (((struct f11_data *)fc->data)->water_cnt < MODE_CHANGE_CNT )) {
+                    ((struct f11_data *)fc->data)->water_cnt = MODE_CHANGE_CNT;
+                    ((struct f11_data *)fc->data)->water_mode = WET_MODE;
+                    set_tk_sensitivity(TP_WET);
+                    dev_info(&fc->dev,"TP is wet\n");
+                }
+            } else {
+                if ((((struct f11_data *)fc->data)->water_mode == WET_MODE)
+                        && (((struct f11_data *)fc->data)->water_cnt > 0)) {
+                    ((struct f11_data *)fc->data)->water_cnt--;
+                    if (((struct f11_data *)fc->data)->water_cnt == 0) {
+                        ((struct f11_data *)fc->data)->water_mode = DRY_MODE;
+                        set_tk_sensitivity(TP_FINGER);
+                        dev_info(&fc->dev,"TP is dry\n");
+                    }
+                }
+            }
+            /*TK in water condition end*/
+
+	} else {
+	    dev_err(&fc->dev, "touchkey_sensitivity = %d.\n", touchkey_sensitivity);
+	}
+
+        return 0;
+}
+
+
 int rmi_f11_attention(struct rmi_function_container *fc, u8 *irq_bits)
 {
 	struct rmi_device *rmi_dev = fc->rmi_dev;
 	struct f11_data *f11 = fc->data;
+
 	u16 data_base_addr = fc->fd.data_base_addr;
 	u16 data_base_addr_offset = 0;
 	int error;
 	int i;
+
+	error = rmi_f11_read_finger_state(fc);
+	if (error < 0) {
+	    pr_err("%s error: finger_state = %d\n", __func__, error);
+	    return error;
+	}
 
 	for (i = 0; i < f11->dev_query.nbr_of_sensors + 1; i++) {
 		error = rmi_read_block(rmi_dev,
@@ -1808,6 +2174,11 @@ int rmi_f11_attention(struct rmi_function_container *fc, u8 *irq_bits)
 		data_base_addr_offset += f11->sensors[i].pkt_size;
 	}
 
+	dev_dbg(&fc->dev,"jdi_tk_enable = %d\n", f11->jdi_tk_enable);
+
+	if(f11->jdi_tk_enable == true){
+		rmi_f11_set_tk_sensitivity(fc);
+	}
 	return 0;
 }
 
@@ -1821,6 +2192,7 @@ static int rmi_f11_resume(struct rmi_function_container *fc)
 	int retval = 0;
 
 	dev_dbg(&fc->dev, "Resuming...\n");
+	rmi_f11_filter_glove_init();
 	if (!data->rezero_on_resume)
 		return 0;
 

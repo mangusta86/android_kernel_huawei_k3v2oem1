@@ -195,7 +195,13 @@ int32_t StartMhlTxDevice(void)
         }
 
         /* Initialize the MHL Tx code a polling interval of 30ms. */
-        HalAcquireIsrLock();
+        halStatus = HalAcquireIsrLock();
+        if(halStatus != HAL_RET_SUCCESS)
+        {
+            SII_DEBUG_PRINT(SII_OSAL_DEBUG_TRACE,
+                            "Initialization of HAL failed before call SiiMhlTxInitialize, error code: %d\n",halStatus);
+            return -EIO;
+        }
         SiiMhlTxInitialize(EVENT_POLL_INTERVAL_30_MS);
         HalReleaseIsrLock();
         //for RCP report function by garyyuan
@@ -547,13 +553,13 @@ static ssize_t LogSwitchShow(struct device *dev, struct device_attribute *attr,c
 {
         unsigned int logSwitchState =0;
         logSwitchState = SiiOsDebugGetLogSwitchState();
-        return sprintf(buf, "%d\n", logSwitchState);
+        return snprintf(buf, PAGE_SIZE, "%d\n", logSwitchState);
 }
 
 static ssize_t LogSwitchStore(struct device *dev,struct device_attribute *attr, const char *buf, size_t size)
 {
         unsigned int logSwitchState =0;
-        sscanf(buf, "%d", &logSwitchState);
+        sscanf(buf, "%5u", &logSwitchState);
         SiiOsDebugSetLogSwitchState(logSwitchState);
         return size;
 }
@@ -1125,7 +1131,7 @@ static int __init SiiMhlInit(void)
 {
         int32_t	i;
         int32_t	ret;
-        dev_t	devno;
+        dev_t	devno = 0;
         struct input_dev  *pInputDevice = NULL;
         char mhl_chip_name[15];
         bool get_xml_ret =0;

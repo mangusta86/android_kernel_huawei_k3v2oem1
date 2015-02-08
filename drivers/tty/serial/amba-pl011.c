@@ -51,6 +51,10 @@
 #include <linux/dma-mapping.h>
 #include <linux/scatterlist.h>
 #include <linux/delay.h>
+#ifdef CONFIG_ENABLE_K3V2_UART_SLEEP_CONTROL_FOR_D2
+#include <linux/pm_runtime.h>
+#include <linux/workqueue.h>
+#endif
 
 #include <asm/io.h>
 #include <asm/sizes.h>
@@ -86,6 +90,30 @@ static const u32 uart_wa_reg[UART_WA_SAVE_NR] = {
 	UART011_CR,
 	UART011_IMSC
 };
+
+#ifdef CONFIG_ENABLE_K3V2_UART_SLEEP_CONTROL_FOR_D2
+#define SUSPEND_FLAG_ENABLE_GPIO_CONTROL   (1U<<(0))
+#define RUNTIME_SUSPEND_FLAG_ENABLE  (1U<<(1))
+
+#define safe_pm_put_user_count  1
+#define safe_pm_get_user_count  0
+#define uart_port1  1
+#define uart_port3  3
+
+//ttyAMA1, Uart1, for qsc6085 modem
+#define UAP_PORT_NUMBER_SUSPEND_FLAG_ENABLE_GPIO_CONTROL  1 //for qsc6085
+#define UART1_AUTOSUSPEND_DELAY_MS  200
+extern bool modem_comm_registered_for_sleep(void);
+
+//ttyAMA3, Uart3, for mtk6252 modem
+#define UAP_PORT_LINE3_WAKEUP_ENABLE 3 // Uart3, for mtk6252 modem
+#define UART3_AUTOSUSPEND_DELAY_MS  200
+extern bool uart3_comm_registered_for_sleep(void);
+extern int uart3_comm_set_gpio_for_suspend(void);
+extern int uart3_comm_set_gpio_for_resume(void);
+extern int uart3_set_gpio_for_runtime_suspend(void);
+extern int uart3_set_gpio_for_runtime_resume(void);
+#endif
 
 static u32 uart_wa_regdata[UART_WA_SAVE_NR];
 static DECLARE_TASKLET(pl011_lockup_tlet, pl011_lockup_wa, 0);
@@ -182,7 +210,22 @@ struct uart_amba_port {
 	struct pl011_dmarx_data dmarx;
 	struct pl011_dmatx_data	dmatx;
 #endif
+#ifdef CONFIG_ENABLE_K3V2_UART_SLEEP_CONTROL_FOR_D2
+	unsigned int suspend_flags; /*added for sleep gpio control*/
+	atomic_t	runtime_suspended;
+    struct workqueue_struct *runtime_suspend_wq;
+    struct work_struct runtime_enable_work;
+    struct work_struct runtime_disable_work;
+#endif
 };
+
+#ifdef CONFIG_ENABLE_K3V2_UART_SLEEP_CONTROL_FOR_D2
+static inline void amba_pl011_port_runtime_timed_enable(struct uart_amba_port *uap);
+static inline void amba_pl011_port_runtime_disable_oneshot(struct uart_amba_port *uap);
+static inline void amba_pl011_port_runtime_enable_oneshot(struct uart_amba_port *uap);
+static void amba_pl011_port_runtime_disable_oneshot_work(struct work_struct *work);
+static void amba_pl011_port_runtime_enable_oneshot_work(struct work_struct *work);
+#endif
 
 /*
  * Reads up to 256 characters from the FIFO or until it's empty and
@@ -1144,15 +1187,31 @@ static void pl011_stop_tx(struct uart_port *port)
 	uap->im &= ~UART011_TXIM;
 	writew(uap->im, uap->port.membase + UART011_IMSC);
 	pl011_dma_tx_stop(uap);
+#ifdef CONFIG_ENABLE_K3V2_UART_SLEEP_CONTROL_FOR_D2
+	amba_pl011_port_runtime_disable_oneshot(uap);
+#endif
 }
 
 static void pl011_start_tx(struct uart_port *port)
 {
 	struct uart_amba_port *uap = (struct uart_amba_port *)port;
 
+#ifdef CONFIG_ENABLE_K3V2_UART_SLEEP_CONTROL_FOR_D2
+	if(uap->suspend_flags & RUNTIME_SUSPEND_FLAG_ENABLE && uap->port.line == UAP_PORT_LINE3_WAKEUP_ENABLE ) {
+        if (!uart_circ_empty(&uap->port.state->xmit) && uap->port.state->xmit.buf &&
+            !uap->port.state->port.tty->stopped && !uap->port.state->port.tty->hw_stopped)
+            uart3_set_gpio_for_runtime_resume();
+	}
+	amba_pl011_port_runtime_enable_oneshot(uap);
+#endif
 	if (!pl011_dma_tx_start(uap)) {
 		uap->im |= UART011_TXIM;
 		writew(uap->im, uap->port.membase + UART011_IMSC);
+#ifdef CONFIG_ENABLE_K3V2_UART_SLEEP_CONTROL_FOR_D2
+		//incase no data to send, call runtime suspend,
+		//to avoid called from pl011_resume and pm_runtime enabled until pl011_suspend
+		amba_pl011_port_runtime_disable_oneshot(uap);
+#endif
 	}
 }
 
@@ -1288,7 +1347,9 @@ static irqreturn_t pl011_int(int irq, void *dev_id)
 				      UART011_CTSMIS|UART011_RIMIS))
 				pl011_modem_status(uap);
 			if (status & UART011_TXIS)
+			{
 				pl011_tx_chars(uap);
+			}
 
             if (status & UART011_OEIS)
                 dev_info(uap->port.dev, "overrun error\n");
@@ -1601,7 +1662,15 @@ pl011_set_termios(struct uart_port *port, struct ktermios *termios,
 	 */
 	baud = uart_get_baud_rate(port, termios, old, 0,
 				  port->uartclk / clkdiv);
-
+#ifdef CONFIG_SUPPORT_B3750000_BITRATE
+#define B375_PORT_NAME "amba-uart.1"
+	if(termios->c_ospeed == 4000000 && strcmp(dev_name(port->dev),B375_PORT_NAME) == 0)
+	{
+		baud = 3750000;
+		printk(KERN_INFO"set baud %d for %s\n", baud ,dev_name(port->dev));
+		printk(KERN_INFO"%s, baud=%d,clk=%d,termios->c_ospeed=%d\n",dev_name(port->dev), baud,port->uartclk,termios->c_ospeed);
+	}
+#endif
 	if (baud > port->uartclk/16)
 		quot = DIV_ROUND_CLOSEST(port->uartclk * 8, baud);
 	else
@@ -1792,6 +1861,14 @@ static int pl011_ioctl(struct uart_port *port, unsigned int cmd, unsigned long p
 	return -ENOIOCTLCMD;
 }
 
+#ifdef CONFIG_ENABLE_K3V2_UART_SLEEP_CONTROL_FOR_D2
+static void pl011_wake_peer(struct uart_port *port)
+{
+	struct uart_amba_port *uap = (struct uart_amba_port *)port;
+	amba_pl011_port_runtime_timed_enable(uap);
+}
+#endif
+
 
 static struct uart_ops amba_pl011_pops = {
 	.tx_empty	= pl01x_tx_empty,
@@ -1806,6 +1883,9 @@ static struct uart_ops amba_pl011_pops = {
 	.shutdown	= pl011_shutdown,
 	.flush_buffer	= pl011_dma_flush_buffer,
 	.set_termios	= pl011_set_termios,
+#ifdef CONFIG_ENABLE_K3V2_UART_SLEEP_CONTROL_FOR_D2
+	.wake_peer	= pl011_wake_peer,
+#endif
 	.type		= pl011_type,
 	.release_port	= pl010_release_port,
 	.request_port	= pl010_request_port,
@@ -2010,6 +2090,39 @@ static int pl011_probe(struct amba_device *dev, const struct amba_id *id)
 	uap->port.ops = &amba_pl011_pops;
 	uap->port.flags = UPF_BOOT_AUTOCONF;
 	uap->port.line = i;
+#ifdef CONFIG_ENABLE_K3V2_UART_SLEEP_CONTROL_FOR_D2
+	uap->suspend_flags = 0;
+	if( uap->port.line == UAP_PORT_NUMBER_SUSPEND_FLAG_ENABLE_GPIO_CONTROL
+	&& modem_comm_registered_for_sleep()==true )
+	{
+		uap->suspend_flags |= SUSPEND_FLAG_ENABLE_GPIO_CONTROL;
+		uap->suspend_flags |= RUNTIME_SUSPEND_FLAG_ENABLE;
+		atomic_set(&uap->runtime_suspended, 0);
+		printk(KERN_INFO"pm_runtime_use_autosuspend,dev=%s,delay=%d,suspend_flags=0x%08X\n",
+			dev_name(uap->port.dev),UART1_AUTOSUSPEND_DELAY_MS,uap->suspend_flags);
+		pm_runtime_use_autosuspend(uap->port.dev);
+		pm_runtime_set_autosuspend_delay(uap->port.dev, UART1_AUTOSUSPEND_DELAY_MS);
+		pm_runtime_irq_safe(uap->port.dev);
+		pm_runtime_enable(uap->port.dev);
+	}
+    if( uap->port.line==UAP_PORT_LINE3_WAKEUP_ENABLE && uart3_comm_registered_for_sleep()==true ) {
+        uap->suspend_flags |= SUSPEND_FLAG_ENABLE_GPIO_CONTROL;
+        uap->suspend_flags |= RUNTIME_SUSPEND_FLAG_ENABLE;
+        printk(KERN_INFO"pm_runtime_use_autosuspend,dev=%s,delay=%d,suspend_flags=0x%08X\n",
+                dev_name(uap->port.dev),UART3_AUTOSUSPEND_DELAY_MS,uap->suspend_flags);
+        pm_runtime_use_autosuspend(uap->port.dev);
+        pm_runtime_set_autosuspend_delay(uap->port.dev, UART3_AUTOSUSPEND_DELAY_MS);
+        pm_runtime_irq_safe(uap->port.dev);
+        pm_runtime_enable(uap->port.dev);
+    }
+
+    uap->runtime_suspend_wq = create_workqueue("pl011runtimewq");
+    if (NULL == uap->runtime_suspend_wq) {
+		printk(KERN_ERR "pl011_startup: couldn't create workqueue\n");
+	}
+    INIT_WORK(&uap->runtime_disable_work, amba_pl011_port_runtime_disable_oneshot_work);
+    INIT_WORK(&uap->runtime_enable_work, amba_pl011_port_runtime_enable_oneshot_work);
+#endif
 	pl011_dma_probe(uap);
 
 	snprintf(uap->type, sizeof(uap->type), "PL011 rev%u", amba_rev(dev));
@@ -2040,6 +2153,10 @@ static int pl011_remove(struct amba_device *dev)
 	struct uart_amba_port *uap = amba_get_drvdata(dev);
 	int i;
 
+#ifdef CONFIG_ENABLE_K3V2_UART_SLEEP_CONTROL_FOR_D2
+    destroy_workqueue(uap->runtime_suspend_wq);
+#endif
+
 	amba_set_drvdata(dev, NULL);
 
 	uart_remove_one_port(&amba_reg, &uap->port);
@@ -2055,25 +2172,54 @@ static int pl011_remove(struct amba_device *dev)
 	return 0;
 }
 
+#ifdef CONFIG_ENABLE_K3V2_UART_SLEEP_CONTROL_FOR_D2
+extern void modem_comm_set_gpio_for_suspend(void);
+extern void modem_comm_set_gpio_for_resume(void);
+extern void uart1_set_gpio_for_runtime_suspend(void);
+extern void uart1_set_gpio_for_runtime_resume(void);
+#endif
+
 #ifdef CONFIG_PM
 static int pl011_suspend(struct amba_device *dev, pm_message_t state)
 {
+        int ret;
 	struct uart_amba_port *uap = amba_get_drvdata(dev);
 
 	if (!uap)
 		return -EINVAL;
 
-	return uart_suspend_port(&amba_reg, &uap->port);
+	ret = uart_suspend_port(&amba_reg, &uap->port);
+#ifdef CONFIG_ENABLE_K3V2_UART_SLEEP_CONTROL_FOR_D2
+	if(uap->suspend_flags & SUSPEND_FLAG_ENABLE_GPIO_CONTROL) {
+           if( uap->port.line == UAP_PORT_NUMBER_SUSPEND_FLAG_ENABLE_GPIO_CONTROL )
+                modem_comm_set_gpio_for_suspend();
+           if( uap->port.line == UAP_PORT_LINE3_WAKEUP_ENABLE )
+                uart3_comm_set_gpio_for_suspend();
+       }
+#endif
+
+	return ret;
 }
 
 static int pl011_resume(struct amba_device *dev)
 {
+	int ret;
 	struct uart_amba_port *uap = amba_get_drvdata(dev);
 
 	if (!uap)
 		return -EINVAL;
 
-	return uart_resume_port(&amba_reg, &uap->port);
+	ret = uart_resume_port(&amba_reg, &uap->port);
+#ifdef CONFIG_ENABLE_K3V2_UART_SLEEP_CONTROL_FOR_D2
+	if(uap->suspend_flags & SUSPEND_FLAG_ENABLE_GPIO_CONTROL) {
+            if( uap->port.line == UAP_PORT_NUMBER_SUSPEND_FLAG_ENABLE_GPIO_CONTROL )
+                 modem_comm_set_gpio_for_resume();
+            if( uap->port.line == UAP_PORT_LINE3_WAKEUP_ENABLE )
+                 uart3_comm_set_gpio_for_resume();
+        }
+#endif
+
+	return ret;
 }
 #endif
 
@@ -2091,16 +2237,169 @@ static struct amba_id pl011_ids[] = {
 	{ 0, 0 },
 };
 
+#ifdef CONFIG_ENABLE_K3V2_UART_SLEEP_CONTROL_FOR_D2
+static inline void amba_pl011_port_disable(struct uart_amba_port *uap)
+{
+      int uart1_usercount =0;
+      int uart3_usercount =0;
+      int uart_port = 0;
+      uart_port = uap->port.line;
+      if (uart_port == uart_port1)
+      {
+      	  uart1_usercount = atomic_read(&uap->port.dev->power.usage_count);
+      
+      	  if (uart1_usercount != safe_pm_put_user_count) 
+      	  return;
+      }
+      
+      if (uart_port == uart_port3) 
+      { 
+      	  uart3_usercount = atomic_read(&uap->port.dev->power.usage_count);
+          
+      	  if (uart3_usercount != safe_pm_put_user_count)
+      	  return;
+      }
+      
+	if(uap->suspend_flags & RUNTIME_SUSPEND_FLAG_ENABLE )
+	{
+		if (uap->port.suspended) {
+			/*
+			 * If the port has been suspended by system-wide suspend,
+			 * put it back to low power mode immediately.
+			 */
+			pm_runtime_put_sync_suspend(uap->port.dev);
+		} else {
+			pm_runtime_mark_last_busy(uap->port.dev);
+			pm_runtime_put_autosuspend(uap->port.dev);
+		}
+	}
+}
+static inline void amba_pl011_port_enable(struct uart_amba_port *uap)
+{
+        int uart1_usercount =0;
+        int uart3_usercount =0;
+        int uart_port = 0;
+        uart_port = uap->port.line;
+        
+      if (uart_port == uart_port1)
+      {
+      	  uart1_usercount = atomic_read(&uap->port.dev->power.usage_count);
+         
+
+      	  if (uart1_usercount != safe_pm_get_user_count) 
+      	  return;
+      }
+      
+      if (uart_port == uart_port3) 
+      { 
+      	  uart3_usercount = atomic_read(&uap->port.dev->power.usage_count);
+         
+      	  if (uart3_usercount != safe_pm_get_user_count)
+      	  return;
+      }
+        
+	if(uap->suspend_flags & RUNTIME_SUSPEND_FLAG_ENABLE)
+		pm_runtime_get_sync(uap->port.dev);
+}
+
+static inline void amba_pl011_port_runtime_timed_enable(struct uart_amba_port *uap)
+{
+	if(uap->suspend_flags & RUNTIME_SUSPEND_FLAG_ENABLE)
+	{
+		amba_pl011_port_enable(uap);
+		amba_pl011_port_disable(uap);
+	}
+}
+
+static void amba_pl011_port_runtime_disable_oneshot_work(struct work_struct *work)
+{
+    struct uart_amba_port *uap = container_of(work, struct uart_amba_port, runtime_disable_work);
+
+	if(uap->suspend_flags & RUNTIME_SUSPEND_FLAG_ENABLE)
+	{
+		if(atomic_read(&uap->runtime_suspended))
+		{
+		atomic_set(&uap->runtime_suspended, 0);
+		amba_pl011_port_disable(uap);
+		}
+	}
+}
+
+static inline void amba_pl011_port_runtime_disable_oneshot(struct uart_amba_port *uap)
+{
+    queue_work(uap->runtime_suspend_wq, &uap->runtime_disable_work);
+}
+
+static void amba_pl011_port_runtime_enable_oneshot_work(struct work_struct *work)
+{
+    struct uart_amba_port *uap = container_of(work, struct uart_amba_port, runtime_enable_work);
+
+	if(uap->suspend_flags & RUNTIME_SUSPEND_FLAG_ENABLE)
+	{
+		if(!atomic_read(&uap->runtime_suspended))
+		{
+		atomic_set(&uap->runtime_suspended, 1);
+		amba_pl011_port_enable(uap);
+		}
+	}
+}
+
+static inline void amba_pl011_port_runtime_enable_oneshot(struct uart_amba_port *uap)
+{
+    queue_work(uap->runtime_suspend_wq, &uap->runtime_enable_work);
+}
+
+static  int amba_pl011_runtime_suspend(struct amba_device *dev)
+{
+	struct uart_amba_port *uap = amba_get_drvdata(dev);
+
+	if(uap->suspend_flags & RUNTIME_SUSPEND_FLAG_ENABLE) {
+            if( uap->port.line == UAP_PORT_NUMBER_SUSPEND_FLAG_ENABLE_GPIO_CONTROL )
+                 uart1_set_gpio_for_runtime_suspend();
+            if( uap->port.line == UAP_PORT_LINE3_WAKEUP_ENABLE )
+               return uart3_set_gpio_for_runtime_suspend();
+       }
+
+	return 0;
+}
+
+static  int amba_pl011_runtime_resume(struct amba_device *dev)
+{
+	struct uart_amba_port *uap = amba_get_drvdata(dev);
+
+	if(uap->suspend_flags & RUNTIME_SUSPEND_FLAG_ENABLE) {
+         if( uap->port.line == UAP_PORT_NUMBER_SUSPEND_FLAG_ENABLE_GPIO_CONTROL )
+              uart1_set_gpio_for_runtime_resume();
+    }
+
+	return 0;
+}
+
+static const struct dev_pm_ops amba_pl011_dev_pm_ops = {
+	.runtime_suspend =amba_pl011_runtime_suspend,
+	.runtime_resume = amba_pl011_runtime_resume,
+	.suspend	= pl011_suspend,
+	.resume		= pl011_resume,
+};
+#endif
+
 static struct amba_driver pl011_driver = {
 	.drv = {
 		.name	= "uart-pl011",
+#ifdef CONFIG_ENABLE_K3V2_UART_SLEEP_CONTROL_FOR_D2
+#ifdef CONFIG_PM
+		.pm = &amba_pl011_dev_pm_ops,
+#endif
+#endif
 	},
 	.id_table	= pl011_ids,
 	.probe		= pl011_probe,
 	.remove		= pl011_remove,
+#ifndef CONFIG_ENABLE_K3V2_UART_SLEEP_CONTROL_FOR_D2
 #ifdef CONFIG_PM
 	.suspend	= pl011_suspend,
 	.resume		= pl011_resume,
+#endif
 #endif
 };
 

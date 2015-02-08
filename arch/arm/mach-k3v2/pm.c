@@ -311,12 +311,11 @@ static int hisik3_pm_retore_gic()
 extern void (*k3v2_reset)(char mode, const char *cmd);
 static void reboot_board(void)
 {
-	unsigned long sctrl_addr = (unsigned long)IO_ADDRESS(REG_BASE_SCTRL);
-
+	unsigned long pmu_addr = (unsigned long)IO_ADDRESS(REG_BASE_PMUSPI);
 	printk(KERN_EMERG "reboot board...\n");
 
 	while(1) {
-		writel(0xdeadbeef, sctrl_addr + SCTRL_SCSYSSTAT);
+		writel(0xEE, (pmu_addr + (0x86 << 2)));
 	}
 }
 

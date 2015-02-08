@@ -1,16 +1,22 @@
 /****************************************************************************
 *
-*    Copyright (c) 2005 - 2012 by Vivante Corp.  All rights reserved.
+*    Copyright (C) 2005 - 2013 by Vivante Corp.
 *
-*    The material in this file is confidential and contains trade secrets
-*    of Vivante Corporation. This is proprietary information owned by
-*    Vivante Corporation. No part of this work may be disclosed,
-*    reproduced, copied, transmitted, or used in any way for any purpose,
-*    without the express written permission of Vivante Corporation.
+*    This program is free software; you can redistribute it and/or modify
+*    it under the terms of the GNU General Public License as published by
+*    the Free Software Foundation; either version 2 of the license, or
+*    (at your option) any later version.
+*
+*    This program is distributed in the hope that it will be useful,
+*    but WITHOUT ANY WARRANTY; without even the implied warranty of
+*    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+*    GNU General Public License for more details.
+*
+*    You should have received a copy of the GNU General Public License
+*    along with this program; if not write to the Free Software
+*    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 *
 *****************************************************************************/
-
-
 
 
 #ifndef __gc_hal_kernel_h_
@@ -55,6 +61,12 @@ extern "C" {
 #define gcdMMU_PAGE_4K_MASK         (gcdMMU_PAGE_4K_SIZE - 1)
 #define gcdMMU_STLB_64K_MASK        ((~((1U << gcdMMU_STLB_64K_SHIFT)-1)) ^ gcdMMU_MTLB_MASK)
 #define gcdMMU_PAGE_64K_MASK        (gcdMMU_PAGE_64K_SIZE - 1)
+
+/* Page offset definitions. */
+#define gcdMMU_OFFSET_4K_BITS       (32 - gcdMMU_MTLB_BITS - gcdMMU_STLB_4K_BITS)
+#define gcdMMU_OFFSET_4K_MASK       ((1U << gcdMMU_OFFSET_4K_BITS) - 1)
+#define gcdMMU_OFFSET_16K_BITS      (32 - gcdMMU_MTLB_BITS - gcdMMU_STLB_16K_BITS)
+#define gcdMMU_OFFSET_16K_MASK      ((1U << gcdMMU_OFFSET_16K_BITS) - 1)
 
 /*******************************************************************************
 ***** Process Secure Cache ****************************************************/
@@ -128,8 +140,9 @@ typedef enum _gceDATABASE_TYPE
     gcvDB_CONTEXT,                      /* Context */
     gcvDB_IDLE,                         /* GPU idle. */
     gcvDB_MAP_MEMORY,                   /* Map memory */
-    gcvDB_SHARED_INFO,                 /* Private data */
-    gcvDB_MAP_USER_MEMORY               /* Map user memory */
+    gcvDB_SHARED_INFO,                  /* Private data */
+    gcvDB_MAP_USER_MEMORY,              /* Map user memory */
+    gcvDB_SYNC_POINT,                   /* Sync point. */
 }
 gceDATABASE_TYPE;
 
@@ -180,6 +193,9 @@ typedef struct _gcsDATABASE
     /* Secure cache. */
     gcskSECURE_CACHE                    cache;
 #endif
+
+    gctPOINTER                          handleDatabase;
+    gctPOINTER                          handleDatabaseMutex;
 }
 gcsDATABASE;
 
@@ -244,6 +260,57 @@ gckKERNEL_DumpProcessDB(
     IN gckKERNEL Kernel
     );
 
+/* ID database */
+gceSTATUS
+gckKERNEL_CreateIntegerDatabase(
+    IN gckKERNEL Kernel,
+    OUT gctPOINTER * Database
+    );
+
+gceSTATUS
+gckKERNEL_DestroyIntegerDatabase(
+    IN gckKERNEL Kernel,
+    IN gctPOINTER Database
+    );
+
+gceSTATUS
+gckKERNEL_AllocateIntegerId(
+    IN gctPOINTER Database,
+    IN gctPOINTER Pointer,
+    OUT gctUINT32 * Id
+    );
+
+gceSTATUS
+gckKERNEL_FreeIntegerId(
+    IN gctPOINTER Database,
+    IN gctUINT32 Id
+    );
+
+gceSTATUS
+gckKERNEL_QueryIntegerId(
+    IN gctPOINTER Database,
+    IN gctUINT32 Id,
+    OUT gctPOINTER * Pointer
+    );
+
+gctUINT32
+gckKERNEL_AllocateNameFromPointer(
+    IN gckKERNEL Kernel,
+    IN gctPOINTER Pointer
+    );
+
+gctPOINTER
+gckKERNEL_QueryPointerFromName(
+    IN gckKERNEL Kernel,
+    IN gctUINT32 Name
+    );
+
+gceSTATUS
+gckKERNEL_DeleteName(
+    IN gckKERNEL Kernel,
+    IN gctUINT32 Name
+    );
+
 #if gcdSECURE_USER
 /* Get secure cache from the process database. */
 gceSTATUS
@@ -283,8 +350,12 @@ struct _gckDB
     gctUINT64                   idleTime;
     gctUINT64                   lastSlowdown;
     gctUINT64                   lastSlowdownIdle;
+    /* ID - Pointer database*/
+    gctPOINTER                  pointerDatabase;
+    gctPOINTER                  pointerDatabaseMutex;
 };
 
+#if gcdVIRTUAL_COMMAND_BUFFER
 typedef struct _gckVIRTUAL_COMMAND_BUFFER * gckVIRTUAL_COMMAND_BUFFER_PTR;
 typedef struct _gckVIRTUAL_COMMAND_BUFFER
 {
@@ -300,7 +371,7 @@ typedef struct _gckVIRTUAL_COMMAND_BUFFER
     gckKERNEL                   kernel;
 }
 gckVIRTUAL_COMMAND_BUFFER;
-
+#endif
 
 /* gckKERNEL object. */
 struct _gckKERNEL
@@ -336,8 +407,9 @@ struct _gckKERNEL
     /* Enable profiling */
     gctBOOL                     profileEnable;
 
-    /* The profile file name */
-    gctCHAR                     profileFileName[gcdMAX_PROFILE_FILE_NAME];
+    /* Clear profile register or not*/
+    gctBOOL                     profileCleanRegister;
+
 #endif
 
 #ifdef QNX_SINGLE_THREADED_DEBUGGING
@@ -362,9 +434,39 @@ struct _gckKERNEL
     gckVGKERNEL                 vg;
 #endif
 
+#if gcdVIRTUAL_COMMAND_BUFFER
     gckVIRTUAL_COMMAND_BUFFER_PTR virtualBufferHead;
     gckVIRTUAL_COMMAND_BUFFER_PTR virtualBufferTail;
-    gctPOINTER                  virtualBufferLock;
+    gctPOINTER                    virtualBufferLock;
+#endif
+
+#if gcdDVFS
+    gckDVFS                     dvfs;
+#endif
+
+#if gcdANDROID_NATIVE_FENCE_SYNC
+    gctHANDLE                   timeline;
+#endif
+};
+
+struct _FrequencyHistory
+{
+    gctUINT32                   frequency;
+    gctUINT32                   count;
+};
+
+/* gckDVFS object. */
+struct _gckDVFS
+{
+    gckOS                       os;
+    gckHARDWARE                 hardware;
+    gctPOINTER                  timer;
+    gctUINT32                   pollingTime;
+    gctBOOL                     stop;
+    gctUINT32                   totalConfig;
+    gctUINT32                   loads[8];
+    gctUINT8                    currentScale;
+    struct _FrequencyHistory    frequencyHistory[16];
 };
 
 /* gckCOMMAND object. */
@@ -395,6 +497,11 @@ struct _gckCOMMAND
 
     /* Context switching mutex. */
     gctPOINTER                  mutexContext;
+
+#if VIVANTE_PROFILER_CONTEXT
+    /* Context sequence mutex. */
+    gctPOINTER                  mutexContextSeq;
+#endif
 
     /* Command queue power semaphore. */
     gctPOINTER                  powerSemaphore;
@@ -467,6 +574,8 @@ typedef struct _gcsEVENT
     /* Kernel. */
     gckKERNEL                   kernel;
 #endif
+
+    gctBOOL                     fromKernel;
 }
 gcsEVENT;
 
@@ -545,6 +654,10 @@ struct _gckEVENT
     gcsEVENT_QUEUE_PTR          freeList;
     gcsEVENT_QUEUE              repoList[gcdREPO_LIST_COUNT];
     gctPOINTER                  eventListMutex;
+
+    gctPOINTER                  submitTimer;
+
+    volatile gctBOOL            inNotify;
 };
 
 /* Free all events belonging to a process. */
@@ -562,6 +675,11 @@ gckEVENT_Stop(
     IN gctPOINTER Logical,
     IN gctSIGNAL Signal,
 	IN OUT gctSIZE_T * waitSize
+    );
+
+gceSTATUS
+gckEVENT_WaitEmpty(
+    IN gckEVENT Event
     );
 
 /* gcuVIDMEM_NODE structure. */
@@ -594,6 +712,8 @@ typedef union _gcuVIDMEM_NODE
         /* Locked counter. */
         gctINT32                locked;
 
+        /* Memory pool. */
+        gcePOOL                 pool;
         gctUINT32               physical;
 
         /* Process ID owning this memory. */
@@ -608,8 +728,6 @@ typedef union _gcuVIDMEM_NODE
 #if gcdDYNAMIC_MAP_RESERVED_MEMORY && gcdENABLE_VG
         gctPOINTER              kernelVirtual;
 #endif
-
-        gctUINT32               id;
     }
     VidMem;
 
@@ -633,24 +751,24 @@ typedef union _gcuVIDMEM_NODE
         gctSIZE_T               pageCount;
 
         /* Used only when node is not contiguous */
-        gctPOINTER              pageTables[gcdCORE_COUNT];
+        gctPOINTER              pageTables[gcdMAX_GPU_COUNT];
         /* Pointer to gckKERNEL object who lock this. */
-        gckKERNEL               lockKernels[gcdCORE_COUNT];
+        gckKERNEL               lockKernels[gcdMAX_GPU_COUNT];
         /* Actual physical address */
-        gctUINT32               addresses[gcdCORE_COUNT];
+        gctUINT32               addresses[gcdMAX_GPU_COUNT];
 
         /* Mutex. */
         gctPOINTER              mutex;
 
         /* Locked counter. */
-        gctINT32                lockeds[gcdCORE_COUNT];
+        gctINT32                lockeds[gcdMAX_GPU_COUNT];
 
 #ifdef __QNXNTO__
         /* Single linked list of nodes. */
         gcuVIDMEM_NODE_PTR      next;
 
         /* Unlock pending flag. */
-        gctBOOL                 unlockPendings[gcdCORE_COUNT];
+        gctBOOL                 unlockPendings[gcdMAX_GPU_COUNT];
 
         /* Free pending flag. */
         gctBOOL                 freePending;
@@ -666,8 +784,6 @@ typedef union _gcuVIDMEM_NODE
 
         /* */
         gcsVIDMEM_NODE_SHARED_INFO sharedInfo;
-
-        gctUINT32               id;
     }
     Virtual;
 }
@@ -750,6 +866,7 @@ struct _gckMMU
 #endif
 };
 
+#if gcdVIRTUAL_COMMAND_BUFFER
 gceSTATUS
 gckOS_CreateKernelVirtualMapping(
     IN gctPHYS_ADDR Physical,
@@ -792,6 +909,7 @@ gckKERNEL_QueryGPUAddress(
     IN gctUINT32 GpuAddress,
     OUT gckVIRTUAL_COMMAND_BUFFER_PTR * Buffer
     );
+#endif
 
 gceSTATUS
 gckKERNEL_AttachProcess(
@@ -868,6 +986,7 @@ gckLINKQUEUE_GetData(
     OUT gckLINKDATA * Data
     );
 #endif
+
 
 #ifdef __cplusplus
 }

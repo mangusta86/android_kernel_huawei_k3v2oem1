@@ -121,6 +121,10 @@ static int __devexit thermal_config_remove(struct platform_device *pdev)
 {
 	struct thermal_config *thermal_conf = platform_get_drvdata(pdev);
 
+       if(NULL == thermal_conf) {
+	     dev_err(&pdev->dev, "%s: thermal_config is null\n", __func__);
+	     return -ENODEV;
+	}
 	sysfs_remove_group(&pdev->dev.kobj, &thermal_conf_name_group);
 	thermal_sensor_dev_unregister(thermal_conf->therm_fw);
 //	kfree(thermal_conf->therm_fw);

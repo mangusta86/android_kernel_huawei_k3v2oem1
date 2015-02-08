@@ -1,16 +1,22 @@
 /****************************************************************************
 *
-*    Copyright (c) 2005 - 2012 by Vivante Corp.  All rights reserved.
+*    Copyright (C) 2005 - 2013 by Vivante Corp.
 *
-*    The material in this file is confidential and contains trade secrets
-*    of Vivante Corporation. This is proprietary information owned by
-*    Vivante Corporation. No part of this work may be disclosed,
-*    reproduced, copied, transmitted, or used in any way for any purpose,
-*    without the express written permission of Vivante Corporation.
+*    This program is free software; you can redistribute it and/or modify
+*    it under the terms of the GNU General Public License as published by
+*    the Free Software Foundation; either version 2 of the license, or
+*    (at your option) any later version.
+*
+*    This program is distributed in the hope that it will be useful,
+*    but WITHOUT ANY WARRANTY; without even the implied warranty of
+*    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+*    GNU General Public License for more details.
+*
+*    You should have received a copy of the GNU General Public License
+*    along with this program; if not write to the Free Software
+*    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 *
 *****************************************************************************/
-
-
 
 
 #ifndef __gc_hal_kernel_context_h_
@@ -127,6 +133,19 @@ struct _gckCONTEXT
     /* Hint array. */
 #if gcdSECURE_USER
     gctBOOL_PTR                 hint;
+#endif
+
+#if VIVANTE_PROFILER_CONTEXT
+    gcsPROFILER_COUNTERS        latestProfiler;
+    gcsPROFILER_COUNTERS        histroyProfiler;
+    gctUINT32                   prevVSInstCount;
+    gctUINT32                   prevVSBranchInstCount;
+    gctUINT32                   prevVSTexInstCount;
+    gctUINT32                   prevVSVertexCount;
+    gctUINT32                   prevPSInstCount;
+    gctUINT32                   prevPSBranchInstCount;
+    gctUINT32                   prevPSTexInstCount;
+    gctUINT32                   prevPSPixelCount;
 #endif
 };
 

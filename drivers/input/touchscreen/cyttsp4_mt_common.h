@@ -47,6 +47,7 @@
 #include <linux/cyttsp4_mt.h>
 #include "cyttsp4_regs.h"
 
+#define  CY_MT_REQUEST_EXCLUSIVE_TIMEOUT 5000
 struct cyttsp4_mt_data;
 struct cyttsp4_mt_function {
 	int (*mt_release)(struct cyttsp4_device *ttsp);
@@ -68,8 +69,9 @@ struct cyttsp4_mt_data {
 	struct cyttsp4_mt_function mt_function;
 #ifdef CONFIG_HAS_EARLYSUSPEND
 	struct early_suspend es;
-	bool is_suspended;
 #endif
+	struct mutex report_lock;
+	bool is_suspended;
 	bool input_device_registered;
 	char phys[NAME_MAX];
 	int num_prv_tch;

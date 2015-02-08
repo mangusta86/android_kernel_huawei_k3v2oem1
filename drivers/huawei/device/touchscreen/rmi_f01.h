@@ -57,7 +57,8 @@ union f01_basic_queries {
 union f01_device_status {
 	struct {
 		u8 status_code:4;
-		u8 reserved:2;
+		u8 wet:1;
+		u8 coin:1;
 		u8 flash_prog:1;
 		u8 unconfigured:1;
 	};

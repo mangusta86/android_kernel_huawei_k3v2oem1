@@ -54,6 +54,7 @@ struct rmi_i2c_data {
 	int enabled;
 	int irq;
 	int irq_flags;
+	bool irq_trigger_way;
 	struct rmi_phys_device *phys;
 };
 
@@ -324,10 +325,6 @@ static int __devinit rmi_i2c_probe(struct i2c_client *client,
 	dev_info(&client->dev, "Probing %s at %#02x (IRQ %d).\n",
 		pdata->sensor_name ? pdata->sensor_name : "-no name-",
 		client->addr, pdata->attn_gpio);
-	error = set_touch_chip_info(TOUCH_INFO_RMI7020);
-	if (error) {
-		dev_err(&client->dev, "set_touch_chip_info error\n");
-	}
 
 	if (pdata->gpio_config) {
 		dev_info(&client->dev, "Configuring GPIOs.\n");
@@ -359,7 +356,11 @@ static int __devinit rmi_i2c_probe(struct i2c_client *client,
 
 	data->enabled = true;	/* We plan to come up enabled. */
 	data->irq = gpio_to_irq(pdata->attn_gpio);
-	if (pdata->level_triggered) {
+	if(pdata->level_triggered == true){
+		dev_info(&client->dev, "D2 choose the way of edge-triggered interrupt.\n");
+		data->irq_trigger_way = false;
+	}
+	if (data->irq_trigger_way) {
 		data->irq_flags = IRQF_ONESHOT |
 			((pdata->attn_polarity == RMI_ATTN_ACTIVE_HIGH) ?
 			IRQF_TRIGGER_HIGH : IRQF_TRIGGER_LOW);
@@ -392,6 +393,11 @@ static int __devinit rmi_i2c_probe(struct i2c_client *client,
 	if (error) {
 		dev_err(&client->dev, "Failed to set page select to 0.\n");
 		goto err_data;
+	}
+
+	error = set_touch_chip_info(TOUCH_INFO_RMI7020);
+	if (error) {
+		dev_err(&client->dev, "set_touch_chip_info error\n");
 	}
 
 	error = rmi_register_phys_device(rmi_phys);

@@ -36,7 +36,10 @@
 #define   OCP_STATUS4 (0x57 << 2)
 #define   IRQM2_BASE_OFFSET	(8)
 #define   IRQM3_BASE_OFFSET	(16)
-#define	LD012_OCP   (0X01 << 4)
+#define	LDO12_OCP   (0X01 << 4)
+#define	BUCK2_OCP   (0X01 << 2)
+#define	BUCK5_OCP   (0X01 << 5)
+#define   MASK_RESERVED_BIT 0x3F
 /* number of interrupt*/
 #define HI6421_PMU_NR	24
 
@@ -133,6 +136,7 @@ static struct irq_chip pmu_irqchip = {
 	.irq_mask		= pmu_irq_mask,
 	.irq_unmask	= pmu_irq_unmask,
 };
+
 static void hi6421_irq_handler(unsigned irq, struct irq_desc *desc)
 {
 	unsigned int i = 0, reg = 0, reg1 = 0, reg2 = 0, reg3 = 0;
@@ -191,17 +195,33 @@ extern int regulator_force_disable(struct regulator *regulator);
 static void inquiry_hi6421_ocp_reg(struct work_struct *work)
 {
 	struct pmu_irq_data *pmu_irq_data = container_of(work, struct pmu_irq_data, regulator_ocp_wk);
-	u32 buck0_buck5_ocp_status, ldo0_ldo7_ocp_status, ldo8_ldo15_ocp_status, ldo16_ldo20_ocp_status;
+	u8 buck0_buck5_ocp_status, ldo0_ldo7_ocp_status, ldo8_ldo15_ocp_status, ldo16_ldo20_ocp_status;
 	struct regulator *LDO12;
+	int i;
+	u32 ocp_status;
 
-	buck0_buck5_ocp_status = ioread32(pmu_irq_data->base + OCP_STATUS1);
-	ldo0_ldo7_ocp_status = ioread32(pmu_irq_data->base + OCP_STATUS2);
-	ldo8_ldo15_ocp_status = ioread32(pmu_irq_data->base + OCP_STATUS3);
-	ldo16_ldo20_ocp_status = ioread32(pmu_irq_data->base + OCP_STATUS4);
+	buck0_buck5_ocp_status = ioread8(pmu_irq_data->base + OCP_STATUS1);
+	ldo0_ldo7_ocp_status = ioread8(pmu_irq_data->base + OCP_STATUS2);
+	ldo8_ldo15_ocp_status = ioread8(pmu_irq_data->base + OCP_STATUS3);
+	ldo16_ldo20_ocp_status = ioread8(pmu_irq_data->base + OCP_STATUS4);
 
-	printk("hi6421 regulator ocp status: buck0_buck5_ocp_status=%x\n ldo0_ldo7_ocp_status=%x\n ldo8_ldo15_ocp_status=%x\n ldo16_ldo20_ocp_status=%x\n",
-		buck0_buck5_ocp_status, ldo0_ldo7_ocp_status, ldo8_ldo15_ocp_status, ldo16_ldo20_ocp_status);
-	if (ldo8_ldo15_ocp_status & LD012_OCP) {
+	buck0_buck5_ocp_status &= MASK_RESERVED_BIT;
+	ldo16_ldo20_ocp_status &= MASK_RESERVED_BIT;
+
+	ocp_status = buck0_buck5_ocp_status | (ldo0_ldo7_ocp_status << 8) |
+				(ldo8_ldo15_ocp_status << 16) | (ldo16_ldo20_ocp_status << 24);
+
+	for (i = 0; i < 32; i++) {
+		if (ocp_status & (0x01 << i)) {
+			if (i < 8) {
+				printk("hi6421 regulator buck%d ocp happen!\n\r", i);
+			} else {
+				printk("hi6421 regulator ldo%d ocp happen!\n\r", (i - 8));
+			}
+		}
+	}
+
+	if (ldo8_ldo15_ocp_status & LDO12_OCP) {
 		pr_info("*******************LDO12 OCP****************\n\r");
 		LDO12 = regulator_get(NULL,"test-vcc");
 		if (LDO12 == NULL) {
@@ -209,16 +229,16 @@ static void inquiry_hi6421_ocp_reg(struct work_struct *work)
 		} else {
 			regulator_force_disable(LDO12);
 		}
-
 	}
 
-	if ((0 != buck0_buck5_ocp_status) || (0 != ldo0_ldo7_ocp_status) || (0 != ldo16_ldo20_ocp_status)
-			|| (0 != (ldo8_ldo15_ocp_status & (~LD012_OCP))) ) {
+	//cleanout BUCK2 AND LDO12 OCP happen
+	ocp_status &= (~BUCK2_OCP);
+	ocp_status &= (~BUCK5_OCP);
+	ocp_status &= (~(LDO12_OCP <<16));
+
+	if (ocp_status) {
 		//reset system
 		BUG_ON(1);
-	} else if ((ldo8_ldo15_ocp_status & LD012_OCP) == 0) {
-		//All LDO state is zero.
-		pr_warning("******************* OCP BYPASS****************\n\r");
 	}
 }
 

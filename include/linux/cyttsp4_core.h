@@ -44,6 +44,13 @@
 #define IN_FINGER_STATE 0
 #define IN_GLOVE_STATE 1
 extern int touch_type_state;
+extern bool config_v_before30;
+
+enum param_type{
+	CY_THRESHOLD,
+	CY_DISPARITY,
+	CY_SCAN_TYPE,
+};
 #define CY_DRIVER_REVCTRL 402597	/*00000A */
 
 #define CY_DRIVER_VERSION			    \

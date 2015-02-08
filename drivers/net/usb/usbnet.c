@@ -114,6 +114,70 @@ static int msg_level = -1;
 module_param (msg_level, int, 0);
 MODULE_PARM_DESC (msg_level, "Override default message level");
 
+
+static uint32_t usbnet_debugon = 0;
+static void tty_print_hex (register __u8 * out, const __u8 * in, int count)
+{
+	register __u8 next_ch;
+	static const char hex[] = "0123456789ABCDEF";
+
+	while (count-- > 0) {
+		next_ch = *in++;
+		*out++ = hex[(next_ch >> 4) & 0x0F];
+		*out++ = hex[next_ch & 0x0F];
+		++out;
+	}
+}
+
+static void
+tty_print_char (register __u8 * out, const __u8 * in, int count)
+{
+	register __u8 next_ch;
+
+	while (count-- > 0) {
+		next_ch = *in++;
+
+		if (next_ch < 0x20 || next_ch > 0x7e)
+			*out++ = '.';
+		else {
+			*out++ = next_ch;
+			if (next_ch == '%')   /* printk/syslogd has a bug !! */
+				*out++ = '%';
+		}
+	}
+	*out = '\0';
+}
+
+static void tty_print_buffer (struct sk_buff *skb, int inout_flag)
+{
+#define CLEN 32
+	__u8 line[CLEN*4+4];
+
+    int count = skb->len;
+    const __u8 *buf = (const __u8*)skb->data;
+
+    if(inout_flag == 0)
+        printk(KERN_DEBUG "[<<<<<<<<<<<] recevie buffer count = %d\n", count);
+    else
+        printk(KERN_DEBUG "[>>>>>>>>>>>] send buffer count = %d\n", count);
+
+    while (count > CLEN) {
+                memset (line, 32, CLEN*3+1);
+                tty_print_hex (line, buf, CLEN);
+                tty_print_char (&line[CLEN * 3], buf, CLEN);
+                printk(KERN_DEBUG "%s\n", line);
+                count -= CLEN;
+                buf += CLEN;
+     }
+
+     if (count > 0) {
+                memset (line, 32, CLEN*3+1);
+                tty_print_hex (line, buf, count);
+                tty_print_char (&line[CLEN * 3], buf, CLEN);
+                printk(KERN_DEBUG "%s\n", line);
+     }
+}
+
 /*-------------------------------------------------------------------------*/
 
 /* handles CDC Ethernet and many other network "bulk data" interfaces */
@@ -449,7 +513,6 @@ done:
 }
 
 /*-------------------------------------------------------------------------*/
-
 static void rx_complete (struct urb *urb)
 {
 	struct sk_buff		*skb = (struct sk_buff *) urb->context;
@@ -460,6 +523,9 @@ static void rx_complete (struct urb *urb)
 	skb_put (skb, urb->actual_length);
 	entry->state = rx_done;
 	entry->urb = NULL;
+
+      if(usbnet_debugon == 1)
+            tty_print_buffer(skb, 0);
 
 	switch (urb_status) {
 	/* success */
@@ -690,7 +756,6 @@ int usbnet_stop (struct net_device *net)
 {
 	struct usbnet		*dev = netdev_priv(net);
 	struct driver_info	*info = dev->driver_info;
-	struct sk_buff*		skb;
 	int			retval;
 
 	K3_DBG_LOG("----usbnet_stop\n");
@@ -738,11 +803,6 @@ int usbnet_stop (struct net_device *net)
 	del_timer_sync (&dev->delay);
 	tasklet_kill (&dev->bh);
 
-	/* K3 optimized for LTE -> */
-	while ((skb = skb_dequeue(&dev->freeq)) != NULL)
-		dev_kfree_skb_any(skb);
-	/* <- K3 optimized for LTE */
-
 	if (info->manage_power)
 		info->manage_power(dev, 0);
 	else
@@ -761,9 +821,8 @@ EXPORT_SYMBOL_GPL(usbnet_stop);
 int usbnet_reopen (struct net_device *net)
 {
 	struct usbnet		*dev = netdev_priv(net);
-	int			i, retval = 0;
+	int			retval = 0;
 	struct driver_info	*info = dev->driver_info;
-	struct sk_buff*		skb;
 	K3_DBG_LOG("----usbnet_reopen\n");
 
 	if ((retval = usb_autopm_get_interface(dev->intf)) < 0) {
@@ -804,25 +863,6 @@ int usbnet_reopen (struct net_device *net)
 	}
 
 	netif_start_queue (net);
-
-	/* K3 optimized for LTE -> */
-	for (i = 0; i < NUM_OF_RX_BUF; i++) {
-		skb = alloc_skb(dev->rx_urb_size + NET_IP_ALIGN, GFP_KERNEL);
-		if (skb == NULL) {
-			netif_err(dev, ifup, dev->net, "no rx skb\n");
-			retval = -ENOMEM;
-			/* free allocated skbs */
-			while ((skb = skb_dequeue(&dev->freeq)) != NULL)
-				dev_kfree_skb_any(skb);
-			goto done;
-		}
-		/* skbs in freeq have reserved IP align, don't reserve
-		in rx_submit again !! */
-		skb_reserve (skb, NET_IP_ALIGN);
-
-		__skb_queue_tail(&dev->freeq, skb);
-	}
-	/* <- K3 optimized for LTE */
 
 	// delay posting reads until we're fully open
 	tasklet_schedule (&dev->bh);
@@ -905,21 +945,25 @@ int usbnet_open (struct net_device *net)
 		   "simple");
 
 	/* K3 optimized for LTE -> */
-	for (i = 0; i < NUM_OF_RX_BUF; i++) {
+	dev_info(&dev->udev->dev, "freeq length: %d\n", dev->freeq.qlen);
+	for (i = dev->freeq.qlen; i < NUM_OF_RX_BUF; i++) {
 		skb = alloc_skb(dev->rx_urb_size + NET_IP_ALIGN, GFP_KERNEL);
 		if (skb == NULL) {
-			netif_err(dev, ifup, dev->net, "no rx skb\n");
-			retval = -ENOMEM;
-			/* free allocated skbs */
-			while ((skb = skb_dequeue(&dev->freeq)) != NULL)
-				dev_kfree_skb_any(skb);
-			goto done;
+			netif_err(dev, ifup, dev->net,
+				"failed to alloc rx skb, curr freeq len is %d\n",
+				dev->freeq.qlen);
+			break;
 		}
 		/* skbs in freeq have reserved IP align, don't reserve
 		in rx_submit again !! */
 		skb_reserve (skb, NET_IP_ALIGN);
 
 		__skb_queue_tail(&dev->freeq, skb);
+	}
+
+	if (dev->freeq.qlen == 0) {
+		retval = -ENOMEM;
+		goto done;
 	}
 	/* <- K3 optimized for LTE */
 
@@ -1322,6 +1366,9 @@ netdev_tx_t usbnet_start_xmit (struct sk_buff *skb,
 	}
 #endif
 
+      if(usbnet_debugon == 1)
+            tty_print_buffer(skb, 1);
+
 	switch ((retval = usb_submit_urb (urb, GFP_ATOMIC))) {
 	case -EPIPE:
 		netif_stop_queue (net);
@@ -1446,7 +1493,6 @@ static void usbnet_bh (unsigned long param)
 void usbnet_stop_before_disconnect(struct usbnet *dev, struct net_device *net)
 {
 	struct driver_info	*info = dev->driver_info;
-	struct sk_buff*		skb;
 
 	netif_stop_queue (net);
 	if (!(info->flags & FLAG_AVOID_UNLINK_URBS))
@@ -1456,11 +1502,6 @@ void usbnet_stop_before_disconnect(struct usbnet *dev, struct net_device *net)
 	usbnet_purge_paused_rxq(dev);
 	del_timer_sync (&dev->delay);
 	tasklet_kill (&dev->bh);
-
-	/* K3 optimized for LTE -> */
-	while ((skb = skb_dequeue(&dev->freeq)) != NULL)
-		dev_kfree_skb_any(skb);
-	/* <- K3 optimized for LTE */
 
 	if (info->manage_power)
 		info->manage_power(dev, 0);
@@ -1576,6 +1617,7 @@ usbnet_probe (struct usb_interface *udev, const struct usb_device_id *prod)
 	struct usb_driver 	*driver = to_usb_driver(udev->dev.driver);
 	int i, minor;
 	int reprobe_flag;
+	struct sk_buff* skb;
 
 	/* usbnet already took usb runtime pm, so have to enable the feature
 	 * for usb interface, otherwise usb_autopm_get_interface may return
@@ -1607,7 +1649,7 @@ usbnet_probe (struct usb_interface *udev, const struct usb_device_id *prod)
 			minor = i;
 			break;
 		} else {
-			if (usbnet_table[i]->intf == NULL) {
+			if ((usbnet_table[i]->intf == NULL)&&(usbnet_table[i]->probe_fail == 0)) {
 				minor = i;
 				break;
 			}
@@ -1742,11 +1784,29 @@ usbnet_probe (struct usb_interface *udev, const struct usb_device_id *prod)
 		           xdev->bus->bus_name, xdev->devpath,
 		           dev->driver_info->description,
 		           net->dev_addr);
+	}
 
+	/* If freeq is not filled, fill it */
+	for (i = dev->freeq.qlen; i < NUM_OF_RX_BUF; i++) {
+		skb = alloc_skb(dev->rx_urb_size + NET_IP_ALIGN, GFP_KERNEL);
+		if (skb == NULL) {
+			netif_err(dev, ifup, dev->net,
+				"failed to alloc rx skb, curr freeq len is %d\n",
+				dev->freeq.qlen);
+			break;
+		}
+		/* skbs in freeq have reserved IP align, don't reserve
+		in rx_submit again !! */
+		skb_reserve (skb, NET_IP_ALIGN);
+
+		__skb_queue_tail(&dev->freeq, skb);
+	}
+
+	if (!reprobe_flag) {
 		usb_set_intfdata (udev, dev);
 		netif_carrier_on(net);
 		netif_device_attach (net);
-	}else{
+	} else {
 		if(device_add(&net->dev))
 			pr_err("%s reprobe error: could not add device\n", dev_name(&net->dev));
 		dev->suspend_count = 0;
@@ -1768,14 +1828,32 @@ usbnet_probe (struct usb_interface *udev, const struct usb_device_id *prod)
 	if (dev->driver_info->flags & FLAG_LINK_INTR)
 		netif_carrier_off(net);
 
+	if (minor == USBNET_NET_MINORS - 1) {
+		for (i=0; i<USBNET_NET_MINORS; i++)
+			usbnet_table[i]->probe_fail = 0;
+	}
+
 	return 0;
 
 out3:
 	if (info->unbind)
 		info->unbind (dev, udev);
 out1:
-	if (!reprobe_flag)
+	if (!reprobe_flag) {
 		free_netdev(net);
+		usbnet_table[minor] = NULL;
+	}
+	else {
+		dev->udev = NULL;
+		dev->intf = NULL;
+		dev->driver_info = NULL;
+		dev->driver_name = NULL;
+		if (minor == USBNET_NET_MINORS - 1) {
+			for (i=0; i<USBNET_NET_MINORS; i++)
+				usbnet_table[i]->probe_fail = 0;
+		}else
+			usbnet_table[minor]->probe_fail = 1;
+	}
 out:
 	usb_put_dev(xdev);
 	return status;
@@ -1885,3 +1963,4 @@ module_exit(usbnet_exit);
 MODULE_AUTHOR("David Brownell");
 MODULE_DESCRIPTION("USB network driver framework");
 MODULE_LICENSE("GPL");
+module_param_named(debug_on, usbnet_debugon, uint, S_IWUSR | S_IRUGO);

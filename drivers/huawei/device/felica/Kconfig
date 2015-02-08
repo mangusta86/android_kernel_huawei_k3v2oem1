@@ -4,8 +4,8 @@ menuconfig HUAWEI_KERNEL_FELICA_DEVICES
 
 if HUAWEI_KERNEL_FELICA_DEVICES
 
-source "drivers/huawei/device/felica/ak6921af/Kconfig"
+#source "drivers/huawei/device/felica/ak6921af/Kconfig"
 
-source "drivers/huawei/device/felica/t6nd5/Kconfig"
+#source "drivers/huawei/device/felica/t6nd5/Kconfig"
       
 endif # HUAWEI_KERNEL_FELICA_DEVICES

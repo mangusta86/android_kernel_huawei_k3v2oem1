@@ -19,5 +19,5 @@ extern bool get_hw_config_int(const char* key, unsigned int* pbuf, unsigned int 
 extern bool get_hw_config_bool(const char* key, bool* pbuf, unsigned int *ptype);
 extern bool get_hw_config_enum(const char* key, char* pbuf, size_t count, unsigned int *ptype);
 
-extern int g_current_board_id;
+extern unsigned int g_current_board_id;
 #endif

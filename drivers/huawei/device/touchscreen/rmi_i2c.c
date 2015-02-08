@@ -21,8 +21,6 @@
 
 #define IRQ_DEBUG 0
 
-#define DEBUG
-
 #if COMMS_DEBUG || IRQ_DEBUG
 #define DEBUG
 #endif
@@ -38,26 +36,22 @@
 #include <linux/gpio.h>
 #include <linux/rmi.h>
 #include "rmi_driver.h"
-#include "../touch_info.h"
 #include <linux/kthread.h>
 
 #include <linux/err.h>
 #include <linux/regulator/consumer.h>
 #include <linux/regulator/driver.h>
 #include <linux/regulator/machine.h>
-
-#define EPRJ_IRQ_MANAGEMENT
+#include <hsad/config_interface.h>
+#include "../touch_info.h"
 
 #define RMI_PAGE_SELECT_REGISTER 0xff
 #define RMI_I2C_PAGE(addr) (((addr) >> 8) & 0xff)
 
-#ifdef EPRJ_IRQ_MANAGEMENT
 #define RMI_IRQ_WAKED  1
 unsigned long rmi_irq_flag = 0;
-#endif
 
 static char *phys_proto_name = "i2c";
-
 struct rmi_i2c_data {
 	struct mutex page_mutex;
 	int page;
@@ -67,7 +61,6 @@ struct rmi_i2c_data {
 	struct rmi_phys_device *phys;
 };
 
-#ifdef EPRJ_IRQ_MANAGEMENT
 static void rmi_i2c_irq_thread(int irq, void *p)
 {
 	struct rmi_phys_device *phys = p;
@@ -86,8 +79,8 @@ static void rmi_i2c_irq_thread(int irq, void *p)
 	}
 }
 
-#else
 
+#if 0
 static irqreturn_t rmi_i2c_irq_thread(int irq, void *p)
 {
 	struct rmi_phys_device *phys = p;
@@ -108,7 +101,6 @@ static irqreturn_t rmi_i2c_irq_thread(int irq, void *p)
 	return IRQ_HANDLED;
 }
 #endif
-
 /*
  * rmi_set_page - Set RMI page
  * @phys: The pointer to the rmi_phys_device struct
@@ -259,7 +251,6 @@ static int rmi_i2c_read(struct rmi_phys_device *phys, u16 addr, u8 *buf)
 	return (retval < 0) ? retval : 0;
 }
 
-#ifdef EPRJ_IRQ_MANAGEMENT
 static irqreturn_t rmi_irq_handler_process(int irq, void *dev_id){
 	struct rmi_phys_device *phys = dev_id;
 	disable_irq_nosync(irq);
@@ -298,13 +289,6 @@ static int acquire_attn_irq(struct rmi_i2c_data *data)
 			data->irq_flags, dev_name(data->phys->dev), data->phys);
 }
 
-#else
-static int acquire_attn_irq(struct rmi_i2c_data *data)
-{
-	return request_threaded_irq(data->irq, NULL, rmi_i2c_irq_thread,
-			data->irq_flags, dev_name(data->phys->dev), data->phys);
-}
-#endif
 
 static int enable_device(struct rmi_phys_device *phys)
 {
@@ -343,6 +327,16 @@ static void disable_device(struct rmi_phys_device *phys)
 	data->enabled = false;
 }
 
+
+void __rmi_touch_irq_disable()
+{
+	disable_irq(gpio_to_irq(GPIO_19_5));
+}
+
+void __rmi_touch_irq_enable()
+{
+	enable_irq(gpio_to_irq(GPIO_19_5));
+}
 static int __devinit rmi_i2c_probe(struct i2c_client *client,
 				  const struct i2c_device_id *id)
 {
@@ -358,63 +352,6 @@ static int __devinit rmi_i2c_probe(struct i2c_client *client,
 	dev_info(&client->dev, "Probing %s at %#02x (IRQ %d).\n",
 		pdata->sensor_name ? pdata->sensor_name : "-no name-",
 		client->addr, pdata->attn_gpio);
-	
-	/*Vbus enable*/
-	 error = gpio_request(pdata->enable_gpio, "enable_gpio");
-        if (error) {
-            pr_err("%s: Failed to get enable gpio %d. Code: %d.",
-                   __func__, pdata->enable_gpio, error);
-            return error;
-        }
-	 error = gpio_direction_output(pdata->enable_gpio,1);
-        if (error) {
-            pr_err("%s: Failed to setup enable gpio %d. Code: %d.",
-                   __func__, pdata->enable_gpio, error);
-            gpio_free(pdata->enable_gpio);
-        }
-
-	/* VDD power on */
-	pdata->vdd = regulator_get(&client->dev, SYNAPTICS_VDD);
-	if (IS_ERR(pdata->vdd)) {
-		dev_err(&client->dev, "%s: failed to get synaptics vdd\n", __func__);
-		return  -EINVAL;
-	}
-
-	error = regulator_set_voltage(pdata->vdd,2850000,2850000);
-	if(error < 0){
-		dev_err(&client->dev, "%s: failed to set synaptics vdd\n", __func__);
-		return  -EINVAL;
-	}
-
-	error = regulator_enable(pdata->vdd);
-	if (error < 0) {
-		dev_err(&client->dev, "%s: failed to enable synaptics vdd\n", __func__);
-		return -EINVAL;
-	}
-
-	/* VBUS power on */
-	pdata->vbus = regulator_get(&client->dev, SYNAPTICS_VBUS);
-	if (IS_ERR(pdata->vbus)) {
-		dev_err(&client->dev, "%s: failed to get synaptics vbus\n", __func__);
-		return -EINVAL;
-	}
-
-	error = regulator_set_voltage(pdata->vbus,1800000,1800000);
-	if(error < 0){
-		dev_err(&client->dev, "%s: failed to set synaptics vbus\n", __func__);
-		return -EINVAL;
-	}
-
-	error = regulator_enable(pdata->vbus);
-	if (error < 0) {
-		dev_err(&client->dev, "%s: failed to enable synaptics vbus\n", __func__);
-		return -EINVAL;
-	}
-	msleep(5);
-        error = set_touch_chip_info("synaptics_2202");  
-	if (error) {  
-		dev_err(&client->dev, "set_touch_chip_info error\n");  
-	} 
 
 	if (pdata->gpio_config) {
 		dev_info(&client->dev, "Configuring GPIOs.\n");
@@ -481,6 +418,11 @@ static int __devinit rmi_i2c_probe(struct i2c_client *client,
 		goto err_data;
 	}
 
+	error = set_touch_chip_info(TOUCH_INFO_RMI3250);
+	if (error) {
+		dev_err(&client->dev, "set_touch_chip_info error\n");
+	}
+
 	error = rmi_register_phys_device(rmi_phys);
 	if (error) {
 		dev_err(&client->dev,
@@ -490,13 +432,11 @@ static int __devinit rmi_i2c_probe(struct i2c_client *client,
 	}
 	i2c_set_clientdata(client, rmi_phys);
 
-#ifdef EPRJ_IRQ_MANAGEMENT
 	rmi_phys->rmi_task = kthread_create(rmi_irq_thread, data, "rmi_irq_thread");
 	if (IS_ERR(rmi_phys->rmi_task)){
 		dev_err(&client->dev,	"create thread failed!\n");
 		goto err_unregister;
 	}
-#endif
 
 	if (pdata->attn_gpio > 0) {
 		error = acquire_attn_irq(data);

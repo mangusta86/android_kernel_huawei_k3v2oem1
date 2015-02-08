@@ -5,6 +5,12 @@
 /*#include <linux/semaphore.h>*/
 #define OSDRV_MODULE_VERSION_STRING   "NULL"
 
+#define CONFIG_WIFI_GPIO_OPTIMIZE
+#ifdef CONFIG_WIFI_GPIO_OPTIMIZE
+#include <linux/mux.h>
+int config_wifi_sdio_interface(enum iomux_func mode);
+#endif
+
 /*#define SD_FPGA_GPIO*/
 
 extern int trace_level;

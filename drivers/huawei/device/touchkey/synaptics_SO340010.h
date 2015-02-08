@@ -6,8 +6,8 @@
 #define _TOUCHKEY_PLATFORM_CONFIG_H
 
 
-#define SYNAPTICS_SO340010_NAME "so340010" 
-#define S340010_IO "skp_tk"
+#define TOUCHKEY_DEVICE_NAME "touchkey" 
+#define TOUCHKEY_IO "skp_tk"
 
 /* CONFIGURATION REGISTERS  R/W */
 #define    INTERFACE_CONFIGUARATION     0x0000
@@ -40,11 +40,13 @@
 
 /* Platform Structure for SO0340010 */
 struct synatics_touchkey_platform{
-    int attn_gpio;
-    struct regulator *vbus;
-    unsigned short* (*get_key_map)(void);
-//    int (*touchkey_reset)(void);/* touch reset */
-    int (*touchkey_gpio_config)(int enable);
+	int attn_gpio;
+	struct regulator *vbus;
+	unsigned short* (*get_key_map)(void);
+	int (*get_key_port)(void);
+	int (*get_led_brightness)(void);
+	//    int (*touchkey_reset)(void);/* touch reset */
+	int (*touchkey_gpio_config)(int enable);
 };
 
 typedef enum tk_gpio_setup_cfg_tag{

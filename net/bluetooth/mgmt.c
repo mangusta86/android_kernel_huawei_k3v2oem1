@@ -2286,3 +2286,17 @@ int mgmt_discovering(u16 index, u8 discovering)
 	return mgmt_event(MGMT_EV_DISCOVERING, index, &discovering,
 						sizeof(discovering), NULL);
 }
+
+/* soldel start --- barbara*/
+int mgmt_incomming_remote_class(struct hci_dev *hdev, bdaddr_t *bdaddr, u8 dev_class[3])
+{
+	struct mgmt_ev_remote_class ev;
+
+	memset(&ev, 0, sizeof(ev));
+	
+	bacpy(&ev.bdaddr, bdaddr);
+	memcpy(ev.dev_class, dev_class, 3);
+	BT_DBG("[mydebug]:calling-in-mgmt_incomming_remote_class ev.dev_class = %x",ev.dev_class);
+	return mgmt_event(MGMT_EV_REMOTE_CLASS, hdev, &ev, sizeof(ev), NULL);
+}
+/*soldel stop --- barbara*/

@@ -1,11 +1,11 @@
 /*
- * TI LM3642 driver 
+ * TI LM3642 driver
  *
  *  Author: 	Zhoujie (zhou.jie1981@163.com)
  *  Date:  	2013/01/05
  *  Version:	1.0
- *  History:	2013/01/05      Frist add driver for LM3642 
- *  
+ *  History:	2013/01/05      Frist add driver for LM3642
+ *
  * ----------------------------------------------------------------------------
  *
  * This program is free software; you can redistribute it and/or modify
@@ -54,7 +54,7 @@
 /* reg_enable
      x x x x   x x x x
                       | |__mode bit 0
-			  |__ _mode bit 1	
+			  |__ _mode bit 1
 */
 #define MODE_STANDBY			0x00
 #define MODE_INDICATOR			0x01
@@ -78,6 +78,7 @@
 #define TORCH_CURRENT_FOR_PREFLASH   3    //187.5ma
 #define FLASH_CURRENT_FOR_FLASH          9    //937.5ma
 #define THERMAL_PROTECT (1)
+#define STATE_DATA_LENGTH_LIMIT    40
 
 static camera_flashlight lm3642_intf;
 struct i2c_client *lm3642_client;
@@ -96,7 +97,7 @@ static struct i2c_board_info lm3642_info = {
 static ssize_t lm3642_led_torch_mode_get_brightness(struct device *dev, struct device_attribute *attr,char *buf);
 static ssize_t lm3642_led_torch_mode_set_brightness(struct device *dev, struct device_attribute *attr, const char *buf, size_t count);
 
-#ifdef THERMAL_PROTECT 
+#ifdef THERMAL_PROTECT
 static DEFINE_SPINLOCK(led_stat_lock);
 static bool thermal_protect_led_stat = true;
 //static int led_configed_flag = 0;
@@ -112,7 +113,7 @@ static void lm3642_shutdown(struct i2c_client *client);
  * after reset, default LED2 enabled
  * led_select: x x x x x 1 1 1
  *                       | | |_ LED1 enable
- *                       | |___ LED2 enable 
+ *                       | |___ LED2 enable
  *                       |_____ LED3 enable
  */
 static u8 led_select = 0x02;
@@ -260,11 +261,11 @@ static int lm3642_probe(struct i2c_client *client, const struct i2c_device_id *i
 
 	if(register_torch_led(&lm3642_led))
 	{
-		print_error( "%s:Unable to create interface\n", __func__, &client->dev);
+		print_error( "%s:Unable to create interface\n", __func__);
 		return -ENOMEM;
 	}
 
-	#ifdef THERMAL_PROTECT 
+	#ifdef THERMAL_PROTECT
 	if(register_torch_led(&thermal_protect_flash_led))
 	{
 		print_error( "%s:Unable to create thermal_protect_flash_led interface\n", __func__);
@@ -384,16 +385,16 @@ int lm3642_led_torch_mode_on()
 {
 	int val,ret;
 
-        lm3642_init(); 
+        lm3642_init();
         return 0;
 }
 
-static lm3642_led_torch_mode_off()
+static int lm3642_led_torch_mode_off()
 {
 	int val,ret;
 
 	if (lm3642_camera_mode_flag)
-		return;
+		return 0;
 
 	lm3642_exit();
 
@@ -402,7 +403,7 @@ static lm3642_led_torch_mode_off()
 static ssize_t lm3642_led_torch_mode_get_brightness(struct device *dev, struct device_attribute *attr,char *buf)
 {
         int ret;
-        sprintf(buf,"brightness_level= %d\n",brightness_level);
+        snprintf(buf, STATE_DATA_LENGTH_LIMIT, "brightness_level= %d\n", brightness_level);
         ret = strlen(buf)+1;
         return ret;
 }
@@ -431,7 +432,7 @@ static ssize_t lm3642_led_torch_mode_set_brightness(struct device *dev, struct d
 		printk("fail to recover str to U8 %s\n",__func__);
 		return -1;
 	}
-	
+
     if (level==0)//close
     {
         ret = lm3642_led_torch_mode_off();
@@ -449,9 +450,9 @@ static ssize_t lm3642_led_torch_mode_set_brightness(struct device *dev, struct d
 	spin_unlock(&led_stat_lock);
 #endif
     }
-    else 
+    else
     {
-    		if(level>7) 
+    		if(level>7)
 		{
 			printk("Input the wrong number\n");
 			return -1;
@@ -482,7 +483,7 @@ static ssize_t lm3642_led_torch_mode_set_brightness(struct device *dev, struct d
 			#endif
 		}
 
-		
+
 	        ret = _lm3642_turn_on(TORCH_MODE, level-1);
             if(ret < 0){
                 print_error("set light level error write reg0 = %x",STATE_BRIGHT_LOW);
@@ -497,7 +498,7 @@ static ssize_t lm3642_led_torch_mode_set_brightness(struct device *dev, struct d
 			spin_unlock(&led_stat_lock);
 			#endif
 		}
-		
+
     return count;
 }
 
@@ -734,7 +735,7 @@ int lm3642_reset(void)
 {
 	print_error("enter %s", __FUNCTION__);
 
-	//gpio_direction_output(reset_pin, 0);	
+	//gpio_direction_output(reset_pin, 0);
 	lm3642_turn_off();
 	return 0;
 }
@@ -757,7 +758,7 @@ int lm3642_reset(void)
 
 	print_debug("enter %s", __FUNCTION__);
 /*
-	#ifdef THERMAL_PROTECT 
+	#ifdef THERMAL_PROTECT
 	if(!thermal_protect_get_flash_stat())
 	{
 		print_info("temperature is too high,can't open the flash led");
@@ -766,19 +767,19 @@ int lm3642_reset(void)
 	#endif
 */
 	lm3642_read_reg8(REG_FLAGS,&val);//clear error flag,resume chip
-	lm3642_read_reg8(REG_CURRENT_CONTROL, &val);	
+	lm3642_read_reg8(REG_CURRENT_CONTROL, &val);
 
-	if (mode == FLASH_MODE) 
-	{		
-		temp = lum;		
+	if (mode == FLASH_MODE)
+	{
+		temp = lum;
 		val = (val&0xf0)|temp;
 		enable = MODE_FLASH|TX_PIN;
-		print_debug("start FLASH_MODE");		
-	} else if (mode == TORCH_MODE) {	
+		print_debug("start FLASH_MODE");
+	} else if (mode == TORCH_MODE) {
 
 		val = (lum << 4) + (val&0x0f);
 		enable = MODE_TORCH;
-		print_debug("start TORCH_MODE");		
+		print_debug("start TORCH_MODE");
 	}
 
 	lm3642_write_reg8(REG_CURRENT_CONTROL, val);
@@ -805,13 +806,13 @@ static int lm3642_turn_on(work_mode mode, flash_lum_level lum)
 		return -1;
 	}
 
-	 if (mode == TORCH_MODE) 
-	 {		
+	 if (mode == TORCH_MODE)
+	 {
 		lum = TORCH_CURRENT_FOR_PREFLASH;
 	 }
 	 else
 	 {
-	 	
+
 	 	lum = FLASH_CURRENT_FOR_FLASH;
 	 }
 
@@ -837,7 +838,7 @@ static int lm3642_turn_on(work_mode mode, flash_lum_level lum)
 static int lm3642_turn_off(void)
 {
 	u8 val;
-	
+
 	print_debug("enter %s", __FUNCTION__);
 
 	#ifdef THERMAL_PROTECT
@@ -849,12 +850,12 @@ static int lm3642_turn_off(void)
 	#endif
 
 	lm3642_read_reg8(REG_FLAGS,&val);
-	lm3642_write_reg8(REG_ENABLE, MODE_STANDBY);	
+	lm3642_write_reg8(REG_ENABLE, MODE_STANDBY);
 
 	return 0;
 }
 
-#ifdef THERMAL_PROTECT 
+#ifdef THERMAL_PROTECT
 static bool thermal_protect_get_flash_stat(void)
 {
 	return thermal_protect_led_stat;
@@ -868,7 +869,7 @@ static void thermal_protect_set_flash_stat(bool thermal_led_stat)
 static ssize_t thermal_protect_flash_led_state_get(struct device *dev, struct device_attribute *attr,char *buf)
 {
     int ret;
-    sprintf(buf,"thermal_protect_led_stat = %d\n",thermal_protect_led_stat);
+    snprintf(buf, STATE_DATA_LENGTH_LIMIT, "thermal_protect_led_stat = %d\n", thermal_protect_led_stat);
     ret = strlen(buf)+1;
     return ret;
 }
@@ -876,7 +877,7 @@ static ssize_t thermal_protect_flash_led_state_get(struct device *dev, struct de
 static ssize_t thermal_protect_flash_led_state_set(struct device *dev, struct device_attribute *attr, const char *buf, size_t count)
 {
 	int ret = 0;
-	
+
     if (buf[0] == '0')
     {
     	if(led_configed_flag)
@@ -896,14 +897,14 @@ static ssize_t thermal_protect_flash_led_state_set(struct device *dev, struct de
 		{
 			lm3642_turn_off();
 		}
-		
+
 		thermal_protect_led_stat = false;
     }
 	else if (buf[0] == '1')
 	{
 		thermal_protect_led_stat = true;
 	}
-	else 
+	else
 	{
 		printk("Input the wrong number\n");
 		return -1;
@@ -949,7 +950,7 @@ static int __init lm3642_module_init(void)
 {
 	int ret;
 
-	struct i2c_adapter  *Pr_i2c_adapter=NULL;	
+	struct i2c_adapter  *Pr_i2c_adapter=NULL;
 
 	Pr_i2c_adapter = i2c_get_adapter(I2C_BUS_NUM);
 	if(Pr_i2c_adapter ==NULL)
@@ -957,14 +958,14 @@ static int __init lm3642_module_init(void)
 		printk("%s can't get number %d  i2c_adapter!!!!\n",__func__,I2C_BUS_NUM);
 		return -1;
 	}
-	
+
 	lm3642_client = i2c_new_device(Pr_i2c_adapter,&lm3642_info);
 	if(lm3642_client == NULL)
 	{
 		printk("%s can't add device on number %d  i2c_adapter!!!!\n",__func__,I2C_BUS_NUM);
 		return -1;
 	}
-	
+
 	print_debug("enter %s", __FUNCTION__);
 	i2c_add_driver(&lm3642_driver);
 
@@ -977,7 +978,7 @@ static int __init lm3642_module_init(void)
 
 	lm3642_set_default();
 	register_camera_flash(&lm3642_intf);
-	#ifdef THERMAL_PROTECT 
+	#ifdef THERMAL_PROTECT
 	thermal_protect_set_flash_stat(true);
 	#endif
 	return 0;

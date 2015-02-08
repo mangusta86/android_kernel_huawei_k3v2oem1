@@ -24,7 +24,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: dhd_bus.h 284096 2011-09-16 03:18:41Z $
+ * $Id: dhd_bus.h,v 1.14.28.1 2010-12-23 01:13:17 Exp $
  */
 
 #ifndef _dhd_bus_h_

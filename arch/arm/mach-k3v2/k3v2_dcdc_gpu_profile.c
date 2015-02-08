@@ -47,9 +47,9 @@ struct gpu_profile_info gpu_profile_dcdc[] = {
 
 struct gpu_policy_info gpu_policy_powersave[] = {
 	/*uptimes, downtimes, up_threshold, down_threshold*/
-	{1, 1, 90, 0},
-	{1, 1, 95, 30},
-	{1, 1, 99, 40},
+	{1, 1, 75, 0},
+	{1, 2, 80, 30},
+	{1, 3, 99, 40},
 	{1, 1, 99, 50},
 	{1, 1, 99, 60},
 #ifdef WITH_G3D_600M_PROF
@@ -61,8 +61,8 @@ struct gpu_policy_info gpu_policy_powersave[] = {
 struct gpu_policy_info gpu_policy_normal[] = {
 	/*uptimes, downtimes, up_threshold, down_threshold*/
 	{1, 1, 75, 0},
-	{1, 1, 95, 30},
-	{1, 1, 99, 40},
+	{1, 2, 80, 30},
+	{1, 3, 99, 40},
 	{1, 1, 100, 50},
 	{1, 1, 95, 80},
 #ifdef WITH_G3D_600M_PROF
@@ -74,8 +74,8 @@ struct gpu_policy_info gpu_policy_normal[] = {
 struct gpu_policy_info gpu_policy_performance[] = {
 	/*uptimes, downtimes, up_threshold, down_threshold*/
 	{1, 1, 75, 0},
-	{1, 1, 95, 30},
-	{1, 1, 99, 40},
+	{1, 2, 80, 30},
+	{1, 3, 99, 40},
 	{1, 1, 100, 50},
 	{1, 1, 95, 80},
 #ifdef WITH_G3D_600M_PROF

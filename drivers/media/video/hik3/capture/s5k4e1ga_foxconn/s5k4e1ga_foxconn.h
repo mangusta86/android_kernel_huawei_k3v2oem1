@@ -90,7 +90,7 @@ const struct _sensor_reg_t s5k4e1ga_foxconn_init_regs[] = {
 {0x0305, 0x05},//06////PLL P = 6
 {0x0306, 0x00},//PLL M[8] = 0
 {0x0307, 0x78},//PLL M = 101
-{0x30B5, 0x01},//01//PLL S = 1 
+{0x30B5, 0x01},//01//PLL S = 1
 {0x30E2, 0x02},//02//num lanes[1:0] = 2
 {0x30F1, 0x80},//70//DPHY BANDCTRL 404MHz=40.4MHz
 

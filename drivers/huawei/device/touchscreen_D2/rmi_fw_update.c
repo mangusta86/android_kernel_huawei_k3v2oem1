@@ -28,6 +28,7 @@
 #include "rmi_driver.h"
 #include "rmi_f01.h"
 #include "rmi_f34.h"
+#include <hsad/config_interface.h>
 
 #define HAS_BSR_MASK 0x20
 
@@ -96,8 +97,10 @@ MODULE_PARM_DESC(param, "Force reflash of RMI4 devices");
 /* If this parameter is not NULL, we'll use that name for the firmware image,
  * instead of getting it from the F01 queries.
  */
-static char *img_name = "TM2429-001";
-module_param(img_name, charp, S_IRUGO | S_IWUSR);
+static char *img_name_u = "TM2429-001-U";
+static char *img_name_c = "TM2429-001-C";
+module_param(img_name_u, charp, S_IRUGO | S_IWUSR);
+module_param(img_name_c, charp, S_IRUGO | S_IWUSR);
 MODULE_PARM_DESC(param, "Name of the RMI4 firmware image");
 
 #define RMI4_IMAGE_FILE_REV1_OFFSET 30
@@ -624,6 +627,7 @@ void rmi4_fw_update(struct rmi_device *rmi_dev,
 		.f01_pdt = f01_pdt,
 		.f34_pdt = f34_pdt,
 	};
+	int fw_type;
 
 	dev_info(&rmi_dev->dev, "%s called.\n", __func__);
 #ifdef	DEBUG
@@ -654,8 +658,19 @@ void rmi4_fw_update(struct rmi_device *rmi_dev,
 			retval);
 		return;
 	}
-	snprintf(firmware_name, sizeof(firmware_name), "rmi4/%s.img",
-			img_name ? img_name : data.product_id);
+	fw_type = get_touchscreen_fw_type();
+	dev_info(&rmi_dev->dev,"fw_type = %d\n", fw_type);
+	if (fw_type == E_TOUSCREEN_FW_T){
+		snprintf(firmware_name, sizeof(firmware_name), "rmi4/%s.img", img_name_u);
+	} else if (fw_type == E_TOUSCREEN_FW_U){
+		snprintf(firmware_name, sizeof(firmware_name), "rmi4/%s.img", img_name_u);
+	} else if(fw_type == E_TOUSCREEN_FW_C){
+		snprintf(firmware_name, sizeof(firmware_name), "rmi4/%s.img", img_name_c);
+	}else{
+		dev_err(&rmi_dev->dev, "get_touchscreen_fw_type failed, fw_type = %d\n", fw_type);
+		return;
+	}
+
 	dev_info(&rmi_dev->dev, "Requesting %s.\n", firmware_name);
 	retval = request_firmware(&fw_entry, firmware_name, &rmi_dev->dev);
 	if (retval != 0) {

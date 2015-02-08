@@ -335,7 +335,11 @@ static void mipi_init(struct k3_fb_data_type *k3fd)
 	** that is the maximum allowed frequency for D-PHY ESCAPE mode.
 	*/
 	if (pinfo->type == PANEL_MIPI_CMD) {
+        #ifdef CONFIG_LCD_CMI_OTM1282B_CMD
+        set_MIPIDSI_CLKMGR_CFG(edc_base, 4);
+        #else
 		set_MIPIDSI_CLKMGR_CFG(edc_base, 5);
+        #endif
 	} else {
 		set_MIPIDSI_CLKMGR_CFG(edc_base, phy_ctrl.clk_division);
 	}
@@ -423,6 +427,10 @@ static void mipi_init(struct k3_fb_data_type *k3fd)
 	if (pinfo->type == PANEL_MIPI_CMD) {
 		set_MIPIDSI_EDPI_CFG_edpi_allowed_cmd_size(edc_base, pinfo->xres);
 		set_MIPIDSI_EDPI_CFG_edpi_en(edc_base, K3_ENABLE);
+        #ifdef CONFIG_LCD_CMI_OTM1282B_CMD
+        #else
+		set_MIPIDSI_PCKHDL_CFG_en_eotp_tx(edc_base, 0x00000001);
+        #endif
 	}
 
 	is_ready = false;

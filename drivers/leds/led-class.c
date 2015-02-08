@@ -53,7 +53,7 @@ static ssize_t led_force_flag_get(struct device *dev,
 	/* no lock needed for this */
 	//led_update_brightness(led_cdev);
 
-	return sprintf(buf, "%u\n", lcd_force_flag);
+	return snprintf(buf, PAGE_SIZE, "%u\n", lcd_force_flag);
 }
 
 static ssize_t led_force_flag_set(struct device *dev,
@@ -312,8 +312,6 @@ void led_blink_set(struct led_classdev *led_cdev,
 		   unsigned long *delay_on,
 		   unsigned long *delay_off)
 {
-	del_timer_sync(&led_cdev->blink_timer);
-
 	if (led_cdev->blink_set &&
 	    !led_cdev->blink_set(led_cdev, delay_on, delay_off))
 		return;

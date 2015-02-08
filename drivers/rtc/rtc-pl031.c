@@ -33,8 +33,6 @@
 #include <linux/init.h>
 #include <linux/kthread.h>
 
-#define USE_PMU_RTC
-
 /*
  * Register definitions
  */
@@ -196,6 +194,27 @@ static void k3_pmu_rtc_readtime(struct rtc_time *tm)
 	return;
 }
 
+int k3_pmu_rtc_set_alarm(struct rtc_wkalrm *alarm)
+{
+	unsigned long time;
+	int ret;
+	ret = rtc_valid_tm(&alarm->time);
+	if (ret == 0) {
+		if (alarm->enabled) {
+			rtc_tm_to_time(&alarm->time, &time);
+			k3_pmu_rtc_setalarmtime(time);
+		} else {
+			k3_pmu_rtc_setalarmtime(0);
+		}
+		printk(KERN_DEBUG "%s set pmu rtc %d-%d-%d %d:%d:%d\n",
+			__FUNCTION__,
+			alarm->time.tm_year,alarm->time.tm_mon,
+			alarm->time.tm_mday,alarm->time.tm_hour,
+			alarm->time.tm_min,alarm->time.tm_sec);
+	}
+	return 0;
+}
+
 static int pl031_alarm_irq_enable(struct device *dev,
 	unsigned int enabled)
 {
@@ -352,9 +371,16 @@ void oem_rtc_reboot(unsigned long t)
 }
 static DECLARE_TASKLET(oem_rtc_reboot_tasklet, oem_rtc_reboot, 0);
 
+static irqreturn_t k3_pmu_rtc_interrupt(int irq, void *dev_id)
+{
+	if(unlikely(get_pd_charge_flag())) {
+		tasklet_schedule(&oem_rtc_reboot_tasklet);
+	}
+	return IRQ_HANDLED;
+}
+
 static irqreturn_t pl031_interrupt(int irq, void *dev_id)
 {
-#ifndef USE_PMU_RTC
 	struct pl031_local *ldata = dev_id;
 	unsigned long rtcmis;
 	unsigned long events = 0;
@@ -375,71 +401,56 @@ static irqreturn_t pl031_interrupt(int irq, void *dev_id)
 
 		return IRQ_HANDLED;
 	}
-#endif
-	if(unlikely(get_pd_charge_flag())) {
-		tasklet_schedule(&oem_rtc_reboot_tasklet);
-	}
 
 	return IRQ_NONE;
 }
 
 static int pl031_read_time(struct device *dev, struct rtc_time *tm)
 {
-#ifndef USE_PMU_RTC
-	struct pl031_local *ldata = dev_get_drvdata(dev);
-
-	rtc_time_to_tm(readl(ldata->base + RTC_DR), tm);
-#else
         k3_pmu_rtc_readtime(tm);
-#endif
+    printk(KERN_DEBUG "pl031_read_time %d-%d-%d %d:%d:%d\n",
+        tm->tm_year,tm->tm_mon,tm->tm_mday,
+        tm->tm_hour,tm->tm_min,tm->tm_sec);
+
 	return 0;
 }
 
 static int pl031_set_time(struct device *dev, struct rtc_time *tm)
 {
-#ifndef USE_PMU_RTC
 	unsigned long time;
 	struct pl031_local *ldata = dev_get_drvdata(dev);
-#endif
 	int err;
 
 	err = rtc_valid_tm(tm);
 	if (err != 0) {
 		return err;
 	}
-#ifndef USE_PMU_RTC
 	err = rtc_tm_to_time(tm, &time);
 
     if (err == 0)
 	    writel(time, ldata->base + RTC_LR);
-#else
 	k3_pmu_rtc_settime(dev, tm);
-#endif
-
+    printk(KERN_DEBUG "pl031_set_time %d-%d-%d %d:%d:%d\n",
+        tm->tm_year,tm->tm_mon,tm->tm_mday,
+        tm->tm_hour,tm->tm_min,tm->tm_sec);
 	return 0;
 }
 
 static int pl031_read_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 {
-#ifndef USE_PMU_RTC
 	struct pl031_local *ldata = dev_get_drvdata(dev);
 
 	rtc_time_to_tm(readl(ldata->base + RTC_MR), &alarm->time);
 
 	alarm->pending = readl(ldata->base + RTC_RIS) & RTC_BIT_AI;
 	alarm->enabled = readl(ldata->base + RTC_IMSC) & RTC_BIT_AI;
-#else
-        k3_pmu_rtc_readalarmtime(&alarm->time);
-#endif
 
 	return 0;
 }
 
 static int pl031_set_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 {
-#ifndef USE_PMU_RTC
 	struct pl031_local *ldata = dev_get_drvdata(dev);
-#endif
 	unsigned long time;
 	int ret;
 
@@ -448,11 +459,8 @@ static int pl031_set_alarm(struct device *dev, struct rtc_wkalrm *alarm)
 	if (ret == 0) {
 		ret = rtc_tm_to_time(&alarm->time, &time);
 		if (ret == 0) {
-#ifndef USE_PMU_RTC
 			writel(time, ldata->base + RTC_MR);
 			pl031_alarm_irq_enable(dev, alarm->enabled);
-#endif
-			k3_pmu_rtc_setalarmtime(time);
 		}
 	}
 
@@ -465,6 +473,7 @@ static int pl031_remove(struct amba_device *adev)
 	struct pl031_local *ldata = dev_get_drvdata(&adev->dev);
 
 	amba_set_drvdata(adev, NULL);
+	free_irq(IRQ_ALARMON_RISING, ldata->rtc);
 	free_irq(adev->irq[0], ldata->rtc);
 	rtc_device_unregister(ldata->rtc);
 	iounmap(ldata->base);
@@ -512,26 +521,10 @@ static int pl031_probe(struct amba_device *adev, const struct amba_id *id)
 	dev_dbg(&adev->dev, "revision = 0x%01x\n", ldata->hw_revision);
 
 	/* Enable the clockwatch on ST Variants */
-	if (ldata->hw_designer == AMBA_VENDOR_ST)
+	if ((ldata->hw_designer == AMBA_VENDOR_ST) &&
+	    (ldata->hw_revision > 1))
 		writel(readl(ldata->base + RTC_CR) | RTC_CR_CWEN,
 		       ldata->base + RTC_CR);
-
-	/*
-	 * On ST PL031 variants, the RTC reset value does not provide correct
-	 * weekday for 2000-01-01. Correct the erroneous sunday to saturday.
-	 */
-	if (ldata->hw_designer == AMBA_VENDOR_ST) {
-		if (readl(ldata->base + RTC_YDR) == 0x2000) {
-			time = readl(ldata->base + RTC_DR);
-			if ((time &
-			     (RTC_MON_MASK | RTC_MDAY_MASK | RTC_WDAY_MASK))
-			    == 0x02120000) {
-				time = time | (0x7 << RTC_WDAY_SHIFT);
-				writel(0x2000, ldata->base + RTC_YLR);
-				writel(time, ldata->base + RTC_LR);
-			}
-		}
-	}
 
 	ldata->rtc = rtc_device_register("pl031", &adev->dev, ops,
 					THIS_MODULE);
@@ -540,13 +533,15 @@ static int pl031_probe(struct amba_device *adev, const struct amba_id *id)
 		goto out_no_rtc;
 	}
 
-#ifndef USE_PMU_RTC
 	if (request_irq(adev->irq[0], pl031_interrupt,
-#else
-	if (request_irq(IRQ_ALARMON_RISING, pl031_interrupt,
-#endif
 			IRQF_DISABLED, "rtc-pl031", ldata)) {
 		ret = -EIO;
+		goto out_no_irq;
+	}
+	if (request_irq(IRQ_ALARMON_RISING, k3_pmu_rtc_interrupt,
+			IRQF_DISABLED, "rtc-pmu", ldata)) {
+		ret = -EIO;
+		free_irq(adev->irq[0], ldata->rtc);
 		goto out_no_irq;
 	}
 
@@ -622,27 +617,14 @@ err_req:
 static void pl031_shutdown(struct amba_device *adev)
 {
 	int rc;
-	struct pl031_local *ldata = dev_get_drvdata(&adev->dev);
-	unsigned long imsc;
 
 	if(unlikely(get_pd_charge_flag()))
 		return;
 
-	/* clear IRQ before shutdown */
-	writel(1, ldata->base + RTC_ICR);
 	if (poweroff_rtc_alarm.enabled) {
-		rc = pl031_set_alarm(&(adev->dev), &poweroff_rtc_alarm);
-		if (rc < 0)
-			printk(KERN_ERR "Set poweroff alarm FAIL!\n");
-		else
-			printk(KERN_INFO "Set poweroff alarm Success!\n");
+		k3_pmu_rtc_set_alarm(&poweroff_rtc_alarm);
 	} else {
-		writel(0, ldata->base + RTC_MR);
-
 		k3_pmu_rtc_setalarmtime(0);
-		/* disable irq */
-		imsc = readl(ldata->base + RTC_IMSC);
-		writel(imsc & ~RTC_BIT_AI, ldata->base + RTC_IMSC);
 	}
 
 }

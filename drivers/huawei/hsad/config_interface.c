@@ -531,7 +531,7 @@ int get_motor_board_type(void)
 
 	return -1;
 }
-
+#if 0
 int get_wifi_wl18xx_dcdc_config(void)
 {
 	unsigned int type = 0;
@@ -591,7 +591,7 @@ int get_felica_board_type(void)
 
 	return -1;
 }
-
+#endif
 int get_uart_headset_type(void)
 {
         unsigned int type = E_UART_HEADSET_TYPE_NOT_SUPPORTED;
@@ -667,6 +667,32 @@ int get_touchkey_sensitivity(void)
     return -1;
 }
 
+int get_touchkey_sensitivity_glove(void)
+{
+    unsigned int type = 0;
+
+    bool ret = get_hw_config_int("touchkey/key_sensitivity_glove", &type, NULL);
+    HW_CONFIG_DEBUG("hsad: get_touchkey_sensitivity_glove = %d\n", type);
+    if (ret == true) {
+        return type;
+    }
+    return -1;
+}
+
+bool get_touchkey_enable(void)
+{
+    bool ret;
+    bool value=false;
+
+    ret = get_hw_config_bool("touchkey/touchkey_enable", &value, NULL);
+    if (ret == true){
+        return value;
+    }
+
+    /* default enable */
+    return false;
+}
+
 /* get correct axis align for touch begin*/
 int get_touchscreen_axis_align(void)
 {
@@ -692,19 +718,6 @@ int get_touchscreen_fw_type(void)
 		return type;
 
 	return -1;
-}
-
-
-int get_touchkey_sensitivity_glove(void)
-{
-    unsigned int type = 0;
-
-    bool ret = get_hw_config_int("touchkey/key_sensitivity_glove", &type, NULL);
-    HW_CONFIG_DEBUG("hsad: get_touchkey_sensitivity_glove = %d\n", type);
-    if (ret == true) {
-        return type;
-    }
-    return -1;
 }
 
 int get_vibrator_vout_number(void)
@@ -743,40 +756,12 @@ int get_vibrator_vout_max_voltage(void)
     return -1;
 }
 
-bool get_so340010_enable(void)
-{
-    bool ret;
-    bool value=false;
-
-    ret = get_hw_config_bool("touchkey/so340010_enable", &value, NULL);
-    if (ret == true){
-        return value;
-    }
-
-    /* default enable */
-    return true;
-}
-
 bool get_cyttsp4_enable(void)
 {
     bool ret;
     bool value=false;
 
     ret = get_hw_config_bool("touchscreen/cyttsp4_enable", &value, NULL);
-    if (ret == true){
-        return value;
-    }
-
-    /* default enable */
-    return true;
-}
-
-bool get_jdi_tk_enable(void)
-{
-    bool ret;
-    bool value=false;
-
-    ret = get_hw_config_bool("touchkey/jdi_tk_enable", &value, NULL);
     if (ret == true){
         return value;
     }
@@ -798,7 +783,7 @@ int get_camera_focus_key(void)
 
     return 0;
 }
-
+#if 0
 int get_u9700_ldo_ctrl(void)
 {
     unsigned int type = 0;
@@ -811,7 +796,7 @@ int get_u9700_ldo_ctrl(void)
 
     return -1;
 }
-
+#endif
 bool get_sd_enable(void)
 {
     bool ret;
@@ -824,6 +809,19 @@ bool get_sd_enable(void)
 
     /* default enable */
     return true;
+}
+
+int get_mate_new_lcd_type(void)
+{
+	unsigned int type = 0;
+
+	bool ret = get_hw_config_int("mate_lcd_type/type", &type, NULL);
+	HW_CONFIG_DEBUG("hsad: mate_new_lcd_type = %d, ret = %d\n", type, ret);
+	if (ret == true) {
+		return (int)type;
+	}
+
+	return -1;
 }
 
 bool get_pmu_out26m_enable(void)
@@ -873,4 +871,27 @@ bool is_modem_switch_support(void)
         }
     }
     return false;
+}
+
+bool is_smartpa_support(void)
+{
+    char name[MAX_KEY_LENGTH]={0};
+    if(get_hw_config_string("audio/spk_class", name, MAX_KEY_LENGTH, NULL)){
+        if (!strncmp(name, "DIGITAL_SPK", strlen("DIGITAL_SPK"))) {
+            return true;
+        }
+    }
+    return false;
+}
+
+int get_battery_removable(void)
+{
+    unsigned int type = 0;
+    bool ret = get_hw_config_int("battery/battery_removable", &type, NULL);
+    HW_CONFIG_DEBUG("hsad: battery_removable = %d\n", type);
+    if (ret == true) {
+            return (int)type;
+    }
+    /*default not removable*/
+    return 0;
 }

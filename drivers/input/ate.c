@@ -812,9 +812,14 @@ static void set_lcd_size_info(void )
     int i = 0;
     for(i = 0; i < ate_dt->ate_dev.input_dev_sum; i++) {
         if(0 == strcmp(ate_dt->idf.dev_name[0], ate_dt->ate_dev.input_dev_table[i]->name)) {
-            ate_dt->lcd_size.x_max = ate_dt->ate_dev.input_dev_table[i]->absinfo[ABS_MT_POSITION_X].maximum;
-            ate_dt->lcd_size.y_max = ate_dt->ate_dev.input_dev_table[i]->absinfo[ABS_MT_POSITION_Y].maximum;
-            printk("ate_dt->lcd_size.x_max = %d,ate_dt->lcd_size.y_max=%d\n",ate_dt->lcd_size.x_max,ate_dt->lcd_size.y_max);
+            if(ate_dt->ate_dev.input_dev_table[i]->absinfo){
+                ate_dt->lcd_size.x_max = ate_dt->ate_dev.input_dev_table[i]->absinfo[ABS_MT_POSITION_X].maximum;
+                ate_dt->lcd_size.y_max = ate_dt->ate_dev.input_dev_table[i]->absinfo[ABS_MT_POSITION_Y].maximum;
+                printk("ate_dt->lcd_size.x_max = %d,ate_dt->lcd_size.y_max=%d\n",ate_dt->lcd_size.x_max,ate_dt->lcd_size.y_max);
+            }
+            else{
+                printk("ate_dt->ate_dev.input_dev_table->absinfo is a NULL pointer\n");
+            }
             break ;
         }
     }

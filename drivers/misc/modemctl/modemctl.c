@@ -81,13 +81,17 @@ static ssize_t modem_control_write(struct file *file,
     int ret=0;
     char buf[32];
     size_t buf_size;
-    unsigned int value;
-	
+    int value = 0;
+
     memset(buf,0,32);
     buf_size = min(count, (sizeof(buf)-1));
     if (copy_from_user(buf, user_buf, buf_size))
 	    return -EFAULT;
-    kstrtoint(buf, 10, &value);
+    ret = kstrtoint(buf, 10, &value);
+    if(ret < 0) {
+        loge("%s: kstrtoint error", __FUNCTION__);
+        goto err_exit;
+    }
 
     if(value){
     	ret = blockmux_set(modemctl_iomux_block, modemctl_block_config, NORMAL);

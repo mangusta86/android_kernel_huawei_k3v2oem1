@@ -21,6 +21,8 @@
 
 /*----local macroes------------------------------------------------------------------*/
 
+#define SRECORDER_CTRL_BIT63 ((unsigned long)0x3f) /* 63 */
+
 
 /*----local prototypes----------------------------------------------------------------*/
 
@@ -76,7 +78,103 @@ static unsigned long long s_log_type_bits = 0ULL;
 /*----local function prototypes---------------------------------------------------------*/
 
 /**
-    @function: void srecorder_set_bit(unsigned long bit)
+    @function: void srecorder_enable(unsigned long bit)
+    @brief: enable SRecorder
+
+    @param: none 
+    
+    @return: none
+
+    @note: 
+*/
+void srecorder_enable(void)
+{
+    s_log_type_bits |= ((unsigned long long)1 << SRECORDER_CTRL_BIT63);
+}
+
+
+/**
+    @function: void srecorder_disable(unsigned long bit)
+    @brief: disable SRecorder
+
+    @param: bit 
+    
+    @return: none
+
+    @note: 
+*/
+void srecorder_disable(void)
+{
+    s_log_type_bits &= (~((unsigned long long)1 << SRECORDER_CTRL_BIT63));
+}
+
+
+/**
+    @function: bool srecorder_has_been_enabled(unsigned long bit)
+    @brief: check if SRecorder has been enabled
+
+    @param: bit 
+    
+    @return: none
+
+    @note: 
+*/
+bool srecorder_has_been_enabled(void)
+{
+    return ((unsigned long long)0x0 != (s_log_type_bits & (((unsigned long long)1 << SRECORDER_CTRL_BIT63)))) ? (true) : (false);
+}
+
+
+/**
+    @function: void srecorder_set_log_dumped_bit(unsigned long bit)
+    @brief: set bit to indicate that log with some type has been dumped completely
+
+    @param: bit 
+    
+    @return: none
+
+    @note: 
+*/
+void srecorder_set_log_dumped_bit(unsigned long bit)
+{
+    s_log_type_bits |= ((unsigned long long)1 << bit);
+}
+
+
+/**
+    @function: void srecorder_clear_log_dumped_bit(unsigned long bit)
+    @brief: clear some bit to indicate that log with some type has not been dumped
+
+    @param: bit 
+    
+    @return: none
+
+    @note: 
+*/
+void srecorder_clear_log_dumped_bit(unsigned long bit)
+{
+    s_log_type_bits &= (~((unsigned long long)1 << bit));
+}
+
+
+/**
+    @function: bool srecorder_log_has_been_dumped(unsigned long bit)
+    @brief: check if log with some type has been dumped or not
+
+    @param: bit 
+    
+    @return: a unsigned long long num
+
+    @note: 
+*/
+bool srecorder_log_has_been_dumped(unsigned long bit)
+{
+    return ((unsigned long long)0x0 != (s_log_type_bits & (((unsigned long long)1 << bit)))) ? (true) : (false);
+}
+
+
+/**
+    @function: void srecorder_set_dump_enable_bit(unsigned long bit)
     @brief: 设置位
 
     @param: bit 
@@ -85,14 +183,23 @@ static unsigned long long s_log_type_bits = 0ULL;
 
     @note: 
 */
-void srecorder_set_bit(unsigned long bit)
+void srecorder_set_dump_enable_bit(unsigned long bit)
 {
-    s_log_type_bits |= (1 << bit);
+    srecorder_reserved_mem_info_t *pmem_info = srecorder_get_reserved_mem_info();
+    srecorder_reserved_mem_header_t *pmem_header = NULL;
+    if ((int)bit > LOG_TYPE_MAX)
+    {
+        return;
+    }
+    spin_lock(&(pmem_info->lock));
+    pmem_header = (srecorder_reserved_mem_header_t *)srecorder_get_reserved_mem_addr();
+    pmem_header->dump_ctrl_bits[bit / 32] |= ((unsigned long)1 << (bit % 32));
+    spin_unlock(&(pmem_info->lock));
 }
 
 
 /**
-    @function: void srecorder_set_bit(unsigned long bit)
+    @function: void srecorder_clear_dump_enable_bit(unsigned long bit)
     @brief: 清除位
 
     @param: bit 
@@ -101,14 +208,25 @@ void srecorder_set_bit(unsigned long bit)
 
     @note: 
 */
-void srecorder_clear_bit(unsigned long bit)
+void srecorder_clear_dump_enable_bit(unsigned long bit)
 {
-    s_log_type_bits &= (~(1 << bit));
+    srecorder_reserved_mem_info_t *pmem_info = srecorder_get_reserved_mem_info();
+    srecorder_reserved_mem_header_t *pmem_header = NULL;
+    
+    if ((int)bit > LOG_TYPE_MAX)
+    {
+        return;
+    }
+    
+    spin_lock(&(pmem_info->lock));
+    pmem_header = (srecorder_reserved_mem_header_t *)srecorder_get_reserved_mem_addr();
+    pmem_header->dump_ctrl_bits[bit / 32] &= (~((unsigned long)1 << (bit % 32)));
+    spin_unlock(&(pmem_info->lock));
 }
 
 
 /**
-    @function: unsigned long srecorder_get_bit(unsigned long bit)
+    @function: bool srecorder_dump_enable_bit_has_been_set(unsigned long bit)
     @brief: 获取某一位的值
 
     @param: bit 
@@ -117,9 +235,17 @@ void srecorder_clear_bit(unsigned long bit)
 
     @note: 
 */
-unsigned long srecorder_get_bit(unsigned long bit)
+bool srecorder_dump_enable_bit_has_been_set(unsigned long bit)
 {
-    return s_log_type_bits & (1 << bit);
+    srecorder_reserved_mem_header_t *pmem_header = NULL;
+    
+    if ((int)bit > LOG_TYPE_MAX)
+    {
+        return false;
+    }
+    
+    pmem_header = (srecorder_reserved_mem_header_t *)srecorder_get_reserved_mem_addr();
+    return ((unsigned long)0x0 != (pmem_header->dump_ctrl_bits[bit / 32] & (((unsigned long)1 << (bit % 32))))) ? (true) : (false);
 }
 
 

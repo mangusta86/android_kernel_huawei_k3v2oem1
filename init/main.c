@@ -68,7 +68,6 @@
 #include <linux/shmem_fs.h>
 #include <linux/slab.h>
 #include <linux/perf_event.h>
-#include <linux/random.h>
 
 #include <asm/io.h>
 #include <asm/bugs.h>
@@ -81,6 +80,7 @@
 #endif
 
 #ifdef CONFIG_SRECORDER
+#include <linux/module.h>
 #include <linux/srecorder.h>
 #endif
 
@@ -470,7 +470,7 @@ void move_srecorder_log(void)
 {
     int mem_header_size = sizeof(srecorder_reserved_mem_header_t);
     int bytes_to_write = 0;
-    char *psrc = __va(PHYS_OFFSET + CONFIG_SRECORDER_TEMPBUF_ADDR_FROM_PHYS_OFFSET);
+    char *psrc = __va(PLAT_PHYS_OFFSET + CONFIG_SRECORDER_TEMPBUF_ADDR_FROM_PHYS_OFFSET);
     srecorder_reserved_mem_header_t *pheader = (srecorder_reserved_mem_header_t *)psrc;
 
     if ((srecorder_get_crc32((unsigned char *)pheader, mem_header_size - sizeof(pheader->crc32) 
@@ -478,8 +478,9 @@ void move_srecorder_log(void)
         || (SRECORDER_MAGIC_NUM != pheader->magic_num))
     {
         /* invalid log, return */
-        printk("~_~_~_~ [SRecorder]: Invalid magic number: %08lx, valid data length: %lu\n", 
-            pheader->magic_num, pheader->data_length);
+        printk("~_~_~_~ [SRecorder]: Magic number=%08lx reset flag %lu data length=%lu "
+            "original CRC=%08lx boot CRC=%08lx\n", pheader->magic_num, pheader->reset_flag, 
+            pheader->data_length, pheader->crc32, pheader->reserved_mem_size);
         return;
     }
 
@@ -492,7 +493,7 @@ void move_srecorder_log(void)
     }
 
     memcpy(psrecorder_temp_buf, psrc, bytes_to_write);
-    memset(psrc, 0, bytes_to_write);
+    memset(pheader, 0, mem_header_size - sizeof(pheader->reserved));
 }
 #endif
 
@@ -591,6 +592,9 @@ asmlinkage void __init start_kernel(void)
 				 "enabled early\n");
 	early_boot_irqs_disabled = false;
 	local_irq_enable();
+
+	/* Interrupts are enabled now so all GFP allocations are safe. */
+	gfp_allowed_mask = __GFP_BITS_MASK;
 
 	kmem_cache_init_late();
 
@@ -764,7 +768,6 @@ static void __init do_basic_setup(void)
 	init_irq_proc();
 	do_ctors();
 	do_initcalls();
-	random_int_secret_init();
 }
 
 static void __init do_pre_smp_initcalls(void)
@@ -828,10 +831,6 @@ static int __init kernel_init(void * unused)
 	 * Wait until kthreadd is all set-up.
 	 */
 	wait_for_completion(&kthreadd_done);
-
-	/* Now the scheduler is fully set up and can do blocking allocations */
-	gfp_allowed_mask = __GFP_BITS_MASK;
-
 	/*
 	 * init can allocate pages on any node
 	 */

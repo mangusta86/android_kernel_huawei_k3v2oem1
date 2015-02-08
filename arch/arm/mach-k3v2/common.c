@@ -373,7 +373,7 @@ MODULE_FUNCS_DEFINE(UART0)
 MODULE_FUNCS_DEFINE(UART1)
 MODULE_FUNCS_DEFINE(UART2)
 MODULE_FUNCS_DEFINE(UART3)
-//MODULE_FUNCS_DEFINE(UART4)
+MODULE_FUNCS_DEFINE(UART4)
 MODULE_FUNCS_DELAY_SDA_DEFINE(I2C0)
 MODULE_FUNCS_DELAY_SDA_DEFINE(I2C1)
 MODULE_FUNCS_DELAY_SDA_DEFINE(I2C2)
@@ -404,11 +404,11 @@ MODULE_FUNCS_DEFINE(SPI0_3_CS)
 #define UART2_dma_filter  k3_def_dma_filter
 #define UART3_dma_filter  k3_def_dma_filter
 #define UART4_dma_filter  k3_def_dma_filter
-#define UART4_exit        NULL    
-static void UART4_init(void)  
-{
-	common_block_set(UART4_BLOCK_NAME, NORMAL);  
-}
+//#define UART4_exit        NULL    
+//static void UART4_init(void)  
+//{
+//	common_block_set(UART4_BLOCK_NAME, NORMAL);  
+//}
 
 #define K3_UART_PLAT_DATA(dev_name, flag)				\
 	{								\
@@ -473,10 +473,10 @@ static void k3v2_spidev3_cs_set(u32 control)
 		writel(SEL_SPI0_NO_CS, IO_ADDRESS(REG_BASE_PCTRL) + 0x00);
 }
 
-static void k3v2_spidev4_cs_set(u32 control)
-{
-	pr_debug("k3v2_spidev4_cs_set: control = %d\n", control);
-}
+//static void k3v2_spidev4_cs_set(u32 control)
+//{
+//	pr_debug("k3v2_spidev4_cs_set: control = %d\n", control);
+//}
 
 #define PL022_CONFIG_CHIP(id)						\
 static struct pl022_config_chip spidev##id##_chip_info = {		\
@@ -497,7 +497,7 @@ PL022_CONFIG_CHIP(1);
 PL022_CONFIG_CHIP(2);
 PL022_CONFIG_CHIP(3);
 
-PL022_CONFIG_CHIP(4);
+//PL022_CONFIG_CHIP(4);
 #define K3_SPI_PLAT_DATA(dev_name, num_id, num_cs, en_dma)		\
 	{								\
 		.bus_id = num_id,					\
@@ -512,7 +512,7 @@ PL022_CONFIG_CHIP(4);
 
 static struct pl022_ssp_controller spi_plat_data[] = {
 	K3_SPI_PLAT_DATA(SPI0, 0, 4, 1),
-	K3_SPI_PLAT_DATA(SPI1, 1, 1, 1),
+	K3_SPI_PLAT_DATA(SPI1, 1, 0, 0),
 };
 
 
@@ -548,27 +548,10 @@ static int k3v2_spi_board_register(void)
 			.chip_select = 3,
 			.controller_data = &spidev3_chip_info,
 		},
-	};
-	return spi_register_board_info(info, ARRAY_SIZE(info));
-}
-
-static int k3v2_spi1_board_register(void)
-{
-/*
-	static struct spi_board_info info[] = {
-
-        [0] = {
-            .modalias = "sprd_modem_spi3.0",
-            .max_speed_hz   = 13000000,
-            .bus_num           = 1,
-            .chip_select         = 0,
-            .controller_data = &spidev4_chip_info,
-              },
 
 	};
 
 	return spi_register_board_info(info, ARRAY_SIZE(info));
-*/
 }
 
 #define AMBA_DEVICE(name, busid, base, plat)			\
@@ -593,7 +576,7 @@ AMBA_DEVICE(uart2, "amba-uart.2", UART2, &uart_plat_data[2]);
 AMBA_DEVICE(uart3, "amba-uart.3", UART3, &uart_plat_data[3]);
 AMBA_DEVICE(uart4, "amba-uart.4", UART4, &uart_plat_data[4]);
 AMBA_DEVICE(spi0, "dev:ssp0", SPI0, &spi_plat_data[0]);
-AMBA_DEVICE(spi1, "dev:ssp1", SPI1, &spi_plat_data[1]);
+//AMBA_DEVICE(spi1, "dev:ssp1", SPI1, &spi_plat_data[1]);
 
 /* USB EHCI Host Controller */
 static struct resource hisik3_usb_ehci_resource[] = {
@@ -1176,7 +1159,7 @@ static struct amba_device *amba_devs[] __initdata = {
 	&uart3_device,
 	&uart4_device,
 	&spi0_device,
-	&spi1_device,
+//	&spi1_device,
 	&rtc_device,
 	&gpio0_device,
 	&gpio1_device,
@@ -1695,30 +1678,7 @@ static int sdio_cd_cleanup(void (*notify_func)(struct platform_device *,
 }
 
 //z00186406 add to config wifi's capability begin
-#if 0
 static struct hisik3_mmc_platform_data sdio_plat_data = {
-	.ocr_mask = MMC_VDD_165_195,
-	.caps = MMC_CAP_4_BIT_DATA | MMC_CAP_POWER_OFF_CARD
-                    | MMC_CAP_NONREMOVABLE | MMC_CAP_SD_HIGHSPEED,
-	.quirks = MSHCI_QUIRK_TI_WL18XX,
-	.ext_cd_init = NULL,
-	.ext_cd_cleanup = NULL,
-	.set_power = NULL,
-	.clk_name = "clk_mmc3",
-	.iomux_name = "block_sdio",
-	.reg_name = NULL,
-	.signal_reg_name = NULL,
-	.timing_config = &mmc3_timing_config[0][0],
-	.init_tuning_config = &mmc3_init_tuning_config[0][0],
-	.suspend_timing_config = 0x9,
-	.default_signal_voltage = MMC_SIGNAL_VOLTAGE_180,
-	.allow_switch_signal_voltage = 0,
-};
-#endif
-//z00186406 add to config wifi's capability end
-
-/* EternityProject: Implement BCM WiFi device: SDIO. */
- static struct hisik3_mmc_platform_data sdio_plat_data = {
 	.ocr_mask = MMC_VDD_165_195	| MMC_VDD_27_28 | MMC_VDD_28_29
 		| MMC_VDD_29_30 | MMC_VDD_30_31
 		| MMC_VDD_31_32 | MMC_VDD_34_35
@@ -1732,15 +1692,15 @@ static struct hisik3_mmc_platform_data sdio_plat_data = {
 	.set_power = NULL,
 	.clk_name = "clk_mmc3",
 	.iomux_name = "block_sdio",
-        .iomux_name = "block_sdio",
-        .reg_name = NULL,
-        .signal_reg_name = NULL,
-        .timing_config = &mmc3_timing_config[0][0],
-        .init_tuning_config = &mmc3_init_tuning_config[0][0],
-        .suspend_timing_config = 0x9,
-        .default_signal_voltage = MMC_SIGNAL_VOLTAGE_180,
-        .allow_switch_signal_voltage = 0,
+	.reg_name = NULL,
+	.signal_reg_name = NULL,
+	.timing_config = &mmc3_timing_config[0][0],
+	.init_tuning_config = &mmc3_init_tuning_config[0][0],
+	.suspend_timing_config = 0x9,
+	.default_signal_voltage = MMC_SIGNAL_VOLTAGE_180,
+	.allow_switch_signal_voltage = 0,
 };
+//z00186406 add to config wifi's capability end
 
 /* sdio device */
 static struct platform_device hisik3_sdio_device = {
@@ -2399,7 +2359,7 @@ void __init hisik3_amba_init(void)
 	edb_trace(1);
 
 	k3v2_spi_board_register();
-	k3v2_spi1_board_register();
+//	k3v2_spi1_board_register();
 
 	for (i = 0; i < ARRAY_SIZE(amba_devs); i++) {
 		struct amba_device *d = amba_devs[i];

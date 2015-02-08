@@ -50,8 +50,8 @@ const char *usbcore_name = "usbcore";
 static int nousb;	/* Disable USB when built into kernel image */
 
 #ifdef	CONFIG_USB_SUSPEND
-static int usb_autosuspend_delay = 2;		/* Default delay value,
-						 * in seconds */
+static int usb_autosuspend_delay = 2000;		/* Default delay value,
+						 * in milliseconds */
 module_param_named(autosuspend, usb_autosuspend_delay, int, 0644);
 MODULE_PARM_DESC(autosuspend, "default autosuspend delay");
 
@@ -451,7 +451,7 @@ struct usb_device *usb_alloc_dev(struct usb_device *parent,
 
 #ifdef	CONFIG_PM
 	pm_runtime_set_autosuspend_delay(&dev->dev,
-			usb_autosuspend_delay * 1000);
+			usb_autosuspend_delay);
 	dev->connect_time = jiffies;
 	dev->active_duration = -jiffies;
 #endif

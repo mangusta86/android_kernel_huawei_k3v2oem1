@@ -20,8 +20,10 @@
 #define BQ27510_REG_TTE     (0x16)
 /*Time to Full*/
 #define BQ27510_REG_TTF     (0x18)
-/* State-of-Charge */
-#define BQ27510_REG_SOC     (0x2C)
+/* State-of-Charge U3 */
+#define BQ27510_U3_REG_SOC     (0x2c)
+/* State-of-Charge G3*/
+#define BQ27510_G3_REG_SOC     (0x20)
 /*Average Current*/
 #define BQ27510_REG_AI      (0x14)
 /*Remainning Capacity*/
@@ -34,6 +36,8 @@
 #define BQ27510_REG_CTRL    (0x00)
 /*Control Status*/
 #define BQ27510_REG_CTRS    (0x0000)
+/*FW-version*/
+#define BQ27510_FW_VISION   (0x0002)
 /*Data Flash Class*/
 #define BQ27510_REG_DFCLS      (0x3e)
 #define BQ27510_REG_CLASS_ID     (82)
@@ -47,6 +51,7 @@
 /* Full-charged bit */
 #define BQ27510_FLAG_FC               (1<<9)
 #define BQ27510_FLAG_DET              (1<<3)
+#define BQ27510_OCV_GD                (1<<5)
 /* Over-Temperature-Charge bit */
 #define BQ27510_FLAG_OTC              (1<<15)
 /* Over-Temperature-Discharge bit */
@@ -83,10 +88,15 @@
 #define BSP_FIRMWARE_DOWNLOAD_MODE          (0xDDDDDDDD)
 #define BSP_NORMAL_MODE                     (0x00)
 
+#define BQ27510_U3_FW_VISION                (0x0226)
+#define BQ27510_G3_FW_VISION                (0x0400)
+
 #define DISABLE_ACCESS_TIME                 (2000)
 /* this number is equal to -20 degree*/
 #define BATTERY_TEMPERATURE_COLD            (-20)
 /* added for Firmware upgrade end */
+#define BAT_VOL_3400    (3400)
+#define BAT_VOL_3450    (3450)
 #define BAT_VOL_3500    (3500)
 #define BAT_VOL_3550    (3550)
 #define BAT_VOL_3600    (3600)

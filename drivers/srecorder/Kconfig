@@ -1,6 +1,5 @@
 menuconfig SRECORDER
 	bool "SRecorder"
-	default y
 	help
 		SRecorder is used to save panic log when kernel crash
 
@@ -58,6 +57,10 @@ config CPU_FREQ_DEFAULT_VALUE
 
 config POWERCOLLAPSE
 	bool "Save dmesg after power collapse"
+if POWERCOLLAPSE
+config DUMP_LOGCAT
+	bool "Save logcat after power collapse"
+endif
 
 config SRECORDER_VERSION
 	string "SRecorder's version"

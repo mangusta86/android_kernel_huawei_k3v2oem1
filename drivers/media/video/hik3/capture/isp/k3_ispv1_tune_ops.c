@@ -70,8 +70,8 @@
 k3_isp_data *this_ispdata;
 static bool camera_ajustments_flag;
 
-static int scene_target_y_low = DEFAULT_TARGET_Y_LOW;
-static int scene_target_y_high = DEFAULT_TARGET_Y_HIGH;
+static int scene_target_y_low;
+static int scene_target_y_high;
 bool fps_lock;
 
 /* < zhoutian 00195335 2013-03-02 added for SuperZoom-LowLight begin */
@@ -85,42 +85,132 @@ static int ispv1_set_frame_rate(camera_frame_rate_mode mode, camera_sensor *sens
 static void ispv1_uv_stat_work_func(struct work_struct *work);
 struct workqueue_struct *uv_stat_work_queue;
 struct work_struct uv_stat_work;
-/*
-set parameter for products
-FLASH_CAP_RAW_OVER_EXPO
-DEFAULT_TARGET_Y_FLASH
-*/
-u32 flash_cap_raw_over_expo;
-u32 default_target_y_flash;
-#define EDGE_FLASH_CAP_RAW_OVER_EXPO  0xc0
-#define EDGE_DEFAULT_TARGET_Y_FLASH      0x28
+
+
+static u32 flash_cap_raw_over_expo;
+static u32 default_target_y_flash;
+static u32 default_target_y_low;
+static u32 default_target_y_high;
+
+
+#define FLASH_PREFLASH_LOWLIGHT_TH	0x20
+#define FLASH_PREVIEW_LOWCT_TH		0x140
+#define FLASH_CAP_RAW_OVER_EXPO		0xe0
+#define DEFAULT_TARGET_Y_FLASH		0x30
+#define DEFAULT_TARGET_Y_LOW			0x30
+#define DEFAULT_TARGET_Y_HIGH			0x50
+
+//for EDGE
+#define EDGE_FLASH_CAP_RAW_OVER_EXPO	0x80
+#define EDGE_DEFAULT_TARGET_Y_FLASH		0x26
+#define EDGE_DEFAULT_TARGET_Y_LOW		0x30
+#define EDGE_DEFAULT_TARGET_Y_HIGH		0x50
+
+//for MATE
+#define MATE_FLASH_CAP_RAW_OVER_EXPO	0xe0
+#define MATE_DEFAULT_TARGET_Y_FLASH		0x30
+#define MATE_DEFAULT_TARGET_Y_LOW		0x2c
+#define MATE_DEFAULT_TARGET_Y_HIGH		0x4c
+
+#define D2_FLASH_CAP2PRE_RATIO	0x03
+u32 THRE_BLACK_NUM;
+u32 THRE_BLACK_NUM_MIN;
+u32 THRE_BL;
+u32 THRE_BR;
+u32 THRE_BRIGHT_NUM;
+u32 THRE_BRIGHT_NUM1;
+u32 THRE_PREFLASH_LUMA;
+u32 THRE_PREFLASH_LUMA1;
+u32 THRE_AFVALUE;
+u32 THRE_PREFLASH_LUMA_SUM;
+u32 DELTA_TARGET;
+u32 LOW_TARGET;
+
+u32 preflashLuma = 0;
+
+#define EDGE_FLASH_LOW_TARGET 0x12
+#define EDGE_FLASH_THRE_BLACK_NUM 10
+#define EDGE_FLASH_THRE_BLACK_NUM_MIN 5
+#define EDGE_FLASH_THRE_BL  16
+#define EDGE_FLASH_THRE_BR  100
+#define EDGE_FLASH_THRE_BRIGHT_NUM 5
+#define EDGE_FLASH_THRE_BRIGHT_NUM1 12
+#define EDGE_FLASH_THRE_PREFLASH_LUMA 20
+#define EDGE_FLASH_THRE_PREFLASH_LUMA1 10
+#define EDGE_FLASH_THRE_AFVALUE 200
+#define EDGE_FLASH_THRE_PREFLASH_LUMA_SUM 480
+#define EDGE_FLASH_DELTA_TARGET 22
+
+#define FLASH_LOW_TARGET 0x12
+#define FLASH_THRE_BLACK_NUM 10
+#define FLASH_THRE_BLACK_NUM_MIN 5
+#define FLASH_THRE_BL  16
+#define FLASH_THRE_BR  100
+#define FLASH_THRE_BRIGHT_NUM 5
+#define FLASH_THRE_BRIGHT_NUM1 12
+#define FLASH_THRE_PREFLASH_LUMA 20
+#define FLASH_THRE_PREFLASH_LUMA1 10
+#define FLASH_THRE_AFVALUE 200
+#define FLASH_THRE_PREFLASH_LUMA_SUM 480
+#define FLASH_DELTA_TARGET 22
+
 void set_tune_parameter_for_product(void)
 {
-	if(product_type("UEDGE"))
-	{
+	if(product_type("EDGE")||product_type("UEDGE")||product_type("CEDGED")||product_type("TEDGE")){
 		flash_cap_raw_over_expo = EDGE_FLASH_CAP_RAW_OVER_EXPO;
 		default_target_y_flash = EDGE_DEFAULT_TARGET_Y_FLASH;
-	}
-	else if(product_type("TEDGE"))
-	{
-		flash_cap_raw_over_expo = EDGE_FLASH_CAP_RAW_OVER_EXPO;
-		default_target_y_flash = EDGE_DEFAULT_TARGET_Y_FLASH;
-	}
-	else if(product_type("CEDGED")) 
-	{
-		flash_cap_raw_over_expo = EDGE_FLASH_CAP_RAW_OVER_EXPO;
-		default_target_y_flash = EDGE_DEFAULT_TARGET_Y_FLASH;
-	}
-	else if(product_type("UEDGE_G"))
-	{
-		flash_cap_raw_over_expo = EDGE_FLASH_CAP_RAW_OVER_EXPO;
-		default_target_y_flash = EDGE_DEFAULT_TARGET_Y_FLASH;
-	}
-	else
-	{
+		default_target_y_low = EDGE_DEFAULT_TARGET_Y_LOW;
+		default_target_y_high = EDGE_DEFAULT_TARGET_Y_HIGH;
+		LOW_TARGET = EDGE_FLASH_LOW_TARGET;
+		THRE_BLACK_NUM = EDGE_FLASH_THRE_BLACK_NUM;
+		THRE_BLACK_NUM_MIN = EDGE_FLASH_THRE_BLACK_NUM_MIN;
+		THRE_BL = EDGE_FLASH_THRE_BL;
+		THRE_BR = EDGE_FLASH_THRE_BR;
+		THRE_BRIGHT_NUM = EDGE_FLASH_THRE_BRIGHT_NUM;
+		THRE_BRIGHT_NUM1 = EDGE_FLASH_THRE_BRIGHT_NUM1;
+		THRE_PREFLASH_LUMA = EDGE_FLASH_THRE_PREFLASH_LUMA;
+		THRE_PREFLASH_LUMA1 = EDGE_FLASH_THRE_PREFLASH_LUMA1;
+		THRE_AFVALUE = EDGE_FLASH_THRE_AFVALUE;
+		THRE_PREFLASH_LUMA_SUM = EDGE_FLASH_THRE_PREFLASH_LUMA_SUM;
+		DELTA_TARGET = EDGE_FLASH_DELTA_TARGET;
+	}else if(product_type("9900")||product_type("U9900")||product_type("U9900L")||product_type("T9900")){
+		flash_cap_raw_over_expo = MATE_FLASH_CAP_RAW_OVER_EXPO;
+		default_target_y_flash = MATE_DEFAULT_TARGET_Y_FLASH;
+		default_target_y_low = MATE_DEFAULT_TARGET_Y_LOW;
+		default_target_y_high = MATE_DEFAULT_TARGET_Y_HIGH;
+		LOW_TARGET = FLASH_LOW_TARGET;
+		THRE_BLACK_NUM = FLASH_THRE_BLACK_NUM;
+		THRE_BLACK_NUM_MIN = FLASH_THRE_BLACK_NUM_MIN;
+		THRE_BL = FLASH_THRE_BL;
+		THRE_BR = FLASH_THRE_BR;
+		THRE_BRIGHT_NUM = FLASH_THRE_BRIGHT_NUM;
+		THRE_BRIGHT_NUM1 = FLASH_THRE_BRIGHT_NUM1;
+		THRE_PREFLASH_LUMA = FLASH_THRE_PREFLASH_LUMA;
+		THRE_PREFLASH_LUMA1 = FLASH_THRE_PREFLASH_LUMA1;
+		THRE_AFVALUE = FLASH_THRE_AFVALUE;
+		THRE_PREFLASH_LUMA_SUM = FLASH_THRE_PREFLASH_LUMA_SUM;
+		DELTA_TARGET = FLASH_DELTA_TARGET;
+	}else{
 		flash_cap_raw_over_expo = FLASH_CAP_RAW_OVER_EXPO;
 		default_target_y_flash = DEFAULT_TARGET_Y_FLASH;
+		default_target_y_low = DEFAULT_TARGET_Y_LOW;
+		default_target_y_high = DEFAULT_TARGET_Y_HIGH;
+		LOW_TARGET = FLASH_LOW_TARGET;
+		THRE_BLACK_NUM = FLASH_THRE_BLACK_NUM;
+		THRE_BLACK_NUM_MIN = FLASH_THRE_BLACK_NUM_MIN;
+		THRE_BL = FLASH_THRE_BL;
+		THRE_BR = FLASH_THRE_BR;
+		THRE_BRIGHT_NUM = FLASH_THRE_BRIGHT_NUM;
+		THRE_BRIGHT_NUM1 = FLASH_THRE_BRIGHT_NUM1;
+		THRE_PREFLASH_LUMA = FLASH_THRE_PREFLASH_LUMA;
+		THRE_PREFLASH_LUMA1 = FLASH_THRE_PREFLASH_LUMA1;
+		THRE_AFVALUE = FLASH_THRE_AFVALUE;
+		THRE_PREFLASH_LUMA_SUM = FLASH_THRE_PREFLASH_LUMA_SUM;
+		DELTA_TARGET = FLASH_DELTA_TARGET;
 	}
+
+	scene_target_y_low = default_target_y_low;
+	scene_target_y_high = default_target_y_high;
 }
 
 /*
@@ -228,6 +318,16 @@ int ispv1_set_iso(camera_iso iso)
 	}
 	/* zhoutian 00195335 2013-03-02 added for SuperZoom-LowLight end > */
 
+	// MANUAL ISO need to change to next step when sensor's binning model is BINNING_AVERAGE,
+	// the case is developed for iso 50 match 1X gain.
+	if(BINNING_AVERAGE== sensor->support_binning_type)
+	{
+		if(CAMERA_ISO_AUTO != iso)
+		{
+			iso = iso+1;
+		}
+	}
+
 	/* ISO is to change sensor gain, but is not same */
 	switch (iso) {
 	case CAMERA_ISO_AUTO:
@@ -264,6 +364,12 @@ int ispv1_set_iso(camera_iso iso)
 		/* max and min iso should be fixed ISO800 */
 		max_iso = 775;
 		min_iso = 650;
+		break;
+
+	case CAMERA_ISO_1600:
+		/* max and min iso should be fixed ISO1600 */
+		max_iso = 1600;
+		min_iso = 1400;
 		break;
 
 	default:
@@ -379,6 +485,38 @@ int ispv1_get_actual_iso(void)
 	int iso;
 	int index;
 	bool binning;
+	int iso_old;
+	if (isp_hw_data.cur_state == STATE_PREVIEW) {
+		index = sensor->preview_frmsize_index;
+		gain = get_writeback_gain();
+	} else {
+		index = sensor->capture_frmsize_index;
+		gain = get_writeback_cap_gain();
+	}
+	binning = sensor->frmsize_list[index].binning;
+
+	iso_old = ispv1_gain2iso(gain, binning);
+
+	if(BINNING_AVERAGE== sensor->support_binning_type)
+	{
+		iso = iso_old /2;
+	}
+	else
+	{
+		iso = iso_old;
+	}
+
+	print_info("gain = %x,iso_old = %d,iso = %d",gain,iso_old,iso);
+	return iso;
+}
+
+int ispv1_get_algorithm_iso(void)
+{
+	camera_sensor *sensor = this_ispdata->sensor;
+	u16 gain;
+	int iso;
+	int index;
+	bool binning;
 
 	if (isp_hw_data.cur_state == STATE_PREVIEW) {
 		index = sensor->preview_frmsize_index;
@@ -453,6 +591,8 @@ int ispv1_get_exposure_time(void)
 	denominator_expo_time = ispv1_expo_line2time(expo, fps, vts);
 	return denominator_expo_time;
 }
+
+
 u32 ispv1_get_awb_gain(int withShift)
 {
 	u16 b_gain, r_gain;
@@ -631,19 +771,19 @@ void ispv1_calc_ev(u8 *target_low, u8 *target_high, int ev)
 #ifdef OVISP_DEBUG_MODE
 	return 0;
 #endif
-	int target_y_low = DEFAULT_TARGET_Y_LOW;
-	int target_y_high = DEFAULT_TARGET_Y_HIGH;
+	u32 target_y_low = default_target_y_low;
+	u32 target_y_high = default_target_y_high;
 
 	switch (ev) {
 	case -2:
-		target_y_low = DEFAULT_TARGET_Y_LOW - 0x10;
+		target_y_low = default_target_y_low - 0x10;
 		target_y_low *= (EV_RATIO_NUMERATOR * EV_RATIO_NUMERATOR);
 		target_y_low /= (EV_RATIO_DENOMINATOR * EV_RATIO_DENOMINATOR);
 		target_y_high = target_y_low + 2;
 		break;
 
 	case -1:
-		target_y_low = DEFAULT_TARGET_Y_LOW - 0x06;
+		target_y_low = default_target_y_low - 0x06;
 		target_y_low *= EV_RATIO_NUMERATOR;
 		target_y_low /= EV_RATIO_DENOMINATOR;
 		target_y_high = target_y_low + 2;
@@ -653,14 +793,14 @@ void ispv1_calc_ev(u8 *target_low, u8 *target_high, int ev)
 		break;
 
 	case 1:
-		target_y_low = DEFAULT_TARGET_Y_LOW + 0x18;
+		target_y_low = default_target_y_low + 0x18;
 		target_y_low *= EV_RATIO_DENOMINATOR;
 		target_y_low /= EV_RATIO_NUMERATOR;
 		target_y_high = target_y_low + 2;
 		break;
 
 	case 2:
-		target_y_low = DEFAULT_TARGET_Y_LOW + 0x0e;
+		target_y_low = default_target_y_low + 0x0e;
 		target_y_low *= (EV_RATIO_DENOMINATOR * EV_RATIO_DENOMINATOR);
 		target_y_low /= (EV_RATIO_NUMERATOR * EV_RATIO_NUMERATOR);
 		target_y_high = target_y_low + 2;
@@ -941,7 +1081,7 @@ int ispv1_get_extra_coff(extra_coff *extra_data)
 
 	extra_data->focal_length = ispv1_get_focus_distance();
 	extra_data->af_window_change = GETREG8(0x1cdd2);
-	
+
 	print_debug("mean_y = %d, motion_x = %d, motion_y = %d \n", extra_data->mean_y, extra_data->motion_x, extra_data->motion_y);
 	print_debug("focal_length = %d \n", extra_data->focal_length);
 
@@ -962,7 +1102,7 @@ int ispv1_get_ae_coff(ae_coff *ae_data)
 	ae_data->exposure = get_writeback_expo() >> 4;
 	ae_data->exposure_time = ispv1_get_exposure_time();
 	ae_data->gain = get_writeback_gain();
-	ae_data->iso = ispv1_get_actual_iso();
+	ae_data->iso = ispv1_get_algorithm_iso();
 
 	return 0;
 }
@@ -973,7 +1113,7 @@ int ispv1_set_ae_coff(ae_coff *ae_data)
 	print_debug("enter %s", __func__);
 
 	u8 target_y_high = ae_data->luma_target_high;
-	u8 target_y_low = ae_data->luma_target_low;	
+	u8 target_y_low = ae_data->luma_target_low;
 
 	print_debug("target_y_high = %d, target_y_low = %d \n", target_y_high, target_y_low);
 
@@ -1068,7 +1208,7 @@ int ispv1_get_ccm_coff(ccm_coff *ccm_data)
 {
 	print_debug("enter %s", __func__);
 	s16 temp;
-	
+
 	GETREG16(0x1c1d8, temp);		ccm_data->ccm_center[0][0] = temp;
 	GETREG16(0x1c1da, temp);		ccm_data->ccm_center[0][1] = temp;
 	GETREG16(0x1c1dc, temp);		ccm_data->ccm_center[0][2] = temp;
@@ -1088,7 +1228,7 @@ int ispv1_get_ccm_coff(ccm_coff *ccm_data)
 	GETREG16(0x1c208, temp);		ccm_data->ccm_left[2][0] = temp;
 	GETREG16(0x1c20a, temp);		ccm_data->ccm_left[2][1] = temp;
 	GETREG16(0x1c20c, temp);		ccm_data->ccm_left[2][2] = temp;
-	
+
 	GETREG16(0x1c220, temp);		ccm_data->ccm_right[0][0] = temp;
 	GETREG16(0x1c222, temp);		ccm_data->ccm_right[0][1] = temp;
 	GETREG16(0x1c224, temp);		ccm_data->ccm_right[0][2] = temp;
@@ -1098,7 +1238,7 @@ int ispv1_get_ccm_coff(ccm_coff *ccm_data)
 	GETREG16(0x1c22c, temp);		ccm_data->ccm_right[2][0] = temp;
 	GETREG16(0x1c22e, temp);		ccm_data->ccm_right[2][1] = temp;
 	GETREG16(0x1c230, temp);		ccm_data->ccm_right[2][2] = temp;
-	
+
 	return 0;
 }
 
@@ -1126,7 +1266,7 @@ int ispv1_set_ccm_coff(ccm_coff *ccm_data)
 	SETREG16(0x1c208, ccm_data->ccm_left[2][0]);
 	SETREG16(0x1c20a, ccm_data->ccm_left[2][1]);
 	SETREG16(0x1c20c, ccm_data->ccm_left[2][2]);
-	
+
 	SETREG16(0x1c220, ccm_data->ccm_right[0][0]);
 	SETREG16(0x1c222, ccm_data->ccm_right[0][1]);
 	SETREG16(0x1c224, ccm_data->ccm_right[0][2]);
@@ -1566,13 +1706,10 @@ void ispv1_change_max_exposure(camera_sensor *sensor, camera_max_exposrure mode)
 
 	if (CAMERA_MAX_EXPOSURE_LIMIT == mode)
 		max_exposure = (fps * vts / 100 - 14);
-	else
-	{
+	else{
 		max_exposure = ((fps * vts / sensor->fps) - 14);
 		if(sensor->get_support_vts)
-		{
 			max_exposure = sensor->get_support_vts(sensor->fps,fps,vts);
-		}
 	}
 
 
@@ -1888,14 +2025,14 @@ int ispv1_set_scene(camera_scene scene)
 	case CAMERA_SCENE_DETECTED_NIGHT:
 		print_info("CAMERA_SCENE_DETECTED_NIGHT");
 		break;
-		
+
 	case CAMERA_SCENE_DETECTED_ACTION:
 		print_info("CAMERA_SCENE_DETECTED_ACTION");
 		break;
 
 	case CAMERA_SCENE_DETECTED_AUTO:
 		print_info("CAMERA_SCENE_DETECTED_AUTO");
-		break;	
+		break;
 	/* zhoutian 00195335 12-7-16 added for auto scene detect end > */
 
 	case CAMERA_SCENE_SUNSET:
@@ -2064,8 +2201,8 @@ int ispv1_set_effect_done(camera_effects effect)
 	case CAMERA_EFFECT_SEPIA:
 		SETREG8(REG_ISP_TOP2, GETREG8(REG_ISP_TOP2) | ISP_SDE_ENABLE);
 		SETREG8(REG_ISP_SDE_CTRL, ISP_FIX_U_ENABLE | ISP_FIX_V_ENABLE);
-		SETREG8(REG_ISP_SDE_U_REG, 0x30);
-		SETREG8(REG_ISP_SDE_V_REG, 0xb0);
+		SETREG8(REG_ISP_SDE_U_REG, 0x38);
+		SETREG8(REG_ISP_SDE_V_REG, 0xa8);
 		break;
 
 	default:
@@ -2333,7 +2470,7 @@ int ispv1_set_hwscope(hwscope_coff *hwscope_data)
 		//k3_ispv1.c
 		SETREG8(0x65001, GETREG8(0x65001)|0x01);    //bit[0] set to 1
 		SETREG8(0x65002, GETREG8(0x65002)|0x10);    //bit[4] set to 1
-	
+
 		denoise_already_closed_flg = false;
 
 	}
@@ -2430,17 +2567,6 @@ int ispv1_get_binning_size(binning_size *size)
 /* zhoutian 00195335 2013-03-02 added for SuperZoom-LowLight end > */
 
 /*
- * Added for hue, y36721 todo
- * flag: if 1 is on, 0 is off, default is off
- */
-int ispv1_set_hue(int flag)
-{
-	print_debug("enter %s", __func__);
-
-	return 0;
-}
-
-/*
  * before start_preview or start_capture, it should be called to update size information
  * please see ISP manual or software manual.
  */
@@ -2464,147 +2590,6 @@ int ispv1_update_LENC_scale(u32 inwidth, u32 inheight)
 
 	return 0;
 
-}
-
-/*
- * Related to sensor.
- */
-int ispv1_init_LENC(u8 *lensc_param)
-{
-	u32 loopi;
-	u8 *param;
-
-	print_debug("enter %s", __func__);
-
-	assert(lensc_param);
-
-	/* set long exposure */
-	param = lensc_param;
-	for (loopi = 0; loopi < LENS_CP_ARRAY_BYTES; loopi++)
-		SETREG8(REG_ISP_LENS_CP_ARRAY_LONG + loopi, *param++);
-
-	/* set short exposure, just set same with long exposure, y36721 todo */
-	param = lensc_param;
-	for (loopi = 0; loopi < LENS_CP_ARRAY_BYTES; loopi++)
-		SETREG8(REG_ISP_LENS_CP_ARRAY_SHORT + loopi, *param++);
-
-	return 0;
-}
-
-/*
- * Related to sensor.
- */
-int ispv1_init_CCM(u16 *ccm_param)
-{
-	u32 loopi;
-	u16 *param;
-
-	print_debug("enter %s ", __func__);
-
-	assert(ccm_param);
-
-	param = ccm_param;
-	for (loopi = 0; loopi < CCM_MATRIX_ARRAY_SIZE16; loopi++) {
-		SETREG8(REG_ISP_CCM_MATRIX + loopi * 2, (*param & 0xff00) >> 8);
-		SETREG8(REG_ISP_CCM_MATRIX + loopi * 2 + 1, *param & 0xff);
-		param++;
-	}
-
-	return 0;
-}
-
-/*
- * Related to sensor.
- */
-int ispv1_init_AWB(u8 *awb_param)
-{
-	u32 loopi;
-	u8 *param;
-
-	print_debug("enter %s", __func__);
-
-	assert(awb_param);
-
-	param = awb_param;
-	for (loopi = 0; loopi < AWB_CTRL_ARRAY_BYTES; loopi++)
-		SETREG8(REG_ISP_AWB_CTRL + loopi, *param++);
-
-	SETREG8(REG_ISP_CCM_CENTERCT_THRESHOLDS, *param++);
-	SETREG8(REG_ISP_CCM_CENTERCT_THRESHOLDS + 1, *param++);
-	SETREG8(REG_ISP_CCM_LEFTCT_THRESHOLDS, *param++);
-	SETREG8(REG_ISP_CCM_LEFTCT_THRESHOLDS + 1, *param++);
-	SETREG8(REG_ISP_CCM_RIGHTCT_THRESHOLDS, *param++);
-	SETREG8(REG_ISP_CCM_RIGHTCT_THRESHOLDS + 1, *param++);
-
-	for (loopi = 0; loopi < LENS_CT_THRESHOLDS_SIZE16; loopi++) {
-		SETREG8(REG_ISP_LENS_CT_THRESHOLDS + loopi * 2, *param++);
-		SETREG8(REG_ISP_LENS_CT_THRESHOLDS + loopi * 2 + 1, *param++);
-	}
-
-	return 0;
-}
-
-/* Added for binning correction, y36721 todo */
-int ispv1_init_BC(int binningMode, int mirror, int filp)
-{
-	print_debug("enter %s", __func__);
-
-	return 0;
-}
-
-/* Added for defect_pixel_correction, y36721 todo */
-int ispv1_init_DPC(int bWhitePixel, int bBlackPixel)
-{
-	print_debug("enter %s", __func__);
-
-	return 0;
-}
-
-/*
- * Added for raw DNS, y36721 todo
- * flag: if 1 is on, 0 is off, default is on
- */
-int ispv1_init_rawDNS(int flag)
-{
-	print_debug("enter %s", __func__);
-
-	return 0;
-}
-
-/*
- * Added for uv DNS, y36721 todo
- * flag: if 1 is on, 0 is off, default is on
- */
-int ispv1_init_uvDNS(int flag)
-{
-	print_debug("enter %s", __func__);
-
-	return 0;
-}
-
-/*
- * Added for GbGr DNS, y36721 todo
- * level: if >0 is on, 0 is off, default is 6
- * 16: keep full Gb/Gr difference as resolution;
- * 8: remove half Gb/Gr difference;
- * 0: remove all Gb/Gr difference;
- */
-int ispv1_init_GbGrDNS(int level)
-{
-	print_debug("enter %s", __func__);
-
-	return 0;
-}
-
-/*
- * Added for GRB Gamma, y36721 todo
- * flag: if 1 is on, 0 is off, default is on, 0x65004 bit[5]
- */
-int ispv1_init_RGBGamma(int flag)
-{
-	print_debug("enter %s", __func__);
-
-	return 0;
 }
 
 #define AP_WRITE_AE_TIME_PRINT
@@ -2715,14 +2700,11 @@ static int ispv1_set_frame_rate(camera_frame_rate_mode mode, camera_sensor *sens
 		print_error("set_vts null");
 		goto error;
 	}
+
 	if(sensor->get_support_vts)
-	{
 		new_vts = sensor->get_support_vts(fps,fullfps,sensor->frmsize_list[sensor->preview_frmsize_index].vts);
-	}
 	else
-	{
 		new_vts = vts - 14;
-	}
 	SETREG16(REG_ISP_MAX_EXPOSURE, new_vts);
 	ispv1_set_frame_rate_level(frame_rate_level);
 	return 0;
@@ -2749,6 +2731,7 @@ static bool ispv1_change_frame_rate(
 
 	if (min_fps > max_fps)
 		min_fps = max_fps;
+
 	max_level = max_fps - min_fps;
 
 	print_debug("%s: state  %d, frame_rate_level %d", __func__, *state, frame_rate_level);
@@ -2826,14 +2809,9 @@ framerate_set_done:
 		vts = vts * fullfps / fps;
 
 		if(sensor->get_support_vts)
-		{
 			new_vts = sensor->get_support_vts(fps,fullfps,sensor->frmsize_list[sensor->preview_frmsize_index].vts);
-		}
 		else
-		{
 			new_vts = vts - 14;
-		}
-		/* y36721 2012-04-23 add begin to avoid preview flicker when frame rate up */
 		if (new_vts < (get_writeback_expo() / 0x10)) {
 			SETREG16(REG_ISP_MAX_EXPOSURE, new_vts);
 			print_warn("current expo too large");
@@ -2843,7 +2821,6 @@ framerate_set_done:
 				*state = CAMERA_EXPO_PRE_REDUCE2;
 			return true;
 		}
-		/* y36721 2012-04-23 add end */
 		if (CAMERA_FRAME_RATE_DOWN == direction) {
 			if(sensor->set_vts_change)
 			{
@@ -2990,6 +2967,9 @@ static void ispv1_cal_ratio_lum(
 
 	/* delta_lum is lum of env part */
 	delta_lum = preflash_ae->lum - ratio_ae.lum;
+
+	preflashLuma = delta_lum;
+
 	if (delta_lum < 0)
 		delta_lum = 0;
 
@@ -3026,48 +3006,93 @@ static void ispv1_cal_ratio_lum(
 
 	*preview_ratio_lum = ratio_ae.lum;
 }
-#if 0
-u32 ispv1_cal_ratio_factor(aec_data_t *preview_ae, aec_data_t *preflash_ae, aec_data_t *capflash_ae, 
+
+u32 ispv1_cal_ratio_factor(aec_data_t *preview_ae, aec_data_t *preflash_ae, aec_data_t *capflash_ae,
 	u32 target_y_low)
 {
 	u32 ratio_factor = 0x100;
 	u32 temp_ratio = 0x100;
-	u32 capture_target_lum;
+	u32 capture_target_lum = default_target_y_flash;
 
+	int luma_st_Thre[48] = {0};
+	int luma_st_Thre_br[48] = {0};
+
+	int weight_luma_st_Thre[48] =
+	{
+	0,0,0,0,0,0,0,0,
+	0,0,1,1,1,1,0,0,
+	0,0,1,4,4,1,0,0,
+	0,0,1,4,4,1,0,0,
+	0,0,1,1,1,1,0,0,
+	0,0,0,0,0,0,0,0
+	};
+
+	int sum_weight_luma_st_Thre = 0;
+	int sum_weight_luma_st_Thre_br = 0;
+
+	lum_stat_st lumstat;
+	ispv1_get_raw_lum_info_ex(&lumstat);
+
+	int i =0;
+	for(i=0;i< 48;i++)
+        {
+            if(lumstat.lum_stat[i] <= THRE_BL)
+            {
+                luma_st_Thre[i] = 1;
+            }
+            else
+            {
+                luma_st_Thre[i] = 0;
+            }
+            sum_weight_luma_st_Thre += luma_st_Thre[i]*weight_luma_st_Thre[i];
+
+            if(lumstat.lum_stat[i] >= THRE_BR)
+            {
+                luma_st_Thre_br[i] = 1;
+            }
+            else
+            {
+                luma_st_Thre_br[i] = 0;
+            }
+            sum_weight_luma_st_Thre_br += luma_st_Thre_br[i]*weight_luma_st_Thre[i];
+        }
+	int AFcodeValue = ispv1_get_focus_code_ex();
 	if (capflash_ae->lum != 0) {
 		if (preview_ae->lum < target_y_low) {
-			capture_target_lum = DEFAULT_TARGET_Y_FLASH;
-			ratio_factor = ratio_factor * capture_target_lum / capflash_ae->lum;
-			capflash_ae->lum_max = capflash_ae->lum_max * ratio_factor / 0x100;
-			if (capflash_ae->lum_max > FLASH_CAP_RAW_OVER_EXPO) {
-				/* decrease capflash max lum to  FLASH_CAP_RAW_OVER_EXPO */
-				temp_ratio = 0x100 * FLASH_CAP_RAW_OVER_EXPO / capflash_ae->lum_max;
-				ratio_factor = ratio_factor * temp_ratio / 0x100;
-				capflash_ae->lum_max = capflash_ae->lum_max * temp_ratio / 0x100;
-				print_info("%s, capflash lum_max 0x%x, temp_ratio 0x%x, new ratio_factor 0x%x",
-					__func__, capflash_ae->lum_max, temp_ratio, ratio_factor);
+			if(sum_weight_luma_st_Thre >=THRE_BLACK_NUM_MIN && sum_weight_luma_st_Thre_br <=THRE_BRIGHT_NUM1
+				&& preflashLuma >=THRE_PREFLASH_LUMA)
+			{
+				capture_target_lum = LOW_TARGET;
 			}
-		} else {
-			capture_target_lum = preview_ae->lum;
-			ratio_factor = ratio_factor * capture_target_lum / capflash_ae->lum;
-		}
-	} else {
-		ratio_factor = ISP_EXPOSURE_RATIO_MAX;
-	}
+			else if(sum_weight_luma_st_Thre_br >=THRE_BRIGHT_NUM)
+			{
+				capture_target_lum = default_target_y_flash;
+			}
+			else if(AFcodeValue >=THRE_AFVALUE)
+			{
+				if(preflashLuma <=THRE_PREFLASH_LUMA1)
+				{
+					capture_target_lum = LOW_TARGET;
+				}
+				else
+				{
+					capture_target_lum = LOW_TARGET+4;
+				}
+			}
+			else
+			{
+				capture_target_lum = default_target_y_flash;
+			}
 
-	return ratio_factor;
-}
-#else
-u32 ispv1_cal_ratio_factor(aec_data_t *preview_ae, aec_data_t *preflash_ae, aec_data_t *capflash_ae, 
-	u32 target_y_low)
-{
-	u32 ratio_factor = 0x100;
-	u32 temp_ratio = 0x100;
-	u32 capture_target_lum;
+			if(capture_target_lum < default_target_y_flash && preflash_ae->lum_sum >= THRE_PREFLASH_LUMA_SUM)
+			{
+				capture_target_lum += DELTA_TARGET;
+				if(capture_target_lum > default_target_y_flash)
+				{
+					capture_target_lum = default_target_y_flash;
+				}
+			}
 
-	if (capflash_ae->lum != 0) {
-		if (preview_ae->lum < target_y_low) {
-			capture_target_lum = default_target_y_flash;
 			ratio_factor = ratio_factor * capture_target_lum / capflash_ae->lum;
 			capflash_ae->lum_max = capflash_ae->lum_max * ratio_factor / 0x100;
 			if (capflash_ae->lum_max > flash_cap_raw_over_expo) {
@@ -3089,7 +3114,6 @@ u32 ispv1_cal_ratio_factor(aec_data_t *preview_ae, aec_data_t *preflash_ae, aec_
 	return ratio_factor;
 }
 
-#endif
 void ispv1_save_aecawb_step(aecawb_step_t *step)
 {
 	step->stable_range0 = GETREG8(REG_ISP_UNSTABLE2STABLE_RANGE);
@@ -3128,8 +3152,7 @@ bool ae_is_need_flash(camera_sensor *sensor, aec_data_t *ae_data, u32 target_y_l
 		compare_gain = sensor->get_override_param(OVERRIDE_FLASH_TRIGGER_GAIN);
 
 	binning = sensor->frmsize_list[frame_index].binning;
-	if(BINNING_SUMMARY == sensor->support_binning_type)
-	{
+	if(BINNING_SUMMARY == sensor->support_binning_type){
 		if (binning == false)
 			compare_gain *= 2;
 	}
@@ -3177,15 +3200,14 @@ void ispv1_check_flash_prepare(void)
 	ispv1_config_aecawb_step(true, &isp_hw_data.aecawb_step);
 
 	/* get platform type */
-/*
 	#ifdef PLATFORM_TYPE_PAD_S10
 		type = FLASH_PLATFORM_S10;
 	#else
 		boardid = get_boardid();
 		print_info("%s : boardid=0x%x.", __func__, boardid);
-*/
+
 		/* if unknow board ID, should use flash params as X9510E */
-/*		if (boardid == BOARD_ID_CS_U9510E || boardid == BOARD_ID_CS_T9510E)
+		if (boardid == BOARD_ID_CS_U9510E || boardid == BOARD_ID_CS_T9510E)
 			type = FLASH_PLATFORM_9510E;
 		else if (boardid == BOARD_ID_CS_U9510)
 			type = FLASH_PLATFORM_U9510;
@@ -3194,30 +3216,13 @@ void ispv1_check_flash_prepare(void)
 		else
 			type = FLASH_PLATFORM_D2;
 	#endif
-*/
-	/* EternityProject: FORCE U9508 */
-	type = FLASH_PLATFORM_U9508;
 
 	if(sensor->get_flash_awb != NULL)
 		sensor->get_flash_awb(type, preset_awb);
 	else
 		memcpy(preset_awb, &flash_platform_awb[type], sizeof(awb_gain_t));
 
-	if (isp_hw_data.flash_type == U9508_FLASH_TYPE_OSRAM) {
-		preset_awb->b_gain = preset_awb->gr_gain;
-		preset_awb->gb_gain = 0x80;
-		preset_awb->gr_gain = 0x80;
-		preset_awb->r_gain = preset_awb->r_gain;
-
-		action = FLASH_AWBTEST_POLICY_FIXED;
-	} else if (isp_hw_data.flash_type == U9508_FLASH_TYPE_EVERLIGHT) {
-		preset_awb->b_gain = preset_awb->b_gain;
-		preset_awb->gb_gain = 0x80;
-		preset_awb->gr_gain = 0x80;
-		preset_awb->r_gain = preset_awb->gb_gain;
-
-		action = FLASH_AWBTEST_POLICY_FIXED;
-	} else if (preset_awb->gb_gain == 0x80 && preset_awb->gr_gain == 0x80) {
+	if (preset_awb->gb_gain == 0x80 && preset_awb->gr_gain == 0x80) {
 		action = FLASH_AWBTEST_POLICY_FIXED;
 	} else {
 		led_awb0->b_gain = preset_awb->b_gain;
@@ -3255,6 +3260,8 @@ void ispv1_check_flash_exit(void)
 {
 	ispv1_config_aecawb_step(false, &isp_hw_data.aecawb_step);
 }
+
+
 static void ispv1_poll_flash_lum(void)
 {
 	static u8 frame_count;
@@ -3573,6 +3580,10 @@ void ispv1_preview_done_do_tune(void)
 	print_debug("preview_done, gain 0x%x, expo 0x%x, current_y 0x%x, flash_on %d",
 		get_writeback_gain(), get_writeback_expo(), get_current_y(), this_ispdata->flash_on);
 
+	if (ispdata->cur_crop_pos != ispdata->next_crop_pos) {
+		ispv1_refresh_yuv_crop_pos();
+	}
+
 	if (false == ispdata->flash_on) {
 		isp_hw_data.preview_ae.gain = get_writeback_gain();
 		isp_hw_data.preview_ae.expo = get_writeback_expo();
@@ -3607,8 +3618,9 @@ void ispv1_preview_done_do_tune(void)
 	} else if (afae_ctrl_is_valid() == true &&
 		((get_focus_state() == FOCUS_STATE_AF_PREPARING) ||
 		(get_focus_state() == FOCUS_STATE_AF_RUNNING) ||
-		(get_focus_state() == FOCUS_STATE_CAF_RUNNING))) {
-		print_debug("focusing metering, should not change frame rate.");
+		(get_focus_state() == FOCUS_STATE_CAF_RUNNING)) &&
+		(state != CAMERA_EXPO_PRE_REDUCE1 && state != CAMERA_EXPO_PRE_REDUCE2)) {
+		print_debug("focusing metering, should not change frame rate except in reduced state.");
 	} else if (isp_hw_data.ae_resume == true && ispdata->flash_on == false) {
 		ispv1_set_aecagc_mode(AUTO_AECAGC);
 		ispv1_change_frame_rate(&state, CAMERA_FRAME_RATE_DOWN, sensor);
@@ -3617,6 +3629,7 @@ void ispv1_preview_done_do_tune(void)
 	} else {
 		ispv1_dynamic_framerate(sensor, ispdata->iso);
 	}
+
 	if (true == camera_ajustments_flag) {
 		last_state.saturation = CAMERA_SATURATION_MAX;
 		last_state.contrast = CAMERA_CONTRAST_MAX;
@@ -3688,39 +3701,29 @@ void ispv1_preview_done_do_tune(void)
  */
 void ispv1_tune_ops_init(k3_isp_data *ispdata)
 {
+	camera_sensor *sensor = ispdata->sensor;
+
 	this_ispdata = ispdata;
 
-	if (ispdata->sensor->isp_location != CAMERA_USE_K3ISP)
+	if (sensor->isp_location != CAMERA_USE_K3ISP)
 		return;
 
 	sema_init(&(this_ispdata->frame_sem), 0);
 
 	/* maybe some fixed configurations, such as focus, ccm, lensc... */
-	if (ispdata->sensor->af_enable)
+	if (sensor->af_enable)
 		ispv1_focus_init();
-	if (ispv1_need_rcc(this_ispdata->sensor) == true)
+	if (ispv1_need_rcc(sensor) == true)
 		ispv1_uv_stat_init();
 
-	if(this_ispdata->sensor->support_hdr_movie)
+	if(sensor->support_hdr_movie)
 		ispv1_hdr_ae_init();
 
-	ispv1_init_DPC(1, 1);
-
-	ispv1_init_rawDNS(1);
-	ispv1_init_uvDNS(1);
-	ispv1_init_GbGrDNS(1);
-	ispv1_init_RGBGamma(1);
 	camera_ajustments_flag = true;
+
 	ispv1_set_frame_rate_state(CAMERA_FPS_STATE_HIGH);
 
-	/*
-	 *y36721 2012-02-08 delete them for performance tunning.
-	 *ispv1_init_CCM(ispdata->sensor->image_setting.ccm_param);
-	 *ispv1_init_LENC(ispdata->sensor->image_setting.lensc_param);
-	 *ispv1_init_AWB(ispdata->sensor->image_setting.awb_param);
-	 */
-
-	ispv1_init_sensor_config(ispdata->sensor);
+	ispv1_init_sensor_config(sensor);
 
 	ispv1_save_aecawb_step(&isp_hw_data.aecawb_step);
 	set_tune_parameter_for_product();
@@ -3747,8 +3750,9 @@ void ispv1_tune_ops_prepare(camera_state state)
 {
 	k3_isp_data *ispdata = this_ispdata;
 	camera_sensor *sensor = ispdata->sensor;
-	u32 unit_width = this_ispdata->pic_attr[STATE_PREVIEW].in_width / ISP_LUM_WIN_WIDTH_NUM;
-	u32 unit_height = this_ispdata->pic_attr[STATE_PREVIEW].in_height / ISP_LUM_WIN_HEIGHT_NUM;
+	u32 unit_width = ispdata->pic_attr[STATE_PREVIEW].in_width / ISP_LUM_WIN_WIDTH_NUM;
+	u32 unit_height = ispdata->pic_attr[STATE_PREVIEW].in_height / ISP_LUM_WIN_HEIGHT_NUM;
+	coordinate_s center;
 
 	if (STATE_PREVIEW == state) {
 
@@ -3757,15 +3761,18 @@ void ispv1_tune_ops_prepare(camera_state state)
 			ispv1_focus_prepare();
 
 		if (CAMERA_USE_K3ISP == sensor->isp_location) {
-			//ispv1_set_ae_statwin(&ispdata->pic_attr[state], ISP_ZOOM_BASE_RATIO);
+
+			center.x = ispdata->pic_attr[state].out_width / 2;
+			center.y = ispdata->pic_attr[state].out_height / 2;
+
+			ispv1_set_ae_statwin(&ispdata->pic_attr[state], &center, METERING_STATWIN_NORMAL, ispdata->zoom);
 			ispv1_set_stat_unit_area(unit_height * unit_width);
 			up(&(this_ispdata->frame_sem));
 		}
 
-		/* need to check whether there is binning or not */
-		ispv1_init_BC(1, 0, 0);
-
 		ispdata->flash_flow = FLASH_DONE;
+		ispdata->next_crop_pos = 0;
+		ispdata->cur_crop_pos = 0;
 	} else if (STATE_CAPTURE == state) {
 		/* we can add some other things to do before capture */
 	}

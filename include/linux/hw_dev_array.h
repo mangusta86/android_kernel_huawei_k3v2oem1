@@ -34,6 +34,9 @@ static hw_dec_struct hw_dec_device_array[] =
 	{ DEV_CONNECTIVITY_BT,"bt" },
 	{ DEV_CONNECTIVITY_FM,"fm" },
 	{ DEV_CONNECTIVITY_GPS,"gps" },
+	{ DEV_CONNECTIVITY_MAX,"NULL" },
+	{ DEV_CPU_FREQ,"cpu_freq" },
+	{ DEV_CHIP_INFO_MAX,"NULL" },
 };
 
 #endif

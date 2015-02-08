@@ -79,7 +79,7 @@ static ssize_t nct203_show_temp(struct device *dev,
 {
        struct i2c_client *client = to_i2c_client(dev);
        signed int temp_value = 0;
-       u8 data = 0;
+       s32 data = 0;
 
        if (!dev || !buf || !attr)
                return -EINVAL;
@@ -91,14 +91,14 @@ static ssize_t nct203_show_temp(struct device *dev,
                return -EINVAL;
        }
 
-       temp_value = (signed int)data;
+       temp_value = data;
        return sprintf(buf, "%d\n", temp_value);
 }
 
 int nct203_temp_report(void)
 {
        signed int temp_value = 0;
-       u8 data = 0;
+       s32 data = 0;
        static int check_times = 0;
        static signed int store_value = 25;
 
@@ -120,7 +120,7 @@ int nct203_temp_report(void)
                return -EINVAL;
        }
 
-       temp_value = (signed int)data;
+       temp_value = data;
        store_value = temp_value;
        return temp_value;
 }
@@ -279,7 +279,7 @@ static void nct203_enable(struct i2c_client *client)
 static void nct203_disable(struct i2c_client *client)
 {
        struct nct203_data *data = i2c_get_clientdata(client);
-       u8 value = 0;
+       s32 value = 0;
 
        i2c_smbus_write_byte_data(client, CONFIG_WR,
                                  data->config | STANDBY_BIT);

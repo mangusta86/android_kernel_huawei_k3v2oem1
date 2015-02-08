@@ -31,6 +31,9 @@ enum hw_device_type {
     DEV_CONNECTIVITY_FM,
     DEV_CONNECTIVITY_GPS,
     DEV_CONNECTIVITY_MAX,
+    DEV_CHIP_INFO_START,
+    DEV_CPU_FREQ = DEV_CHIP_INFO_START,
+    DEV_CHIP_INFO_MAX,
 };
 
 /* set a device flag as true */

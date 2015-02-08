@@ -35,7 +35,7 @@ struct modem_mtk6252_platform_data {
 #define POWER_SET_DEBUGON      	1    /* Only turn on the modem, for debug USE */
 #define POWER_SET_OFF       	2
 #define POWER_SET_ON       	3
-
+#define POWER_SET_RESET         4
 
 #endif /*_MODEM_BOOT_MTK6252_H*/
 

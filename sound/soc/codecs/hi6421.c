@@ -21,6 +21,7 @@
 #include <sound/soc-dapm.h>
 #include <sound/tlv.h>
 #include <asm/io.h>
+#include <mach/gpio.h>
 
 #include <linux/switch.h>
 #include <linux/wakelock.h>
@@ -42,7 +43,9 @@
 #include <linux/irqnr.h>
 #include <mach/boardid.h>
 #include <hsad/config_interface.h>
+#include <linux/uart_output.h>
 #include "hi6421.h"
+#include <hsad/config_interface.h>
 
 #define DUMP_REG ( 0 )
 
@@ -68,8 +71,11 @@
 
 #define HI6421_PORT_MM    ( 0 )
 #define HI6421_PORT_MODEM ( 1 )
-#define Hi6421_PORT_FM    ( 2 )
-#define Hi6421_PORT_BT    ( 3 )
+#define HI6421_PORT_FM    ( 2 )
+#define HI6421_PORT_BT    ( 3 )
+#define HS_UART_STATUS  GPIO_7_5
+
+#define MODEM_SPRD8803G   "sprd8803g"
 
 #ifdef CONFIG_MFD_HI6421_IRQ
 /* CODEC STATE */
@@ -118,7 +124,6 @@ enum delay_time { /* ms */
     HI6421_HKADC_SLEEP_TIME       = 30,
     HI6421_PLL_STABLE_WAIT_TIME   = 20,
     HI6421_HS_BTN_JUDGEMENT_TIME  = 50,
-    HI6421_HS_PLUG_JUDGEMENT_TIME = 0,
     HI6421_PLL_DETECT_TIME        = 40,
 };
 
@@ -127,30 +132,20 @@ struct hi6421_data {
 #ifdef CONFIG_MFD_HI6421_IRQ
     struct hi6421_jack_data hs_jack;
     struct wake_lock wake_lock;
-	struct wake_lock pll_wake_lock;
-    volatile bool plug_in_running;
-    volatile bool plug_in_loop;
-    volatile bool plug_out_running;
-    volatile bool plug_out_loop;
-    volatile bool detect_running;
-    volatile bool detect_loop;
+    struct wake_lock plugin_wake_lock;
 #ifdef CONFIG_K3_ADC
-    volatile bool btn_running;
-    volatile bool btn_loop;
-    volatile bool btn_up_running;
-    volatile bool btn_up_loop;
-    struct workqueue_struct *headset_btn_delay_wq;
-    struct delayed_work  headset_btn_delay_work;
+    struct workqueue_struct *headset_btn_down_delay_wq;
+    struct delayed_work  headset_btn_down_delay_work;
+    struct workqueue_struct *headset_btn_up_delay_wq;
+    struct delayed_work  headset_btn_up_delay_work;
     int check_voltage;
 #endif
     struct workqueue_struct *headset_plug_in_delay_wq;
     struct delayed_work  headset_plug_in_delay_work;
     struct workqueue_struct *headset_plug_out_delay_wq;
     struct delayed_work  headset_plug_out_delay_work;
-    struct workqueue_struct *headset_detect_delay_wq;
-    struct delayed_work  headset_detect_delay_work;
-    struct workqueue_struct *headset_btn_up_delay_wq;
-    struct delayed_work  headset_btn_up_delay_work;
+    struct workqueue_struct *headset_judgement_delay_wq;
+    struct delayed_work  headset_judgement_delay_work;;
 #endif
     spinlock_t lock;
     struct mutex io_mutex;
@@ -168,8 +163,10 @@ static int hi6421_hs_keys = 1;
 
 /* HI6421 MUTEX */
 static struct mutex hi6421_power_lock;
-static int hi6421_active_pcm = 0;
-static int hi6421_active_pll_chk = 0;
+static bool hi6421_pcm_mm_pb = false;
+static bool hi6421_pcm_mm_cp = false;
+static bool hi6421_pcm_modem = false;
+static bool hi6421_pcm_fm = false;
 /* reference count */
 static int hi6421_audioldo_enabled = 0;
 static int hi6421_ibias_enabled = 0;
@@ -188,7 +185,7 @@ static unsigned int g_hi6421_reg_base_addr = -1;
 static struct snd_soc_codec *g_codec = NULL;
 
 /* Headset jack */
-static struct snd_soc_jack hs_jack;
+static struct snd_soc_jack g_hs_jack;
 
 #ifdef CONFIG_MFD_HI6421_IRQ
 /* Headset jack */
@@ -568,6 +565,12 @@ static const struct snd_kcontrol_new hi6421_v200_snd_controls[] = {
     SOC_SINGLE("INTERFACE MODEM FSP",
                HI6421_REG_MODEM_CONFIG, HI6421_INTERFACE_FSP_BIT, 1, 0),
 
+	/*0xBE - FREQ*/
+    SOC_SINGLE("INTERFACE BT FS",
+               HI6421_REG_FREQ_CONFIG, HI6421_FREQ_BT_BIT, 3, 0),
+    SOC_SINGLE("INTERFACE MODEM FS",
+               HI6421_REG_FREQ_CONFIG, HI6421_FREQ_MODEM_BIT, 1, 0),
+
     /* AUDIO TUNING TOOL */
     /* 0x90 */
     SOC_SINGLE("HI6421_DMNS_CONFIG",
@@ -806,6 +809,12 @@ static const struct snd_kcontrol_new hi6421_v220_snd_controls[] = {
                HI6421_REG_MODEM_CONFIG, HI6421_INTERFACE_EDGE_BIT, 1, 0),
     SOC_SINGLE("INTERFACE MODEM FSP",
                HI6421_REG_MODEM_CONFIG, HI6421_INTERFACE_FSP_BIT, 1, 0),
+
+	/*0xBE - FREQ*/
+    SOC_SINGLE("INTERFACE BT FS",
+               HI6421_REG_FREQ_CONFIG, HI6421_FREQ_BT_BIT, 3, 0),
+    SOC_SINGLE("INTERFACE MODEM FS",
+               HI6421_REG_FREQ_CONFIG, HI6421_FREQ_MODEM_BIT, 1, 0),
 
     /* AUDIO TUNING TOOL */
     /* 0x90 */
@@ -1195,7 +1204,7 @@ static const struct snd_kcontrol_new hi6421_dapm_modemul_switch_controls =
 /* MODEM_DL SWITCH */
 static const struct snd_kcontrol_new hi6421_dapm_modemdl_switch_controls =
     SOC_DAPM_SINGLE("Modem_DL Switch",
-            HI6421_MODEM_DL_GAIN_EN_REG, HI6421_MODEM_DL_GAIN_EN_BIT, 1, 0);
+            HI6421_REG_EN_CFG_3, 7, 1, 0);
 
 /* MODEM UL L SWITCH */
 static const struct snd_kcontrol_new hi6421_dapm_modemull_switch_controls =
@@ -1268,7 +1277,7 @@ static int hi6421_digharmonic_power_mode_event(struct snd_soc_dapm_widget *w,
 {
     /*pr_info("%s : event = %d\n",__FUNCTION__, event);*/
     switch (event) {
-    case SND_SOC_DAPM_POST_PMU:
+    case SND_SOC_DAPM_PRE_PMU:
         hi6421_set_reg_bit(HI6421_AHARM_EN_REG, HI6421_AHARM_EN_BIT);
         /* The sample rate of AP's interface is 48kHz, need enable hbf1i */
         if (check_ap_interface_48khz())
@@ -1297,7 +1306,7 @@ static int hi6421_digplayback_power_mode_event(struct snd_soc_dapm_widget *w,
 {
     pr_info("%s : event = %d\n",__FUNCTION__, event);
     switch (event) {
-    case SND_SOC_DAPM_POST_PMU:
+    case SND_SOC_DAPM_PRE_PMU:
         if (!hi6421_is_cs)
             hi6421_set_reg_bit(HI6421_V200_AP_GAIN_EN_REG, HI6421_V200_AP_GAIN_EN_BIT);
         hi6421_set_reg_bit(HI6421_AHARM_EN_REG, HI6421_AHARM_EN_BIT);
@@ -1330,7 +1339,7 @@ static int hi6421_captureagcl_power_mode_event(struct snd_soc_dapm_widget *w,
 {
     pr_info("%s : event = %d\n",__FUNCTION__, event);
     switch (event) {
-    case SND_SOC_DAPM_POST_PMU:
+    case SND_SOC_DAPM_PRE_PMU:
         if (hi6421_is_cs)
             hi6421_set_reg_bit(HI6421_V220_AGC_C_L_EN_REG, HI6421_V220_AGC_C_L_EN_BIT);
         else
@@ -1364,7 +1373,7 @@ static int hi6421_captureagcr_power_mode_event(struct snd_soc_dapm_widget *w,
 {
     pr_info("%s : event = %d\n",__FUNCTION__, event);
     switch (event) {
-    case SND_SOC_DAPM_POST_PMU:
+    case SND_SOC_DAPM_PRE_PMU:
         if (hi6421_is_cs)
             hi6421_set_reg_bit(HI6421_V220_AGC_C_R_EN_REG, HI6421_V220_AGC_C_R_EN_BIT);
         else
@@ -1389,6 +1398,31 @@ static int hi6421_captureagcr_power_mode_event(struct snd_soc_dapm_widget *w,
     return 0;
 }
 
+static int hi6421_modem_power_mode_event(struct snd_soc_dapm_widget *w,
+        struct snd_kcontrol *kcontrol, int event)
+{
+    pr_info("%s : event = %d\n",__FUNCTION__, event);
+    switch (event) {
+    case SND_SOC_DAPM_PRE_PMU:
+		if(1==get_modem_type(MODEM_SPRD8803G))
+		{
+        	hi6421_reg_write(g_codec, 0x86, 0x55);
+        	usleep_range(100, 105);
+        	hi6421_reg_write(g_codec, 0x86, 0x66);
+		}
+        hi6421_set_reg_bit(HI6421_MODEM_DL_GAIN_EN_REG, HI6421_MODEM_DL_GAIN_EN_BIT);
+        break;
+    case SND_SOC_DAPM_POST_PMD:
+        hi6421_clr_reg_bit(HI6421_MODEM_DL_GAIN_EN_REG, HI6421_MODEM_DL_GAIN_EN_BIT);
+        break;
+    default :
+        pr_warn("%s : power mode event err : %d\n", __FUNCTION__, event);
+        break;
+    }
+
+    return 0;
+}
+
 /*
 * SRCIU EVENT in MODEM 8kHz
 * enable/disable clks : srciu2
@@ -1398,7 +1432,7 @@ static int hi6421_srciu_power_mode_event(struct snd_soc_dapm_widget *w,
 {
     pr_info("%s : event = %d\n",__FUNCTION__, event);
     switch (event) {
-    case SND_SOC_DAPM_POST_PMU:
+    case SND_SOC_DAPM_PRE_PMU:
         hi6421_set_reg_bit(HI6421_SRCIU_I2_EN_REG, HI6421_SRCIU_I2_EN_BIT);
         break;
     case SND_SOC_DAPM_POST_PMD:
@@ -1421,7 +1455,7 @@ static int hi6421_srcid_power_mode_event(struct snd_soc_dapm_widget *w,
 {
     pr_info("%s : event = %d\n",__FUNCTION__, event);
     switch (event) {
-    case SND_SOC_DAPM_POST_PMU:
+    case SND_SOC_DAPM_PRE_PMU:
         hi6421_set_reg_bit(HI6421_SRCID_I2_EN_REG, HI6421_SRCID_I2_EN_BIT);
         break;
     case SND_SOC_DAPM_POST_PMD:
@@ -1470,7 +1504,7 @@ static void hi6421_audioldo_enable(bool enable)
     if (enable) {
         if (0 == hi6421_audioldo_enabled) {
             regulator_set_optimum_mode(g_regu, AUDIO_NORMAL_MODE);
-            msleep(20);
+            msleep(HI6421_PLL_STABLE_WAIT_TIME);
         }
         hi6421_audioldo_enabled++;
     } else {
@@ -1497,61 +1531,73 @@ static void hi6421_ibias_enable(bool enable)
     }
 }
 
+static inline bool hi6421_is_pll_enabled(void)
+{
+    return (0 == (hi6421_reg_read(g_codec, HI6421_PLL_PD_REG) & (1 << HI6421_PLL_PD_BIT)));
+}
+
+static void hi6421_reset_pll(void)
+{
+    unsigned char reg = hi6421_reg_read(g_codec, HI6421_REG_PLL_RO_CTL);
+
+    if (HI6421_PLL_VALID_VALUE_MIN > reg) {
+        pr_info("reset pll\n");
+        hi6421_set_reg_bit(HI6421_PLL_PD_REG, HI6421_PLL_PD_BIT);
+        mdelay(HI6421_PLL_STABLE_WAIT_TIME);
+        hi6421_clr_reg_bit(HI6421_PLL_PD_REG, HI6421_PLL_PD_BIT);
+    }
+}
+
+void hi6421_check_pll(void)
+{
+    pr_info("hi6421_check_pll entry\n");
+    spin_lock(&pll_lock);
+    if (!hi6421_is_pll_enabled()) {
+        /* pll is not enabled */
+        spin_unlock(&pll_lock);
+        return;
+    }
+    hi6421_reset_pll();
+    spin_unlock(&pll_lock);
+}
+EXPORT_SYMBOL_GPL(hi6421_check_pll);
+
 static void hi6421_pll_work_func(struct work_struct *work)
 {
-    struct hi6421_data *priv =
-            container_of(work, struct hi6421_data, headset_btn_delay_work.work);
-    struct snd_soc_codec *codec = priv->codec;
-	
-	pr_info( "hi6421_pll_work_func\n");
-	
+    pr_info("hi6421_pll_work_func\n");
+
     while(1) {
-		spin_lock(&pll_lock);
-		//pr_info( "hi6421_pll_work_func testing:%d, \n", hi6421_reg_read(codec, HI6421_PLL_PD_REG));
-		if ( 0 == (hi6421_reg_read(codec, HI6421_PLL_PD_REG) & (1 << HI6421_PLL_PD_BIT) ) )
-		{
-			unsigned char reg = hi6421_reg_read(codec, 0xf6);
-			if ( (0x80 > reg) || (0xF0 <= reg))
-			{
-				pr_info( "hi6421_pll_work_func working\n");
-            	hi6421_set_reg_bit(HI6421_PLL_PD_REG, HI6421_PLL_PD_BIT);
-            	mdelay(20);
-            	hi6421_clr_reg_bit(HI6421_PLL_PD_REG, HI6421_PLL_PD_BIT);				
-			}
-			spin_unlock(&pll_lock);
-		}
-		else
-		{
-			spin_unlock(&pll_lock);
-			break;
-		}
+        spin_lock(&pll_lock);
+        if (hi6421_is_pll_enabled()) {
+            hi6421_reset_pll();
+            spin_unlock(&pll_lock);
+        } else {
+            spin_unlock(&pll_lock);
+            break;
+        }
         msleep(HI6421_PLL_DETECT_TIME);
     }
-	pr_info( "hi6421_pll_work_func exit\n");
+
+    pr_info("hi6421_pll_work_func exit\n");
 }
 
 static void hi6421_pll_enable(bool enable)
 {
-    struct hi6421_data *priv = snd_soc_codec_get_drvdata(g_codec);
-	pr_info( "hi6421_pll_enable:%d\n", enable);
-
     if (enable) {
         if (0 == hi6421_pll_enabled) {
             hi6421_audioldo_enable(true);
             hi6421_ibias_enable(true);
-			spin_lock(&pll_lock);
+            spin_lock(&pll_lock);
             hi6421_clr_reg_bit(HI6421_PLL_PD_REG, HI6421_PLL_PD_BIT);
-            /* start pll delay work */
-			spin_unlock(&pll_lock);
-
+            spin_unlock(&pll_lock);
         }
         hi6421_pll_enabled++;
     } else {
         hi6421_pll_enabled--;
         if (0 == hi6421_pll_enabled) {
-			spin_lock(&pll_lock);
+            spin_lock(&pll_lock);
             hi6421_set_reg_bit(HI6421_PLL_PD_REG, HI6421_PLL_PD_BIT);
-			spin_unlock(&pll_lock);
+            spin_unlock(&pll_lock);
             hi6421_ibias_enable(false);
             hi6421_audioldo_enable(false);
         }
@@ -1723,17 +1769,17 @@ static const struct snd_soc_dapm_widget hi6421_v200_dapm_widgets[] = {
                        SND_SOC_NOPM, 0, 0,
                        NULL, 0,
                        hi6421_digplayback_power_mode_event,
-                       SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_POST_PMD),
+                       SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
     SND_SOC_DAPM_PGA_E("CAPTURE AGC PGA L",
                        SND_SOC_NOPM, 0, 0,
                        NULL, 0,
                        hi6421_captureagcl_power_mode_event,
-                       SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_POST_PMD),
+                       SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
     SND_SOC_DAPM_PGA_E("CAPTURE AGC PGA R",
                        SND_SOC_NOPM, 0, 0,
                        NULL, 0,
                        hi6421_captureagcr_power_mode_event,
-                       SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_POST_PMD),
+                       SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
 
     /* MUX */
     SND_SOC_DAPM_MUX("PLAYBACK MUX",
@@ -1783,21 +1829,23 @@ static const struct snd_soc_dapm_widget hi6421_v200_dapm_widgets[] = {
     SND_SOC_DAPM_SWITCH("MODEM_UL SWITCH",
                         SND_SOC_NOPM, 0, 0,
                         &hi6421_dapm_modemul_switch_controls),
-    SND_SOC_DAPM_SWITCH("MODEM_DL SWITCH",
-                        SND_SOC_NOPM, 0, 0,
-                        &hi6421_dapm_modemdl_switch_controls),
+    SND_SOC_DAPM_SWITCH_E("MODEM_DL SWITCH",
+                          SND_SOC_NOPM, 0, 0,
+                          &hi6421_dapm_modemdl_switch_controls,
+                          hi6421_modem_power_mode_event,
+                          SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
 
     /* SWITCH EVENT */
     SND_SOC_DAPM_SWITCH_E("SRCIU SWITCH",
                           SND_SOC_NOPM, 0, 0,
                           &hi6421_srciu_switch_controls,
                           hi6421_srciu_power_mode_event,
-                          SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_POST_PMD),
+                          SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
     SND_SOC_DAPM_SWITCH_E("SRCID SWITCH",
                           SND_SOC_NOPM, 0, 0,
                           &hi6421_srcid_switch_controls,
                           hi6421_srcid_power_mode_event,
-                          SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_POST_PMD),
+                          SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
 
     /* MIXERS */
     SND_SOC_DAPM_MIXER("MIXER MONO",
@@ -2010,17 +2058,17 @@ static const struct snd_soc_dapm_widget hi6421_v220_dapm_widgets[] = {
                        SND_SOC_NOPM, 0, 0,
                        NULL, 0,
                        hi6421_digharmonic_power_mode_event,
-                       SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_POST_PMD),
+                       SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
     SND_SOC_DAPM_PGA_E("CAPTURE AGC PGA L",
                        SND_SOC_NOPM, 0, 0,
                        NULL, 0,
                        hi6421_captureagcl_power_mode_event,
-                       SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_POST_PMD),
+                       SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
     SND_SOC_DAPM_PGA_E("CAPTURE AGC PGA R",
                        SND_SOC_NOPM, 0, 0,
                        NULL, 0,
                        hi6421_captureagcr_power_mode_event,
-                       SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_POST_PMD),
+                       SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
 
     /* MUX */
     SND_SOC_DAPM_MUX("PLAYBACK MUX",
@@ -2064,9 +2112,11 @@ static const struct snd_soc_dapm_widget hi6421_v220_dapm_widgets[] = {
     SND_SOC_DAPM_SWITCH("DIGMIC SWITCH",
                         SND_SOC_NOPM, 0, 0,
                         &hi6421_dapm_digmic_switch_controls),
-    SND_SOC_DAPM_SWITCH("MODEM_DL SWITCH",
-                        SND_SOC_NOPM, 0, 0,
-                        &hi6421_dapm_modemdl_switch_controls),
+    SND_SOC_DAPM_SWITCH_E("MODEM_DL SWITCH",
+                          SND_SOC_NOPM, 0, 0,
+                          &hi6421_dapm_modemdl_switch_controls,
+                          hi6421_modem_power_mode_event,
+                          SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
     SND_SOC_DAPM_SWITCH("MODEM_UL_L SWITCH",
                         SND_SOC_NOPM, 0, 0,
                         &hi6421_dapm_modemull_switch_controls),
@@ -2085,12 +2135,12 @@ static const struct snd_soc_dapm_widget hi6421_v220_dapm_widgets[] = {
                           SND_SOC_NOPM, 0, 0,
                           &hi6421_srciu_switch_controls,
                           hi6421_srciu_power_mode_event,
-                          SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_POST_PMD),
+                          SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
     SND_SOC_DAPM_SWITCH_E("SRCID SWITCH",
                           SND_SOC_NOPM, 0, 0,
                           &hi6421_srcid_switch_controls,
                           hi6421_srcid_power_mode_event,
-                          SND_SOC_DAPM_POST_PMU | SND_SOC_DAPM_POST_PMD),
+                          SND_SOC_DAPM_PRE_PMU | SND_SOC_DAPM_POST_PMD),
 
     /* MIXERS */
     SND_SOC_DAPM_MIXER("MIXER MONO",
@@ -2413,7 +2463,7 @@ static const struct snd_soc_dapm_route route_map_v220[] = {
     {"BT OUT",              NULL,                   "BT_INCALL SWITCH"},
     /* BT PLAYBACK/INCALL SWITCHS ARE OFF MEANS CAPTURE AGC PGA L */
     /* BT FM STEREO PATH */
-    /* {"BT OUT",              NULL,                   "CAPTURE AGC PGA L"}, */
+     {"BT OUT",              NULL,                   "CAPTURE AGC PGA L"}, 
     /* {"BT OUT",              NULL,                   "CAPTURE AGC PGA R"}, */
 
     /* MODEM UL/DL */
@@ -2571,44 +2621,83 @@ static const struct snd_soc_dapm_route route_map_v220[] = {
 };
 
 #ifdef CONFIG_MFD_HI6421_IRQ
-static void hi6421_hs_jack_report(struct snd_soc_codec *codec,
-                struct snd_soc_jack *jack, int report)
+static void mask_irq_of_plugout (struct snd_soc_codec *codec, bool mask) {
+    struct hi6421_codec_platform_data *pdata = dev_get_platdata(codec->dev);
+    struct irq_desc *desc_pmu_plug_out;
+
+    if (!pdata) {
+        pr_err(" %s(%u) error: pdate is NULL\n", __FUNCTION__, __LINE__);
+        return;
+    }
+
+    desc_pmu_plug_out = irq_to_desc(pdata->irq[0]);
+    if (!desc_pmu_plug_out) {
+        pr_err(" %s(%u) error: desc_pmu_plug_out is NULL\n", __FUNCTION__, __LINE__);
+        return;
+    }
+
+    pr_info(" %s(%u) : mask = %s\n", __FUNCTION__, __LINE__, mask?"T":"F");
+
+    if (mask) {
+        /* mask interrupts */
+        desc_pmu_plug_out->irq_data.chip->irq_mask(&desc_pmu_plug_out->irq_data);
+    } else {
+        /* unmask interrupts */
+        desc_pmu_plug_out->irq_data.chip->irq_unmask(&desc_pmu_plug_out->irq_data);
+    }
+}
+
+static void mask_irq_of_btn (struct snd_soc_codec *codec, bool mask) {
+    struct hi6421_codec_platform_data *pdata = dev_get_platdata(codec->dev);
+    struct irq_desc *desc_pmu_btn_press;
+    struct irq_desc *desc_pmu_btn_release;
+
+    if (!pdata) {
+        pr_err(" %s(%u) error: pdate is NULL\n", __FUNCTION__, __LINE__);
+        return;
+    }
+
+    desc_pmu_btn_press = irq_to_desc(pdata->irq[2]);
+
+    if (!desc_pmu_btn_press ) {
+        pr_err(" %s(%u) error: desc_pmu_btn_press is  NULL\n", __FUNCTION__, __LINE__);
+        return;
+    }
+
+    desc_pmu_btn_release = irq_to_desc(pdata->irq[3]);
+
+    if (!desc_pmu_btn_release ) {
+        pr_err(" %s(%u) error: desc_pmu_btn_release is  NULL\n", __FUNCTION__, __LINE__);
+        return;
+    }
+
+    pr_info(" %s(%u) : mask = %s\n", __FUNCTION__, __LINE__, mask?"T":"F");
+
+    if (mask) {
+        /* mask interrupts */
+        desc_pmu_btn_press->irq_data.chip->irq_mask(&desc_pmu_btn_press->irq_data);
+        desc_pmu_btn_release->irq_data.chip->irq_mask(&desc_pmu_btn_release->irq_data);
+    } else {
+        hi6421_set_reg_bit(HI6421_REG_IRQ3, HI6421_HDS_BTN_RELEASE_BIT);
+        hi6421_set_reg_bit(HI6421_REG_IRQ3, HI6421_HDS_BTN_PRESS_BIT);
+        /* unmask interrupts */
+        desc_pmu_btn_press->irq_data.chip->irq_unmask(&desc_pmu_btn_press->irq_data);
+        desc_pmu_btn_release->irq_data.chip->irq_unmask(&desc_pmu_btn_release->irq_data);
+    }
+}
+
+static inline bool is_headset_pluged(struct snd_soc_codec *codec)
 {
-    struct hi6421_data *priv = snd_soc_codec_get_drvdata(codec);
-    int state = 0;
-    int jack_state = HI6421_JACK_BIT_NONE;
-    u8 status = 0;
+    /* read pmu status, then compare pluged bit */
+    return (hi6421_reg_read(codec, HI6421_REG_STATUS0) & HI6421_PLUGCOMP);
+}
 
-
-    /* Sync status */
-    status = hi6421_reg_read(codec, HI6421_REG_STATUS0);
-
-    if (status & HI6421_PLUGCOMP)
-        state = report;
-    else
-        state = 0;
-
-    switch (state) {
-    case SND_JACK_HEADSET:
-        jack_state = HI6421_JACK_BIT_HEADSET;
-        break;
-    case  SND_JACK_HEADPHONE:
-        jack_state = HI6421_JACK_BIT_HEADSET_NO_MIC;
-        break;
-    default:
-        jack_state = HI6421_JACK_BIT_NONE;
-        break;
-    }
-
-    if (jack_state != switch_get_state(&priv->hs_jack.sdev)) {
-        /*  Reason: Add for headset report  */
-        pr_info("%s, (type, status)= (0x%02X, 0x%02X). \n",
-                __FUNCTION__, report, status);
-        snd_soc_jack_report(jack, state, SND_JACK_HEADSET | SND_JACK_BTN_0);
-
-        switch_set_state(&priv->hs_jack.sdev, jack_state);
-    }
-
+static void jack_report_switch_state(struct snd_soc_jack *hi6421_jack,
+                                     int status,  struct switch_dev *sdev)
+{
+    /* read jack and report then change headset state */
+    snd_soc_jack_report(hi6421_jack, status, SND_JACK_HEADSET | SND_JACK_BTN_0);
+    switch_set_state(sdev, hs_status);
 }
 
 #ifdef CONFIG_K3_ADC
@@ -2636,10 +2725,25 @@ static inline void hi6421_hkadc_ctl_probe(struct snd_soc_codec *codec, bool is_o
 static inline void hi6421_hkadc_ctl(struct snd_soc_codec *codec, bool is_on)
 {
     struct hi6421_data *priv = snd_soc_codec_get_drvdata(codec);
-    if (NULL == priv) {
+
+    if (!priv) {
+        pr_err(" %s(%u) error: priv is NULL\n", __FUNCTION__, __LINE__);
         return;
     }
+
     if (is_on) {
+        if (E_UART_HEADSET_TYPE_SMART == get_uart_headset_type())
+        {
+            if (gpio_get_value(HS_UART_STATUS) == 0)
+            {
+                gpio_direction_output(HS_UART_STATUS, 0);
+            }
+            else
+            {
+                //do not turn on BIAS since uart cable is plugged in
+                return;
+            }
+        }
         hi6421_clr_reg_bit(HI6421_MAINMICBIAS_PD_REG, HI6421_MAINMICBIAS_PD_BIT);
         hi6421_set_reg_bit(HI6421_REG_HSD, HI6421_HS_FAST_DISCHARGE_BIT);
         msleep(HI6421_HS_POWERDOWN_WAITTIME);
@@ -2648,83 +2752,32 @@ static inline void hi6421_hkadc_ctl(struct snd_soc_codec *codec, bool is_on)
         /*SWM_EN is to do with PB_DETECT*/
         hi6421_set_reg_bit(HI6421_REG_MICBIAS, HI6421_MICBIAS_SWM_EN_BIT);
     } else {
+        if (E_UART_HEADSET_TYPE_SMART == get_uart_headset_type())
+        {
+            //set back to input anyway
+            gpio_direction_input(HS_UART_STATUS);
+        }
         unsigned int value = hi6421_reg_read(codec, HI6421_MAINPGA_PD_REG);
         unsigned int eco = hi6421_reg_read(codec, HI6421_REG_MICBIAS);
         hi6421_clr_reg_bit(HI6421_REG_MICBIAS, HI6421_MICBIAS_HS_MIC_EN_BIT);
         hi6421_clr_reg_bit(HI6421_REG_MICBIAS, HI6421_MICBIAS_ECO_BIT); /*Normal*/
         hi6421_clr_reg_bit(HI6421_REG_MICBIAS, HI6421_MICBIAS_SWM_EN_BIT);
+
         if (value & (1 << HI6421_MAINPGA_PD_BIT)) {
             pr_info("%s: mainpga is OFF",  __FUNCTION__);
             hi6421_set_reg_bit(HI6421_MAINMICBIAS_PD_REG, HI6421_MAINMICBIAS_PD_BIT);
         } else {
             pr_info("%s: mainpga is ON",  __FUNCTION__);
         }
+
         hi6421_set_reg_bit(HI6421_REG_HSD, HI6421_HS_FAST_DISCHARGE_BIT);
         msleep(HI6421_HS_POWERDOWN_WAITTIME);
         hi6421_clr_reg_bit(HI6421_REG_HSD, HI6421_HS_FAST_DISCHARGE_BIT);
+
         if (eco &(1<<HI6421_MICBIAS_ECO_BIT)) {
             hi6421_set_reg_bit(HI6421_REG_MICBIAS, HI6421_MICBIAS_ECO_BIT);
         }
     }
-}
-
-static inline void hi6421_btn_judgement(struct snd_soc_codec *codec)
-{
-    int ret = 0;
-    struct hi6421_data *priv = snd_soc_codec_get_drvdata(codec);
-    struct hi6421_jack_data *hs_jack = NULL;
-
-    if (NULL == priv) {
-        return;
-    }
-
-    hs_jack = &priv->hs_jack;
-    mutex_lock(&priv->io_mutex);
-    if (HI6421_JACK_BIT_HEADSET ==  hs_status) {
-        ret = k3_adc_get_value(ADC_PB_DETECT, NULL);
-
-        if (priv->check_voltage > 0) {
-            if (priv->lower_power)
-                ret = (ret * HI6421_ECO_VOLTAGE_FACTOR) / priv->check_voltage;
-            else
-                ret = (ret * HI6421_NORMAL_VOLTAGE_FACTOR) / priv->check_voltage;
-        }
-
-#if 0
-        if( ret > HI6421_BTN_FORWARD_VOLTAGE_MIN && ret <
-        HI6421_BTN_FORWARD_VOLTAGE_MAX) {
-            pr_info("%s: ADC_PB_DETECT BTN FORAWARD = %d",  __FUNCTION__,ret);
-        } else if( ret > HI6421_BTN_PLAY_VOLTAGE_MIN && ret <
-        HI6421_BTN_PLAY_VOLTAGE_MAX) {
-            pr_info("%s: ADC_PB_DETECT BTN PLAY = %d",  __FUNCTION__, ret);
-        } else if( ret > HI6421_BTN_BACK_VOLTAGE_MIN && ret <
-        HI6421_BTN_BACK_VOLTAGE_MAX) {
-            pr_info("%s: ADC_PB_DETECT BTN BACK = %d",  __FUNCTION__, ret);
-        } else {
-            pr_info("%s: ADC_PB_DETECT OTHER = %d",  __FUNCTION__, ret);
-        }
-#else
-
-        if( ret > HI6421_SINGLE_BTN_VOLTAGE_MIN && ret < HI6421_SINGLE_BTN_VOLTAGE_MAX) {
-            usleep_range(HI6421_HS_BTN_MIN_WAIT_TIME_US,HI6421_HS_BTN_MAX_WAIT_TIME_US);
-            u8 status = hi6421_reg_read(codec, HI6421_REG_STATUS0);
-            if (status & HI6421_PLUGCOMP) {
-                hs_jack->jack->jack->type = SND_JACK_BTN_0;
-                hs_jack->report = SND_JACK_BTN_0;
-                snd_soc_jack_report(hs_jack->jack, hs_jack->report, SND_JACK_HEADSET | SND_JACK_BTN_0);
-                switch_set_state(&priv->hs_jack.sdev, HI6421_JACK_BIT_HEADSET);
-                pr_info("%s: ADC_PB_DETECT SINGLE_BTN = %d hs_status = %d",
-                    __FUNCTION__, ret, hs_status);
-            } else {
-                pr_info("%s: PLUG OUT", __FUNCTION__);
-            }
-        } else {
-            pr_info("%s: ADC_PB_DETECT OTHER = %d",  __FUNCTION__, ret);
-        }
-#endif
-    }
-    mutex_unlock(&priv->io_mutex);
-    return;
 }
 
 static irqreturn_t hi6421_btn_down_handler(int irq, void *data)
@@ -2732,18 +2785,15 @@ static irqreturn_t hi6421_btn_down_handler(int irq, void *data)
     struct snd_soc_codec *codec = data;
     struct hi6421_data *priv = snd_soc_codec_get_drvdata(codec);
 
-    pr_info("%s",  __FUNCTION__);
-
-    if (priv) {
-        wake_lock_timeout(&priv->wake_lock,
-            HI6421_HS_BTN_JUDGEMENT_TIME + HI6421_HS_WAKE_LOCK_TIMEOUT);
-        if (priv->btn_running)
-            priv->btn_loop = true;
-        else
-            queue_delayed_work(priv->headset_btn_delay_wq,
-                    &priv->headset_btn_delay_work,
-                    msecs_to_jiffies(HI6421_HS_BTN_JUDGEMENT_TIME));
+    if (!priv) {
+        pr_err(" %s(%u) error: priv is NULL\n", __FUNCTION__, __LINE__);
+        return IRQ_HANDLED;
     }
+
+    queue_delayed_work(priv->headset_btn_down_delay_wq,
+                       &priv->headset_btn_down_delay_work,
+                       msecs_to_jiffies(0));
+
     return IRQ_HANDLED;
 }
 
@@ -2752,271 +2802,118 @@ static irqreturn_t hi6421_btn_up_handler(int irq, void *data)
     struct snd_soc_codec *codec = data;
     struct hi6421_data *priv = snd_soc_codec_get_drvdata(codec);
 
-    pr_info("%s",  __FUNCTION__);
-
-    if (priv) {
-        wake_lock_timeout(&priv->wake_lock,
-                HI6421_HS_BTN_JUDGEMENT_TIME + HI6421_HS_WAKE_LOCK_TIMEOUT);
-
-        if (priv->btn_up_running)
-            priv->btn_up_loop = true;
-        else
-            queue_delayed_work(priv->headset_btn_up_delay_wq,
-                    &priv->headset_btn_up_delay_work,
-                    msecs_to_jiffies(HI6421_HS_BTN_JUDGEMENT_TIME));
+    if (!priv) {
+        pr_err(" %s(%u) error: priv is NULL\n", __FUNCTION__, __LINE__);
+        return IRQ_HANDLED;
     }
+
+    wake_lock_timeout(&priv->wake_lock,
+            HI6421_HS_BTN_JUDGEMENT_TIME + HI6421_HS_WAKE_LOCK_TIMEOUT);
+    queue_delayed_work(priv->headset_btn_up_delay_wq,
+            &priv->headset_btn_up_delay_work,
+            msecs_to_jiffies(HI6421_HS_BTN_JUDGEMENT_TIME));
+
     return IRQ_HANDLED;
 }
 
-void hi6421_btn_work_func(struct work_struct *work)
+int hi6421_get_voltage(struct hi6421_data *priv)
+{
+    int voltage = 0;
+    int factor = priv->lower_power ?
+            HI6421_ECO_VOLTAGE_FACTOR :
+            HI6421_NORMAL_VOLTAGE_FACTOR;
+
+    voltage = k3_adc_get_value(ADC_PB_DETECT, NULL);
+
+    if (priv->check_voltage > 0)
+        voltage = (voltage * factor) / priv->check_voltage;
+
+    pr_info("%s:%u voltage = %d\n", __FUNCTION__, __LINE__, voltage);
+
+    return voltage;
+}
+
+void hi6421_btn_down_work_func(struct work_struct *work)
 {
     struct hi6421_data *priv =
-            container_of(work, struct hi6421_data, headset_btn_delay_work.work);
-    struct snd_soc_codec *codec = priv->codec;
+            container_of(work, struct hi6421_data, headset_btn_down_delay_work.work);
+    struct snd_soc_codec *codec;
+    struct hi6421_jack_data *hi6421_hs_jack;
+    int ret =  0;
 
-    priv->btn_running = true;
-    do {
-        priv->btn_loop = false;
-        hi6421_btn_judgement(codec);
-        if( priv->btn_loop) {
-            msleep(HI6421_HS_WAKE_LOCK_TIMEOUT);
+    if (!priv) {
+        pr_err(" %s(%u) error: priv is NULL\n", __FUNCTION__, __LINE__);
+        return;
+    }
+
+    codec = priv->codec;
+    wake_lock_timeout(&priv->wake_lock,
+            HI6421_HS_BTN_JUDGEMENT_TIME + HI6421_HS_WAKE_LOCK_TIMEOUT);
+    msleep(HI6421_HS_BTN_JUDGEMENT_TIME);
+
+    hi6421_hs_jack = &priv->hs_jack;
+    mutex_lock(&priv->io_mutex);
+    if (HI6421_JACK_BIT_HEADSET ==  hs_status) {
+        ret = hi6421_get_voltage(priv);
+
+        if (is_headset_pluged(codec)) {
+            if (ret > HI6421_SINGLE_BTN_VOLTAGE_MIN && ret < HI6421_SINGLE_BTN_VOLTAGE_MAX) {
+                hi6421_hs_jack->jack->jack->type = SND_JACK_BTN_0;
+                hi6421_hs_jack->report |= SND_JACK_BTN_0;
+                jack_report_switch_state(hi6421_hs_jack->jack,
+                                         hi6421_hs_jack->report,
+                                         &priv->hs_jack.sdev);
+                pr_info("%s: ADC_PB_DETECT SINGLE_BTN = %d hs_status = %d\n",
+                        __FUNCTION__, ret, hs_status);
+            } else {
+                pr_info("%s: ADC_PB_DETECT OTHER = %d\n",  __FUNCTION__, ret);
+            }
         } else {
-            break;
+            pr_info("%s: PLUG OUT\n", __FUNCTION__);
         }
-    } while(true);
-    priv->btn_running = false;
-    return;
+    }
+    mutex_unlock(&priv->io_mutex);
 
+    return;
 }
 
 void hi6421_btn_up_work_func(struct work_struct *work)
 {
     struct hi6421_data *priv =
             container_of(work, struct hi6421_data, headset_btn_up_delay_work.work);
+    struct hi6421_jack_data *hi6421_hs_jack;
 
-    struct hi6421_jack_data *hs_jack = &priv->hs_jack;
-
-    priv->btn_up_running = true;
-
-    do {
-        priv->btn_up_loop = false;
-        usleep_range(HI6421_HS_BTN_MIN_WAIT_TIME_US, HI6421_HS_BTN_MAX_WAIT_TIME_US);
-        hs_jack->jack->jack->type = SND_JACK_BTN_0;
-        hs_jack->report = SND_JACK_LINEOUT;
-        snd_soc_jack_report(hs_jack->jack, hs_jack->report, SND_JACK_HEADSET | SND_JACK_BTN_0);
-        switch_set_state(&priv->hs_jack.sdev, hs_status);
-        pr_info("%s", __FUNCTION__);
-        if( priv->btn_up_loop) {
-            msleep(HI6421_HS_WAKE_LOCK_TIMEOUT);
-        } else {
-            break;
-        }
-    } while(true);
-    priv->btn_up_running = false;
-    return;
-
-}
-#endif
-static void hi6421_plug_judgement(struct snd_soc_codec *codec,
-    struct hi6421_jack_data *hs_jack)
-{
-    struct irq_desc *desc_pmu = NULL;
-    struct hi6421_codec_platform_data *pdata = dev_get_platdata(codec->dev);
-    struct hi6421_data *priv = snd_soc_codec_get_drvdata(codec);
-    u8 status = 0;
-
-    if (NULL == priv) {
+    if (!priv) {
+        pr_err(" %s(%u) error: priv is NULL\n", __FUNCTION__, __LINE__);
         return;
     }
 
-    mutex_lock(&priv->io_mutex);
+    hi6421_hs_jack = &priv->hs_jack;
+    hi6421_hs_jack->jack->jack->type = SND_JACK_BTN_0;
+    hi6421_hs_jack->report &= ~SND_JACK_BTN_0;
+    jack_report_switch_state(hi6421_hs_jack->jack,
+                            hi6421_hs_jack->report,
+                            &priv->hs_jack.sdev);
 
-    /*Read the status register and initid register*/
-    status = hi6421_reg_read(codec, HI6421_REG_STATUS0);
-
-    if (status & HI6421_PLUGCOMP) {
-        desc_pmu = irq_to_desc(pdata->irq[2]);
-        if (desc_pmu) {
-            /* mask this interrupt*/
-            desc_pmu->irq_data.chip->irq_mask(&desc_pmu->irq_data);
-        }
-        desc_pmu = irq_to_desc(pdata->irq[3]);
-        if (desc_pmu) {
-            /* mask this interrupt*/
-            desc_pmu->irq_data.chip->irq_mask(&desc_pmu->irq_data);
-        }
-        wake_lock_timeout(&priv->wake_lock, HI6421_HS_PLUG_DETECT_TIME +
-            HI6421_HS_WAKE_LOCK_TIMEOUT);
-        priv->detect_loop = true;
-        if ( !priv->detect_running )
-            queue_delayed_work(priv->headset_detect_delay_wq,
-                    &priv->headset_detect_delay_work,
-                    msecs_to_jiffies(HI6421_HS_PLUG_DETECT_TIME));
-    } else {
-        /*Unplug*/
-        desc_pmu = irq_to_desc(pdata->irq[2]);
-        if (desc_pmu) {
-            /* mask this interrupt*/
-            desc_pmu->irq_data.chip->irq_mask(&desc_pmu->irq_data);
-        }
-        desc_pmu = irq_to_desc(pdata->irq[3]);
-        if (desc_pmu) {
-        /* mask this interrupt*/
-            desc_pmu->irq_data.chip->irq_mask(&desc_pmu->irq_data);
-        }
-        if(HI6421_JACK_BIT_HEADSET == hs_status) {
-            pr_info("It is 4 Unplug!\n");
-            hs_jack->report = 0;
-            hs_status = HI6421_JACK_BIT_NONE;
-        } else if(HI6421_JACK_BIT_HEADSET_NO_MIC == hs_status) {
-            pr_info("It is 3 Unplug!\n");
-            hs_jack->report = 0;
-            hs_status = HI6421_JACK_BIT_NONE;
-        } else {
-            pr_info("Unplug! \n");
-        }
-#ifdef CONFIG_K3_ADC
-        hi6421_hkadc_ctl(codec, false);
-#endif
-    }
-    mutex_unlock(&priv->io_mutex);
     return;
 }
-
-static void hi6421_detect_judgement(struct snd_soc_codec *codec,
-    struct hi6421_jack_data *hs_jack)
+#endif
+void hi6421_hs_btn_regester(struct snd_soc_codec *codec,
+                struct snd_soc_jack *hi6421_jack,  int report)
 {
-    int ret = 0;
-    int voltage_min = HI6421_PB_VOLTAGE_MIN;
-    int vlotage_max = HI6421_PB_VOLTAGE_MAX;
-    struct irq_desc *desc_pmu = NULL;
-    struct hi6421_codec_platform_data *pdata = dev_get_platdata(codec->dev);
     struct hi6421_data *priv = snd_soc_codec_get_drvdata(codec);
-    u8 status = 0;
-    if (NULL == priv) {
+    struct hi6421_jack_data *hi6421_hs_jack;
+
+    if (!priv) {
+        pr_err(" %s(%u) error: priv is NULL\n", __FUNCTION__, __LINE__);
         return;
     }
-    mutex_lock(&priv->io_mutex);
-    /*Read the status register and initid register*/
-    status = hi6421_reg_read(codec, HI6421_REG_STATUS0);
-    if (status & HI6421_PLUGCOMP) {
-#ifdef CONFIG_K3_ADC
-        hi6421_hkadc_ctl(codec, true);
 
-        msleep(HI6421_HKADC_SLEEP_TIME);
-
-        ret = k3_adc_get_value(ADC_PB_DETECT, NULL);
-
-        if(priv->check_voltage > 0) {
-            if(priv->lower_power)
-                ret = (ret * HI6421_ECO_VOLTAGE_FACTOR) / priv->check_voltage;
-            else
-                ret = (ret * HI6421_NORMAL_VOLTAGE_FACTOR) / priv->check_voltage;
-        }
-
-        pr_info("%s:ret = %umV\n",__FUNCTION__, ret);
-
-        voltage_min = HI6421_PB_VOLTAGE_MIN;
-        vlotage_max = HI6421_PB_VOLTAGE_MAX;
-
-        /* It is a plug with mic*/
-        if (ret < vlotage_max && ret > voltage_min) {
-            pr_info("%s:%u: It is 4 plug!\n",__FUNCTION__, __LINE__);
-
-            /*
-             * hs_jack->jack->jack->type = SND_JACK_HEADSET;
-             */
-
-            hs_jack->report = SND_JACK_HEADSET;
-            hs_status = HI6421_JACK_BIT_HEADSET;
-
-            hi6421_set_reg_bit(HI6421_REG_IRQ3, HI6421_HDS_BTN_RELEASE_BIT);
-            hi6421_set_reg_bit(HI6421_REG_IRQ3, HI6421_HDS_BTN_PRESS_BIT);
-
-            desc_pmu = irq_to_desc(pdata->irq[2]);
-            if (desc_pmu) {
-                /* mask this interrupt*/
-                desc_pmu->irq_data.chip->irq_unmask(&desc_pmu->irq_data);
-            }
-            desc_pmu = irq_to_desc(pdata->irq[3]);
-            if (desc_pmu) {
-                /* mask this interrupt*/
-                desc_pmu->irq_data.chip->irq_unmask(&desc_pmu->irq_data);
-            }
-        } else {
-            /* It is a plug without mic*/
-            pr_info("%s:%u: It is 3 plug! \n",__FUNCTION__, __LINE__);
-
-            desc_pmu = irq_to_desc(pdata->irq[2]);
-            if (desc_pmu) {
-                /* mask this interrupt*/
-                desc_pmu->irq_data.chip->irq_mask(&desc_pmu->irq_data);
-            }
-            desc_pmu = irq_to_desc(pdata->irq[3]);
-            if (desc_pmu) {
-                /* mask this interrupt*/
-                desc_pmu->irq_data.chip->irq_mask(&desc_pmu->irq_data);
-            }
-            hs_jack->report = SND_JACK_HEADPHONE;
-            hs_status = HI6421_JACK_BIT_HEADSET_NO_MIC;
-            hi6421_hkadc_ctl(codec, false);
-        }
-#else
-        hs_jack->report = SND_JACK_HEADPHONE;
-        hs_status = HI6421_JACK_BIT_HEADSET_NO_MIC;
-        pr_info("%s:%u: It is 3 plug! \n",__FUNCTION__, __LINE__);
-#endif
-    } else {
-        /*Unplug*/
-        desc_pmu = irq_to_desc(pdata->irq[2]);
-        if (desc_pmu) {
-            /* mask this interrupt*/
-            desc_pmu->irq_data.chip->irq_mask(&desc_pmu->irq_data);
-        }
-        desc_pmu = irq_to_desc(pdata->irq[3]);
-        if (desc_pmu) {
-            /* mask this interrupt*/
-            desc_pmu->irq_data.chip->irq_mask(&desc_pmu->irq_data);
-        }
-        if(HI6421_JACK_BIT_HEADSET == hs_status) {
-            pr_info("It is 4 Unplug! \n");
-            hs_jack->report = 0;
-            hs_status = HI6421_JACK_BIT_NONE;
-        } else if(HI6421_JACK_BIT_HEADSET_NO_MIC == hs_status) {
-            pr_info("It is 3 Unplug! \n");
-            hs_jack->report = 0;
-            hs_status = HI6421_JACK_BIT_NONE;
-        } else {
-            pr_info("Unplug! \n");
-        }
-
-#ifdef CONFIG_K3_ADC
-        hi6421_hkadc_ctl(codec, false);
-#endif
-    }
-    mutex_unlock(&priv->io_mutex);
-    return;
-}
-
-void hi6421_hs_jack_detect(struct snd_soc_codec *codec,
-                struct snd_soc_jack *jack,  int report)
-{
-    struct hi6421_data *priv = snd_soc_codec_get_drvdata(codec);
-    struct hi6421_jack_data *hs_jack = &priv->hs_jack;
-
-    int ret = 0;
-
-    hs_jack->jack = jack;
-    hs_jack->report = 0;
-
-    ret = snd_jack_set_key(jack->jack, SND_JACK_BTN_0,KEY_MEDIA);
-    if( ret ) {
-        pr_err("%s:Set headset key failed!\n", __FUNCTION__);
-    } else {
-        pr_info("%s:Set key sucess.\n", __FUNCTION__);
-    }
-
-    snd_soc_jack_report(jack, SND_JACK_HEADSET, SND_JACK_HEADSET | SND_JACK_BTN_0);
+    hi6421_hs_jack = &priv->hs_jack;
+    hi6421_hs_jack->jack = hi6421_jack;
+    hi6421_hs_jack->report = 0;
+    snd_jack_set_key(hi6421_jack->jack, SND_JACK_BTN_0,KEY_MEDIA);
+    snd_soc_jack_report(hi6421_jack, SND_JACK_HEADSET, SND_JACK_HEADSET | SND_JACK_BTN_0);
 
 }
 
@@ -3024,18 +2921,16 @@ static irqreturn_t hi6421_hp_plug_out_handler(int irq, void *data)
 {
     struct snd_soc_codec *codec = data;
     struct hi6421_data *priv = snd_soc_codec_get_drvdata(codec);
-    pr_info("%s:%u\n", __FUNCTION__, __LINE__);
-    if (priv) {
-        wake_lock_timeout(&priv->wake_lock,
-            HI6421_HS_PLUG_JUDGEMENT_TIME + HI6421_HS_WAKE_LOCK_TIMEOUT + HI6421_HS_PLUG_OUT_MAX_WAIT_TIME);
-        if( false == priv->plug_out_running ) {
-            queue_delayed_work(priv->headset_plug_out_delay_wq,
-                &priv->headset_plug_out_delay_work,
-                msecs_to_jiffies(HI6421_HS_PLUG_JUDGEMENT_TIME));
-        } else {
-            priv->plug_out_loop = true;
-        }
+
+    if (!priv) {
+        pr_err(" %s(%u) error: priv is NULL\n", __FUNCTION__, __LINE__);
+        return IRQ_HANDLED;
     }
+
+    queue_delayed_work(priv->headset_plug_out_delay_wq,
+                       &priv->headset_plug_out_delay_work,
+                       msecs_to_jiffies(0));
+
     return IRQ_HANDLED;
 }
 
@@ -3044,92 +2939,162 @@ static irqreturn_t hi6421_hp_plug_in_handler(int irq, void *data)
     struct snd_soc_codec *codec = data;
     struct hi6421_data *priv = snd_soc_codec_get_drvdata(codec);
 
-    pr_info("%s:%u\n", __FUNCTION__, __LINE__);
-
-    if (priv) {
-        wake_lock_timeout(&priv->wake_lock,
-            HI6421_HS_PLUG_JUDGEMENT_TIME + HI6421_HS_WAKE_LOCK_TIMEOUT);
-        if( false == priv->plug_in_running ) {
-            queue_delayed_work(priv->headset_plug_in_delay_wq,
-                &priv->headset_plug_in_delay_work,
-                msecs_to_jiffies(HI6421_HS_PLUG_JUDGEMENT_TIME));
-        } else {
-            priv->plug_in_loop = true;
-        }
+    if (!priv) {
+        pr_err(" %s(%u) error: priv is NULL\n", __FUNCTION__, __LINE__);
+        return IRQ_HANDLED;
     }
+
+    wake_lock_timeout(&priv->wake_lock, HI6421_HS_WAKE_LOCK_TIMEOUT);
+    /* mask hsd interrupt */
+    mask_irq_of_plugout(codec, true);
+
+    queue_delayed_work(priv->headset_judgement_delay_wq,
+                       &priv->headset_judgement_delay_work,
+                       msecs_to_jiffies(0));
+
     return IRQ_HANDLED;
 }
 
-void hi6421_audio_detect_work_func(struct work_struct *work)
+void hi6421_audio_judgement_work_func(struct work_struct *work)
 {
     struct hi6421_data *priv =
-        container_of(work, struct hi6421_data, headset_detect_delay_work.work);
-    struct hi6421_jack_data *hs_jack = &priv->hs_jack;
-    struct snd_soc_codec *codec = priv->codec;
-    priv->detect_running = true;
-    do {
-        priv->detect_loop = false;
-        hi6421_detect_judgement(codec, hs_jack);
-        if( priv->detect_loop ) {
-            msleep(HI6421_HS_WAKE_LOCK_TIMEOUT);
-        } else {
-            break;
-        }
-    } while(true);
+        container_of(work, struct hi6421_data, headset_judgement_delay_work.work);
+    int ret = 0;
 
-    wake_lock_timeout(&priv->wake_lock, 2 * HZ);
-    hi6421_hs_jack_report(codec, hs_jack->jack, hs_jack->report);
-    priv->detect_running = false;
-    return;
+    if (!priv) {
+        pr_err(" %s(%u) error: priv is NULL\n", __FUNCTION__, __LINE__);
+        return;
+    }
 
+    wake_lock_timeout(&priv->wake_lock,
+            HI6421_HS_PLUG_DETECT_TIME + HI6421_HS_WAKE_LOCK_TIMEOUT);
+    ret = cancel_delayed_work(&priv->headset_plug_in_delay_work);
+
+    if (!ret)
+        flush_workqueue(priv->headset_plug_in_delay_wq);
+
+    queue_delayed_work(priv->headset_plug_in_delay_wq,
+                       &priv->headset_plug_in_delay_work,
+                       msecs_to_jiffies(HI6421_HS_PLUG_DETECT_TIME));
 }
 
 void hi6421_audio_plug_in_work_func(struct work_struct *work)
 {
     struct hi6421_data *priv =
         container_of(work, struct hi6421_data, headset_plug_in_delay_work.work);
-    struct hi6421_jack_data *hs_jack = &priv->hs_jack;
-    struct snd_soc_codec *codec = priv->codec;
+    struct hi6421_jack_data *hi6421_hs_jack;
+    struct snd_soc_codec *codec;
+    int ret = 0;
 
-    priv->plug_in_running = true;
-    do {
-        priv->plug_in_loop = false;
-        hi6421_plug_judgement(codec, hs_jack);
-        if( !priv->plug_in_loop ) {
-            break;
+    if (!priv) {
+        pr_err(" %s(%u) error: priv is NULL\n", __FUNCTION__, __LINE__);
+        return;
+    }
+
+    hi6421_hs_jack = &priv->hs_jack;
+    codec = priv->codec;
+
+    if (!is_headset_pluged(codec)) {
+        pr_info(" %s(%u)  hs pluged out\n", __FUNCTION__, __LINE__);
+        return;
+    }
+
+    wake_lock(&priv->plugin_wake_lock);
+    mutex_lock(&priv->io_mutex);
+
+#ifdef CONFIG_K3_ADC
+    hi6421_hkadc_ctl(codec, true);
+    msleep(HI6421_HKADC_SLEEP_TIME);
+    /**
+     * 1. micbias/hkadc power on
+     * 2. detect & report headset type; unmask btn irq if headset type is headset.
+     * 3. micbias power off if headset type is headphone
+     */
+    ret = hi6421_get_voltage(priv);
+
+    pr_info("%s:ret = %umV\n",__FUNCTION__, ret);
+
+    if (ret < HI6421_PB_VOLTAGE_MAX && ret > HI6421_PB_VOLTAGE_MIN) {
+        pr_info("%s:%u: It is 4 plug!\n",__FUNCTION__, __LINE__);
+        if (HI6421_JACK_BIT_HEADSET != hs_status) {
+            hi6421_hs_jack->report = SND_JACK_HEADSET;
+            hs_status = HI6421_JACK_BIT_HEADSET;
+            mask_irq_of_btn(codec, false);
         }
-    } while(true);
+    } else {
+        /* It is a plug without mic*/
+        pr_info("%s:%u: It is 3 plug! \n",__FUNCTION__, __LINE__);
+        if (HI6421_JACK_BIT_HEADSET_NO_MIC != hs_status) {
+            hi6421_hs_jack->report = SND_JACK_HEADPHONE;
+            hs_status = HI6421_JACK_BIT_HEADSET_NO_MIC;
+            mask_irq_of_btn(codec, true);
+            hi6421_hkadc_ctl(codec, false);
+        }
+    }
 
-    wake_lock_timeout(&priv->wake_lock, 2 * HZ);
+    if (!is_headset_pluged(codec)) {
+        /* headset has pluged out, do not detect any more */
+        pr_info(" %s(%u)  hs pluged out\n", __FUNCTION__, __LINE__);
+        hs_status = HI6421_JACK_BIT_NONE;
+        hi6421_hkadc_ctl(codec, false);
+        mask_irq_of_btn(codec, true);
+        goto mw_unlock;
+    }
+#else
+    pr_info("%s:%u: It is 3 plug! \n",__FUNCTION__, __LINE__);
+    hi6421_hs_jack->report = SND_JACK_HEADPHONE;
+    hs_status = HI6421_JACK_BIT_HEADSET_NO_MIC;
 
-    priv->plug_in_running = false;
+    if (!is_headset_pluged(codec)) {
+        /* headset has pluged out, do not detect any more */
+        pr_info(" %s(%u)  hs pluged out\n", __FUNCTION__, __LINE__);
+        hs_status = HI6421_JACK_BIT_NONE;
+        goto mw_unlock;
+    }
+#endif
+
+    hi6421_set_reg_bit(HI6421_REG_IRQ2, HI6421_HDS_PLUG_OUT_BIT);
+    mask_irq_of_plugout(codec, false);
+
+    jack_report_switch_state(hi6421_hs_jack->jack,
+                            hi6421_hs_jack->report,
+                            &priv->hs_jack.sdev);
+ mw_unlock :
+    mutex_unlock(&priv->io_mutex);
+    wake_unlock(&priv->plugin_wake_lock);
+
     return;
-
 }
 
 void hi6421_audio_plug_out_work_func(struct work_struct *work)
 {
     struct hi6421_data *priv =
         container_of(work, struct hi6421_data, headset_plug_out_delay_work.work);
-    struct hi6421_jack_data *hs_jack = &priv->hs_jack;
-    struct snd_soc_codec *codec = priv->codec;
+    struct hi6421_jack_data *hi6421_hs_jack;
+    struct snd_soc_codec *codec;
 
-    priv->plug_out_running = true;
-    do {
-        priv->plug_out_loop = false;
-        usleep_range(HI6421_HS_PLUG_OUT_MIN_WAIT_TIME_US,
-            HI6421_HS_PLUG_OUT_MAX_WAIT_TIME_US);
-        hi6421_plug_judgement(codec, hs_jack);
-        if( !priv->plug_out_loop ) {
-            break;
-        }
-    } while(true);
+    if (!priv) {
+        pr_err(" %s(%u) error: priv is NULL\n", __FUNCTION__, __LINE__);
+        return;
+    }
 
-    wake_lock_timeout(&priv->wake_lock, 2 * HZ);
-    hi6421_hs_jack_report(codec, hs_jack->jack, hs_jack->report);
-    priv->plug_out_running = false;
+    hi6421_hs_jack = &priv->hs_jack;
+    codec = priv->codec;
+    wake_lock_timeout(&priv->wake_lock,
+            HI6421_HS_POWERDOWN_WAITTIME + HI6421_HS_WAKE_LOCK_TIMEOUT);
+    mask_irq_of_btn(codec, true);
+#ifdef CONFIG_K3_ADC
+    hi6421_hkadc_ctl(codec, false);
+#endif
+    mutex_lock(&priv->io_mutex);
+    hs_status = HI6421_JACK_BIT_NONE;
+    priv->hs_jack.report = 0;
+    jack_report_switch_state(hi6421_hs_jack->jack,
+                            hi6421_hs_jack->report,
+                            &priv->hs_jack.sdev);
+    mutex_unlock(&priv->io_mutex);
+
     return;
-
 }
 #endif
 
@@ -3168,20 +3133,27 @@ static inline void hi6421_power_on(struct snd_soc_codec *codec)
 {
     struct hi6421_data *priv = snd_soc_codec_get_drvdata(codec);
 
-    if (priv) {
-        hi6421_clr_reg_bit(HI6421_REG_MICBIAS, HI6421_MICBIAS_ECO_BIT);
-        priv->lower_power = false;
+    if (!priv) {
+        pr_err(" %s(%u) error: priv is NULL\n", __FUNCTION__, __LINE__);
+        return;
     }
+
+    hi6421_clr_reg_bit(HI6421_REG_MICBIAS, HI6421_MICBIAS_ECO_BIT);
+    priv->lower_power = false;
 }
 
 static inline void hi6421_power_off(struct snd_soc_codec *codec)
 {
     struct hi6421_data *priv = snd_soc_codec_get_drvdata(codec);
 
-    if (priv) {
-        hi6421_set_reg_bit(HI6421_REG_MICBIAS, HI6421_MICBIAS_ECO_BIT);
-        priv->lower_power = true;
+    if (!priv) {
+        pr_err(" %s(%u) error: priv is NULL\n", __FUNCTION__, __LINE__);
+        return;
     }
+
+    hi6421_set_reg_bit(HI6421_REG_MICBIAS, HI6421_MICBIAS_ECO_BIT);
+    priv->lower_power = true;
+
 }
 
 /* INIT REGISTER VALUE FROM ARRAY */
@@ -3204,35 +3176,61 @@ static void init_reg_value(struct snd_soc_codec *codec)
         hi6421_reg_write(codec, i, codec_registers[i - HI6421_CODEC_REG_FIRST]);
 }
 
+static inline bool hi6421_has_active_pcm(void)
+{
+    return (hi6421_pcm_mm_pb ||
+            hi6421_pcm_mm_cp ||
+            hi6421_pcm_modem ||
+            hi6421_pcm_fm);
+}
+
+static inline bool hi6421_is_pll_active(void)
+{
+    return (hi6421_pcm_mm_pb ||
+            hi6421_pcm_mm_cp ||
+            hi6421_pcm_modem);
+}
+
 static int hi6421_startup(struct snd_pcm_substream *substream,
                           struct snd_soc_dai *dai)
 {
     struct hi6421_data *priv = snd_soc_codec_get_drvdata(g_codec);
-    if(!priv) {
+
+    if (!priv ) {
         pr_err("%s(%u): priv is null !\n", __FUNCTION__, __LINE__);
         return -ENOMEM;
     }
 
     mutex_lock(&hi6421_power_lock);
-    if (0 == hi6421_active_pcm)
-        hi6421_power_on(g_codec);
-    hi6421_active_pcm++;
-    mutex_unlock(&hi6421_power_lock);
-	
-    if ((HI6421_PORT_MODEM == substream->pcm->device)||(HI6421_PORT_MM == substream->pcm->device) ) {
-        pr_info( "hi6421_startup check: %d\n", hi6421_active_pll_chk);
-        mutex_lock(&hi6421_power_lock);
-        if (0 == hi6421_active_pll_chk)
-        {
-            pr_info( "hi6421_startup start: %d\n", substream->pcm->device);
-            wake_lock(&priv->pll_wake_lock);
+    if ((HI6421_PORT_MODEM == substream->pcm->device) ||
+           (HI6421_PORT_MM == substream->pcm->device)) {
+        pr_info( "hi6421_startup check pll work function running\n");
+        if (!hi6421_is_pll_active()) {
             queue_delayed_work(priv->pll_delay_wq,
                                &priv->pll_delay_work,
                                msecs_to_jiffies(HI6421_PLL_DETECT_TIME));
         }
-    hi6421_active_pll_chk++;
-    mutex_unlock(&hi6421_power_lock);
     }
+
+    if (!hi6421_has_active_pcm())
+        hi6421_power_on(g_codec);
+
+    switch(substream->pcm->device) {
+    case HI6421_PORT_MM:
+        if (SNDRV_PCM_STREAM_PLAYBACK == substream->stream) {
+            hi6421_pcm_mm_pb = true;
+        } else {
+            hi6421_pcm_mm_cp = true;
+        }
+        break;
+    case HI6421_PORT_MODEM:
+        hi6421_pcm_modem = true;
+        break;
+    case HI6421_PORT_FM:
+        hi6421_pcm_fm = true;
+        break;
+    }
+    mutex_unlock(&hi6421_power_lock);
 
     return 0;
 }
@@ -3240,23 +3238,25 @@ static int hi6421_startup(struct snd_pcm_substream *substream,
 static void hi6421_shutdown(struct snd_pcm_substream *substream,
                             struct snd_soc_dai *dai)
 {
-    if ((HI6421_PORT_MODEM == substream->pcm->device)||(HI6421_PORT_MM == substream->pcm->device)) {
-	pr_info( "hi6421_shutdown check: %d \n", hi6421_active_pll_chk);
-	mutex_lock(&hi6421_power_lock);
-	hi6421_active_pll_chk--;
-	if (0 == hi6421_active_pll_chk)
-	{
-	    struct hi6421_data *priv = snd_soc_codec_get_drvdata(g_codec);
-	    pr_info( "hi6421_shutdown start: %d \n", substream->pcm->device);
-	    //cancel_delayed_work(&priv->pll_delay_work);
-	    wake_unlock(&priv->pll_wake_lock);
-	}
-	mutex_unlock(&hi6421_power_lock);
+    /* do nothing with pll work function */
+    mutex_lock(&hi6421_power_lock);
+    switch(substream->pcm->device) {
+    case HI6421_PORT_MM:
+        if (SNDRV_PCM_STREAM_PLAYBACK == substream->stream) {
+            hi6421_pcm_mm_pb = false;
+        } else {
+            hi6421_pcm_mm_cp = false;
+        }
+        break;
+    case HI6421_PORT_MODEM:
+        hi6421_pcm_modem = false;
+        break;
+    case HI6421_PORT_FM:
+        hi6421_pcm_fm = false;
+        break;
     }
 
-    mutex_lock(&hi6421_power_lock);
-    hi6421_active_pcm--;
-    if (0 == hi6421_active_pcm)
+    if (!hi6421_has_active_pcm())
         hi6421_power_off(g_codec);
     mutex_unlock(&hi6421_power_lock);
 }
@@ -3321,26 +3321,23 @@ struct snd_soc_dai_driver hi6421_dai = {
 
 static int hi6421_codec_probe(struct snd_soc_codec *codec)
 {
-   struct hi6421_data *priv = NULL;
-#ifdef CONFIG_MFD_HI6421_IRQ
-    struct hi6421_jack_data *jack = NULL;
-    struct hi6421_codec_platform_data *pdata = dev_get_platdata(codec->dev);
-#ifdef CONFIG_K3_ADC
-    struct irq_desc *desc_pmu = NULL;
-#endif
-#endif
-    struct snd_soc_dapm_context *dapm = &codec->dapm;
     int ret = 0;
+    struct hi6421_data *priv = NULL;
+    struct snd_soc_dapm_context *dapm = &codec->dapm;
 
-    pr_info("Entry %s\n",__FUNCTION__);
 #ifdef CONFIG_MFD_HI6421_IRQ
-    if (NULL == pdata) {
+    struct hi6421_jack_data *hi6421_hs_jack = NULL;
+    struct hi6421_codec_platform_data *pdata = dev_get_platdata(codec->dev);
+
+    if (!pdata) {
         pr_err("%s(%u) : pdata is NULL", __FUNCTION__,__LINE__);
         return -ENOMEM;
     }
+
 #endif
     priv = kzalloc(sizeof(struct hi6421_data), GFP_KERNEL);
-    if (NULL == priv) {
+
+    if (!priv) {
         pr_err("%s(%u) : kzalloc failed", __FUNCTION__,__LINE__);
         return -ENOMEM;
     }
@@ -3359,9 +3356,40 @@ static int hi6421_codec_probe(struct snd_soc_codec *codec)
     /* set ldo 5mA(eco mode) */
     regulator_set_optimum_mode(g_regu, AUDIO_ECO_MODE);
     ret = regulator_enable(g_regu);
+
     if (ret < 0) {
         pr_err("%s: regulator enable failed\n", __FUNCTION__);
         goto regulator_err;
+    }
+
+    if (E_UART_HEADSET_TYPE_NOT_SUPPORTED != get_uart_headset_type())
+    {
+        /*config the gpio 61 for co-exist of headset-detect and uart-debug*/
+        ret = gpio_request(HS_UART_STATUS, "headset_uart_judge");
+        if (ret < 0){
+            pr_err("%s: gpio request GPIO_061 error\n", __FUNCTION__);
+            goto regulator_err;
+        }
+    }
+
+    if (E_UART_HEADSET_TYPE_SMART == get_uart_headset_type())
+    {
+        ret = gpio_direction_input(HS_UART_STATUS);
+        if (ret < 0){
+            pr_err("%s: set GPIO_061 output 1 error\n", __FUNCTION__);
+            goto regulator_err;
+        }
+    }
+    else if (E_UART_HEADSET_TYPE_LEGACY == get_uart_headset_type())
+    {
+        if (if_uart_output_enabled())
+        {
+            gpio_direction_output(HS_UART_STATUS, 1);
+        }
+        else
+        {
+            gpio_direction_output(HS_UART_STATUS, 0);
+        }
     }
 
     priv->pmuid = get_pmuid();
@@ -3370,17 +3398,16 @@ static int hi6421_codec_probe(struct snd_soc_codec *codec)
     hi6421_hs_keys = get_hs_keys();
 
     hi6421_reg_write(codec, HI6421_REG_HSD, hi6421_hsd_inv ? 6 : 4);
-
     hi6421_add_widgets(codec, priv->pmuid);
-
     ret = snd_soc_dapm_sync(dapm);
+
     if (ret) {
         pr_err("%s : dapm sync error, errornum = %d\n", __FUNCTION__, ret);
         goto snd_soc_dapm_sync_err;
     }
 
     /* Headset jack detection */
-    ret = snd_soc_jack_new(codec, "Headset Jack", SND_JACK_HEADSET, &hs_jack);
+    ret = snd_soc_jack_new(codec, "Headset Jack", SND_JACK_HEADSET, &g_hs_jack);
     if (ret) {
         pr_err("%s : jack new error, errornum = %d\n", __FUNCTION__, ret);
         goto snd_soc_jack_new_err;
@@ -3390,34 +3417,22 @@ static int hi6421_codec_probe(struct snd_soc_codec *codec)
                 hs_jack_pins);*/
 
 #ifdef CONFIG_MFD_HI6421_IRQ
-    hi6421_hs_jack_detect(codec, &hs_jack, SND_JACK_HEADSET);
+    hi6421_hs_btn_regester(codec, &g_hs_jack, SND_JACK_HEADSET);
 
     wake_lock_init(&priv->wake_lock, WAKE_LOCK_SUSPEND, "hi6421");
-    wake_lock_init(&priv->pll_wake_lock, WAKE_LOCK_SUSPEND, "test");
-	
+    wake_lock_init(&priv->plugin_wake_lock, WAKE_LOCK_SUSPEND, "hi6421_plugin");
+
     /* switch-class based headset detection */
-    jack = &priv->hs_jack;
-    jack->sdev.name = "h2w";
-    ret = switch_dev_register(&jack->sdev);
+    hi6421_hs_jack = &priv->hs_jack;
+    hi6421_hs_jack->sdev.name = "h2w";
+    ret = switch_dev_register(&hi6421_hs_jack->sdev);
+
     if (ret) {
         pr_err("%s(%u):error registering switch device %d\n", __FUNCTION__, __LINE__, ret);
         goto snd_soc_err;
     }
 
-    priv->plug_in_running = false;
-    priv->plug_in_loop = false;
-
-    priv->plug_out_running = false;
-    priv->plug_out_loop = false;
-
-    priv->detect_running = false;
-    priv->detect_loop = false;
 #ifdef CONFIG_K3_ADC
-    priv->btn_running = false;
-    priv->btn_loop = false;
-
-    priv->btn_up_running = false;
-    priv->btn_up_loop = false;
 
     hi6421_hkadc_ctl_probe(codec, true);
     usleep_range(HI6421_HKADC_MIN_WAIT_TIME_US,HI6421_HKADC_MAX_WAIT_TIME_US);
@@ -3429,7 +3444,7 @@ static int hi6421_codec_probe(struct snd_soc_codec *codec)
     hi6421_hkadc_ctl_probe(codec, false);
 #endif
 
-    priv->pll_delay_wq = 
+    priv->pll_delay_wq =
         create_singlethread_workqueue("pll_delay_wq");
     if (!(priv->pll_delay_wq)) {
         pr_err("%s(%u) : workqueue create failed", __FUNCTION__,__LINE__);
@@ -3455,14 +3470,24 @@ static int hi6421_codec_probe(struct snd_soc_codec *codec)
         goto headset_plug_out_wq_err;
     }
     INIT_DELAYED_WORK(&priv->headset_plug_out_delay_work, hi6421_audio_plug_out_work_func);
-#ifdef CONFIG_K3_ADC
-    priv->headset_btn_delay_wq = create_singlethread_workqueue("headset_btn_delay_wq");
-    if (!(priv->headset_btn_delay_wq)) {
+
+    priv->headset_judgement_delay_wq =
+        create_singlethread_workqueue("headset_judgement_delay_wq");
+    if (!(priv->headset_judgement_delay_wq)) {
         pr_err("%s(%u) : workqueue create failed", __FUNCTION__,__LINE__);
         ret = -ENOMEM;
-        goto headset_btn_wq_err;
+        goto headset_judgement_wq_err;
     }
-    INIT_DELAYED_WORK(&priv->headset_btn_delay_work, hi6421_btn_work_func);
+    INIT_DELAYED_WORK(&priv->headset_judgement_delay_work, hi6421_audio_judgement_work_func);
+
+#ifdef CONFIG_K3_ADC
+    priv->headset_btn_down_delay_wq = create_singlethread_workqueue("headset_btn_down_delay_wq");
+    if (!(priv->headset_btn_down_delay_wq)) {
+        pr_err("%s(%u) : workqueue create failed", __FUNCTION__,__LINE__);
+        ret = -ENOMEM;
+        goto headset_btn_down_wq_err;
+    }
+    INIT_DELAYED_WORK(&priv->headset_btn_down_delay_work, hi6421_btn_down_work_func);
 
     priv->headset_btn_up_delay_wq = create_singlethread_workqueue("headset_btn_up_delay_wq");
     if (!(priv->headset_btn_up_delay_wq)) {
@@ -3472,18 +3497,13 @@ static int hi6421_codec_probe(struct snd_soc_codec *codec)
     }
     INIT_DELAYED_WORK(&priv->headset_btn_up_delay_work, hi6421_btn_up_work_func);
 #endif
-
-    priv->headset_detect_delay_wq =
-        create_singlethread_workqueue("headset_detect_delay_wq");
-    if (!(priv->headset_detect_delay_wq)) {
-        pr_err("%s(%u) : workqueue create failed", __FUNCTION__,__LINE__);
-        ret = -ENOMEM;
-        goto headset_detect_wq_err;
-    }
-    INIT_DELAYED_WORK(&priv->headset_detect_delay_work, hi6421_audio_detect_work_func);
+    /* clean interrupts of plug in&out */
+    hi6421_set_reg_bit(HI6421_REG_IRQ2, HI6421_HDS_PLUG_IN_BIT);
+    hi6421_set_reg_bit(HI6421_REG_IRQ2, HI6421_HDS_PLUG_OUT_BIT);
 
     ret = request_irq(pdata->irq[0], hi6421_hp_plug_out_handler,
         IRQF_SHARED |IRQF_NO_SUSPEND, "plug_out", codec);
+
     if (ret) {
         pr_err("%s(%u):IRQ_HEADSET_PLUG_OUT irq error %d\n", __FUNCTION__,__LINE__,ret);
         goto hi6421_hp_plug_out_err;
@@ -3496,40 +3516,33 @@ static int hi6421_codec_probe(struct snd_soc_codec *codec)
         goto work_irq_plug_in_err;
     }
 #ifdef CONFIG_K3_ADC
+    /*clean interrupts of btn down&up*/
+    hi6421_set_reg_bit(HI6421_REG_IRQ3, HI6421_HDS_BTN_PRESS_BIT);
+    hi6421_set_reg_bit(HI6421_REG_IRQ3, HI6421_HDS_BTN_RELEASE_BIT);
+
     ret = request_irq(pdata->irq[2], hi6421_btn_down_handler,
         IRQF_SHARED |IRQF_NO_SUSPEND, "press_down", codec);
+
     if (ret) {
         pr_err("%s(%u):IRQ_BSD_BTN_PRESS_DOWN irq error %d\n", __FUNCTION__,__LINE__,ret);
         goto work_irq_press_down_err;
     }
 
-    desc_pmu = irq_to_desc(pdata->irq[2]);
-    /* mask this interrupt*/
-    desc_pmu->irq_data.chip->irq_mask(&desc_pmu->irq_data);
-
     ret = request_irq(pdata->irq[3], hi6421_btn_up_handler,
         IRQF_SHARED |IRQF_NO_SUSPEND, "press_up", codec);
+
     if (ret) {
         pr_err("%s(%u):IRQ_BSD_BTN_PRESS_UP irq error %d\n", __FUNCTION__,__LINE__,ret);
         goto work_irq_press_up_err;
     }
 
-    desc_pmu = irq_to_desc(pdata->irq[3]);
-    /* mask this interrupt*/
-    desc_pmu->irq_data.chip->irq_mask(&desc_pmu->irq_data);
-#endif
+    mask_irq_of_btn( codec, true);
 
-    wake_lock_timeout(&priv->wake_lock,
-        HI6421_HS_PLUG_JUDGEMENT_TIME + HI6421_HS_WAKE_LOCK_TIMEOUT);
-    if( false == priv->plug_in_running ) {
-        queue_delayed_work(priv->headset_plug_in_delay_wq,
-            &priv->headset_plug_in_delay_work,
-            msecs_to_jiffies(HI6421_HS_PLUG_JUDGEMENT_TIME));
-    } else {
-        priv->plug_in_loop = true;
-    }
 #endif
-
+    queue_delayed_work(priv->headset_plug_in_delay_wq,
+                       &priv->headset_plug_in_delay_work,
+                       msecs_to_jiffies(0));
+#endif
 
 #if DUMP_REG
     dump_reg(codec);
@@ -3546,12 +3559,6 @@ work_irq_press_down_err:
 work_irq_plug_in_err:
     free_irq(pdata->irq[0],codec);  /*IRQ_HEADSET_PLUG_OUT*/
 hi6421_hp_plug_out_err:
-    if(priv->headset_detect_delay_wq) {
-        cancel_delayed_work(&priv->headset_detect_delay_work);
-        flush_workqueue(priv->headset_detect_delay_wq);
-        destroy_workqueue(priv->headset_detect_delay_wq);
-    }
-headset_detect_wq_err:
 #ifdef CONFIG_K3_ADC
     if(priv->headset_btn_up_delay_wq) {
         cancel_delayed_work(&priv->headset_btn_up_delay_work);
@@ -3559,12 +3566,12 @@ headset_detect_wq_err:
         destroy_workqueue(priv->headset_btn_up_delay_wq);
     }
 headset_btn_up_wq_err:
-    if(priv->headset_btn_delay_wq) {
-        cancel_delayed_work(&priv->headset_btn_delay_work);
-        flush_workqueue(priv->headset_btn_delay_wq);
-        destroy_workqueue(priv->headset_btn_delay_wq);
+    if(priv->headset_btn_down_delay_wq) {
+        cancel_delayed_work(&priv->headset_btn_down_delay_work);
+        flush_workqueue(priv->headset_btn_down_delay_wq);
+        destroy_workqueue(priv->headset_btn_down_delay_wq);
     }
-headset_btn_wq_err:
+headset_btn_down_wq_err:
 #endif
     if(priv->headset_plug_out_delay_wq) {
         cancel_delayed_work(&priv->headset_plug_out_delay_work);
@@ -3578,15 +3585,22 @@ headset_plug_out_wq_err:
         destroy_workqueue(priv->headset_plug_in_delay_wq);
     }
 headset_plug_in_wq_err:
+    if(priv->headset_judgement_delay_wq) {
+        cancel_delayed_work(&priv->headset_judgement_delay_work);
+        flush_workqueue(priv->headset_judgement_delay_wq);
+        destroy_workqueue(priv->headset_judgement_delay_wq);
+    }
+headset_judgement_wq_err:
     if(priv->pll_delay_wq) {
         cancel_delayed_work(&priv->pll_delay_work);
         flush_workqueue(priv->pll_delay_wq);
         destroy_workqueue(priv->pll_delay_wq);
     }
 pll_wq_err:
-    switch_dev_unregister(&jack->sdev);
+    switch_dev_unregister(&hi6421_hs_jack->sdev);
 snd_soc_err:
     wake_lock_destroy(&priv->wake_lock);
+    wake_lock_destroy(&priv->plugin_wake_lock);
 #endif
     regulator_disable(g_regu);
 snd_soc_jack_new_err:
@@ -3607,7 +3621,7 @@ static int hi6421_codec_remove(struct snd_soc_codec *codec)
 {
     struct hi6421_data *priv = NULL;
 #ifdef CONFIG_MFD_HI6421_IRQ
-    struct hi6421_jack_data *jack = NULL;
+    struct hi6421_jack_data *hi6421_hs_jack = NULL;
     struct hi6421_codec_platform_data *pdata = NULL;
 #endif
     /*pr_info("Entry %s\n",__FUNCTION__);*/
@@ -3629,17 +3643,12 @@ static int hi6421_codec_remove(struct snd_soc_codec *codec)
         if (priv != NULL) {
 #ifdef CONFIG_MFD_HI6421_IRQ
 #ifdef CONFIG_K3_ADC
-           if(priv->headset_btn_delay_wq) {
-                cancel_delayed_work(&priv->headset_btn_delay_work);
-                flush_workqueue(priv->headset_btn_delay_wq);
-                destroy_workqueue(priv->headset_btn_delay_wq);
+           if(priv->headset_btn_down_delay_wq) {
+                cancel_delayed_work(&priv->headset_btn_down_delay_work);
+                flush_workqueue(priv->headset_btn_down_delay_wq);
+                destroy_workqueue(priv->headset_btn_down_delay_wq);
            }
 #endif
-           if(priv->headset_detect_delay_wq) {
-                cancel_delayed_work(&priv->headset_detect_delay_work);
-                flush_workqueue(priv->headset_detect_delay_wq);
-                destroy_workqueue(priv->headset_detect_delay_wq);
-           }
 
            if(priv->headset_plug_in_delay_wq) {
                 cancel_delayed_work(&priv->headset_plug_in_delay_work);
@@ -3652,16 +3661,17 @@ static int hi6421_codec_remove(struct snd_soc_codec *codec)
                 flush_workqueue(priv->headset_plug_out_delay_wq);
                 destroy_workqueue(priv->headset_plug_out_delay_wq);
             }
-           
+
             if(priv->pll_delay_wq) {
                 cancel_delayed_work(&priv->pll_delay_work);
                 flush_workqueue(priv->pll_delay_wq);
                 destroy_workqueue(priv->pll_delay_wq);
             }
-            
-            jack = &priv->hs_jack;
-            switch_dev_unregister(&jack->sdev);
+
+            hi6421_hs_jack = &priv->hs_jack;
+            switch_dev_unregister(&hi6421_hs_jack->sdev);
             wake_lock_destroy(&priv->wake_lock);
+            wake_lock_destroy(&priv->plugin_wake_lock);
 #endif
             kfree(priv);
         }

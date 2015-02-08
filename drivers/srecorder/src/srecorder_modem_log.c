@@ -38,7 +38,7 @@
 #include "../include/srecorder_save_log.h"
 #include "../include/srecorder_common.h"
 
-#if DUMP_MODEM_LOG
+#if defined(CONFIG_DUMP_MODEM_LOG)
 
 #include <linux/remote_spinlock.h>
 #include <mach/msm_smsm.h>
@@ -108,7 +108,7 @@ struct smem_area
 static void *srecorder_smem_range_check(void *base, unsigned offset);
 static void *srecorder_smem_get_entry(unsigned id, unsigned *size);
 static void *srecorder_smem_find(unsigned id, unsigned size_in);
-#if DUMP_MODEM_LOG_BY_FIQ
+#if defined(CONFIG_DUMP_MODEM_LOG_BY_FIQ)
 static void srecorder_do_delay(volatile unsigned long loop_times);
 #endif
 static int srecorder_debug_modem_err(srecorder_reserved_mem_info_t *pmem_info);
@@ -240,7 +240,7 @@ static void *srecorder_smem_find(unsigned id, unsigned size_in)
 }
 
 
-#if DUMP_MODEM_LOG_BY_FIQ
+#if defined(CONFIG_DUMP_MODEM_LOG_BY_FIQ)
 static void srecorder_do_delay(volatile unsigned long loop_times)
 {
     volatile unsigned long i = 0;
@@ -353,20 +353,19 @@ int srecorder_get_modem_log(srecorder_reserved_mem_info_t *pmem_info)
         return -1;
     }
 
-    if (srecorder_get_bit(MODEM_ERR))
+    if (srecorder_log_has_been_dumped(MODEM_ERR_BIT7))
     {
         SRECORDER_PRINTK("modem err has been dumped successfully!\n");
     }
 
-    if (srecorder_get_bit(MODEM_ERR_F3))
+    if (srecorder_log_has_been_dumped(MODEM_ERR_F3_BIT8))
     {
         SRECORDER_PRINTK("modem err f3 has been dumped successfully!\n");
     }
     
     if (pmem_info->dump_modem_crash_log_only)
     {
-#if DUMP_MODEM_LOG
-#if DUMP_MODEM_LOG_BY_FIQ
+#if defined(CONFIG_DUMP_MODEM_LOG_BY_FIQ)
         if (pmem_info->do_delay_when_dump_modem_log)
         {
             /* do delay about 10ms */
@@ -375,36 +374,40 @@ int srecorder_get_modem_log(srecorder_reserved_mem_info_t *pmem_info)
             ips = cpufreq_get_directly(smp_processor_id()) * 1000; /* KHZ = 1000*/
             if (unlikely(0x0 == ips))
             {
-                ips = CPU_FREQ_DEFAULT_VALUE;
+                ips = CONFIG_CPU_FREQ_DEFAULT_VALUE;
             }
             
-            if (likely(0x0 != DUMP_MODEM_LOG_DELAY_MAX_MS))
+            if (likely(0x0 != CONFIG_DUMP_MODEM_LOG_DELAY_MAX_MS))
             {
-                srecorder_do_delay(ips / (1000 / DUMP_MODEM_LOG_DELAY_MAX_MS));
+                srecorder_do_delay(ips / (1000 / CONFIG_DUMP_MODEM_LOG_DELAY_MAX_MS));
             }
         }
 #endif
 
-        if (!srecorder_get_bit(MODEM_ERR))
+#if !defined(CONFIG_ARCH_MSM8930)
+        if (!srecorder_log_has_been_dumped(MODEM_ERR_BIT7))
         {
-            if (0 != srecorder_write_info_header(pmem_info, MODEM_ERR, &pinfo_header))
+            if (0 != srecorder_write_info_header(pmem_info, MODEM_ERR_BIT7, &pinfo_header))
             {
                 return -1;
             }
             srecorder_debug_modem_err(pmem_info);
             srecorder_validate_info_header(pinfo_header, pmem_info->bytes_per_type);
         }
-
-
-        if (!srecorder_get_bit(MODEM_ERR_F3))
+#else
+#endif
+        
+#if !defined(CONFIG_ARCH_MSM8930)
+        if (!srecorder_log_has_been_dumped(MODEM_ERR_F3_BIT8))
         {
-            if (0 != srecorder_write_info_header(pmem_info, MODEM_ERR_F3, &pinfo_header))
+            if (0 != srecorder_write_info_header(pmem_info, MODEM_ERR_F3_BIT8, &pinfo_header))
             {
                 return -1;
             }
             srecorder_debug_modem_err_f3(pmem_info);
             srecorder_validate_info_header(pinfo_header, pmem_info->bytes_per_type);
         }
+#else
 #endif
     }
     
@@ -424,8 +427,8 @@ int srecorder_get_modem_log(srecorder_reserved_mem_info_t *pmem_info)
 */
 int srecorder_init_modem_log(srecorder_module_init_params_t *pinit_params)
 {
-    srecorder_clear_bit(MODEM_ERR);
-    srecorder_clear_bit(MODEM_ERR_F3);
+    srecorder_clear_log_dumped_bit(MODEM_ERR_BIT7);
+    srecorder_clear_log_dumped_bit(MODEM_ERR_F3_BIT8);
     
     return 0;
 }
@@ -443,8 +446,8 @@ int srecorder_init_modem_log(srecorder_module_init_params_t *pinit_params)
 */
 void srecorder_exit_modem_log(void)
 {
-    srecorder_set_bit(MODEM_ERR);
-    srecorder_set_bit(MODEM_ERR_F3);
+    srecorder_set_log_dumped_bit(MODEM_ERR_BIT7);
+    srecorder_set_log_dumped_bit(MODEM_ERR_F3_BIT8);
 }
 #else
 int srecorder_get_modem_log(srecorder_reserved_mem_info_t *pmem_info)

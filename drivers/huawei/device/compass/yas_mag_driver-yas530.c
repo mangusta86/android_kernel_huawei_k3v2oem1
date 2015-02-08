@@ -575,7 +575,7 @@ get_device_id(uint8_t *id)
 static int
 get_cal_data_yas530(struct yas_cal_data *cal)
 {
-	uint8_t data[16];
+	uint8_t data[16] = {0};
 #ifdef YAS_YAS530_CAL_SINGLE_READ
 	int i;
 
@@ -633,7 +633,7 @@ get_correction_value_yas530(struct yas_cal_data *cal,
 static int
 get_cal_data_yas532(struct yas_cal_data *cal)
 {
-	uint8_t data[14];
+	uint8_t data[14] = {0};
 #ifdef YAS_YAS530_CAL_SINGLE_READ
 	int i;
 
@@ -706,7 +706,7 @@ set_configuration(int inton, int inthact, int cck)
 static int
 get_measure_interval(int32_t *msec)
 {
-	uint8_t data;
+	uint8_t data = 0;
 	int mult = 7;
 
 	if (device_read(YAS_REGADDR_MEASURE_INTERVAL, &data, 1) < 0)
@@ -775,7 +775,7 @@ static int
 measure_normal_yas530(int *busy, int16_t *t,
 		int16_t *x, int16_t *y1, int16_t *y2)
 {
-	uint8_t data[8];
+	uint8_t data[8] = {0};
 
 	if (set_measure_command(0, 0, 0) < 0)
 		return YAS_ERROR_DEVICE_COMMUNICATION;
@@ -804,7 +804,7 @@ static int
 measure_normal_yas532(int *busy, int16_t *t,
 		int16_t *x, int16_t *y1, int16_t *y2)
 {
-	uint8_t data[8];
+	uint8_t data[8] = {0};
 
 	if (set_measure_command(0, 0, 0) < 0)
 		return YAS_ERROR_DEVICE_COMMUNICATION;
@@ -1825,7 +1825,7 @@ measure_msensor_normal(struct yas_driver *d, int32_t *magnetic,
 		int32_t *mag_w_offset, int32_t *xy1y2, int16_t *temperature)
 {
 	int rt = 0, result, i;
-	int32_t tmp[3];
+	int32_t tmp[3] = {0};
 
 	YLOGD(("measure_msensor_normal IN\n"));
 

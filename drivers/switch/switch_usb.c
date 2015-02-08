@@ -26,46 +26,97 @@
 #include <mach/gpio.h>
 #include <linux/io.h>
 #include <linux/delay.h>
+#include "smart_gpio.h"
+
+static struct switch_usb_dev sdev;
 
 static void usb_switch_work(struct work_struct *work)
 {
-	struct usb_switch_data	*switch_data =
-		container_of(work, struct usb_switch_data, work);
-
-	switch_usb_set_state(&switch_data->sdev, USB_TO_AP);
+	switch_usb_set_state(&sdev, USB_TO_AP);
 }
 
 static irqreturn_t int_gpio_irq_handler(int irq, void *dev_id)
 {
-	struct usb_switch_data *switch_data =
-	    (struct usb_switch_data *)dev_id;
 	const int MAX_RETRY = 5;
 	int i = 0;
-	int int_gpio_value = 0;
+	int int_gpio_value1 = 0;
+	int int_gpio_value2 = 0;
 
-	dev_info(switch_data->sdev.dev, "%s entry.\n", __func__);
+	dev_info(sdev.dev, "%s entry.\n", __func__);
 
-	for (i=0; i<MAX_RETRY; i++) {
-		int_gpio_value = gpio_get_value(switch_data->usw_int_gpio);
-		dev_info(switch_data->sdev.dev, "%s: int_gpio_value: %d.\n",
-			__func__, int_gpio_value);
-		if (GPIO_HI == int_gpio_value) {
-			/* disable irq interrupt */
-			disable_irq_nosync(irq);
-			schedule_work(&switch_data->work);
+	for (i = 0; i < MAX_RETRY; i++) {
+		udelay(2);
+		if (sdev.pdata->modem1_supported)
+		{
+			int_gpio_value1 = gpio_get_value(sdev.pdata->modem_int_gpio1);
+			dev_info(sdev.dev, "%s: int_gpio_value: %d.\n",
+					__func__, int_gpio_value1);
+		}
+		if (sdev.pdata->modem2_supported)
+		{
+			int_gpio_value2 = gpio_get_value(sdev.pdata->modem_int_gpio2);
+			dev_info(sdev.dev, "%s: int_gpio_value: %d.\n",
+					__func__, int_gpio_value2);
+		}
+		if ((GPIO_HI == int_gpio_value1)
+		   ||(GPIO_HI == int_gpio_value2)
+		   )
+		{
+			schedule_work(&sdev.work);
 			break;
 		}
-		udelay(2);
 	}
-	dev_info(switch_data->sdev.dev, "%s end with retry time=%d\n", __func__, i);
+	dev_info(sdev.dev, "%s end with retry time=%d\n", __func__, i);
 
 	return IRQ_HANDLED;
 }
 
+#ifdef CONFIG_PM
+static int before_suspend_gpio1_value = SMART_GPIO_NO_TOUCH;
+static int before_suspend_gpio2_value = SMART_GPIO_NO_TOUCH;
+static int before_suspend_gpio3_value = SMART_GPIO_NO_TOUCH;
+static int before_suspend_gpio4_value = SMART_GPIO_NO_TOUCH;
+
+static int usb_switch_suspend(struct platform_device *pdev, pm_message_t state)
+{
+	struct usb_switch_platform_data *pdata = pdev->dev.platform_data;
+
+	dev_info(sdev.dev, "%s entry.\n", __func__);
+
+	before_suspend_gpio1_value = smart_gpio_get_value(pdata->control_gpio1);
+	before_suspend_gpio2_value = smart_gpio_get_value(pdata->control_gpio2);
+	before_suspend_gpio3_value = smart_gpio_get_value(pdata->control_gpio3);
+	before_suspend_gpio4_value = smart_gpio_get_value(pdata->control_gpio4);
+
+	smart_gpio_set_value(pdata->control_gpio1, pdata->control_gpio1_suspend_value);
+	smart_gpio_set_value(pdata->control_gpio2, pdata->control_gpio2_suspend_value);
+	smart_gpio_set_value(pdata->control_gpio3, pdata->control_gpio3_suspend_value);
+	smart_gpio_set_value(pdata->control_gpio4, pdata->control_gpio4_suspend_value);
+
+	return 0;
+}
+
+static int usb_switch_resume(struct platform_device *pdev)
+{
+	struct usb_switch_platform_data *pdata = pdev->dev.platform_data;
+
+	dev_info(sdev.dev, "%s entry.\n", __func__);
+
+	smart_gpio_set_value(pdata->control_gpio1, before_suspend_gpio1_value);
+	smart_gpio_set_value(pdata->control_gpio2, before_suspend_gpio2_value);
+	smart_gpio_set_value(pdata->control_gpio3, before_suspend_gpio3_value);
+	smart_gpio_set_value(pdata->control_gpio4, before_suspend_gpio4_value);
+
+	return 0;
+}
+#else
+#define usb_switch_suspend       NULL
+#define usb_switch_resume        NULL
+#endif /* CONFIG_PM */
+
 static int usb_switch_probe(struct platform_device *pdev)
 {
 	struct usb_switch_platform_data *pdata = pdev->dev.platform_data;
-	struct usb_switch_data *switch_data;
 	int ret = 0;
 
 	printk(KERN_INFO "usb_switch_probe entry.\n");
@@ -73,71 +124,97 @@ static int usb_switch_probe(struct platform_device *pdev)
 	if (!pdata)
 		return -EBUSY;
 
-	switch_data = kzalloc(sizeof(struct usb_switch_data), GFP_KERNEL);
-	if (!switch_data)
-		return -ENOMEM;
+	sdev.pdata = pdata;
+	sdev.name = pdata->name;
 
-	switch_data->sdev.pdata = pdata;
-	switch_data->sdev.name = pdata->name;
-	switch_data->usw_en_gpio = pdata->usw_en_gpio;
-	switch_data->usw_ctrl_gpio = pdata->usw_ctrl_gpio;
-	switch_data->usw_int_gpio = pdata->usw_int_gpio;
+	INIT_WORK(&sdev.work, usb_switch_work);
 
-	ret = switch_usb_dev_register(&switch_data->sdev);
+	ret = switch_usb_dev_register(&sdev);
 	if (ret < 0)
 		goto err_switch_usb_dev_register;
 
-	ret = gpio_request(switch_data->usw_int_gpio, "usb_sw_interrupt");
-	if (ret < 0)
-		goto err_request_int_gpio;
+	if (pdata->modem1_supported)
+	{
+		ret = gpio_request(pdata->modem_int_gpio1, "usb_sw_interrupt1");
+		if (ret < 0)
+			goto err_request_int_gpio1;
 
-	ret = gpio_direction_input(switch_data->usw_int_gpio);
-	if (ret < 0)
-		goto err_set_gpio_input;
+		ret = gpio_direction_input(pdata->modem_int_gpio1);
+		if (ret < 0)
+			goto err_set_gpio_input1;
 
-	INIT_WORK(&switch_data->work, usb_switch_work);
+		sdev.irq1 = gpio_to_irq(pdata->modem_int_gpio1);
+		if (sdev.irq1 < 0) {
+			ret = sdev.irq1;
+			goto err_detect_irq_num_failed1;
+		}
 
-	switch_data->irq = gpio_to_irq(switch_data->usw_int_gpio);
-	if (switch_data->irq < 0) {
-		ret = switch_data->irq;
-		goto err_detect_irq_num_failed;
+		ret = request_irq(sdev.irq1, int_gpio_irq_handler,
+				  pdata->irq_flags, "usb_sw_interrupt1", &sdev);
+		if (ret < 0)
+			goto err_request_irq1;
+
+		/* disable irq interrupt */
+		disable_irq(sdev.irq1);
 	}
 
-	ret = request_irq(switch_data->irq, int_gpio_irq_handler,
-			  pdata->irq_flags, "usb_sw_interrupt", switch_data);
-	if (ret < 0)
-		goto err_request_irq;
+	if (pdata->modem2_supported)
+	{
+		ret = gpio_request(pdata->modem_int_gpio2, "usb_sw_interrupt2");
+		if (ret < 0)
+			goto err_request_int_gpio2;
 
-	/* disable irq interrupt */
-	disable_irq(switch_data->irq);
+		ret = gpio_direction_input(pdata->modem_int_gpio2);
+		if (ret < 0)
+			goto err_set_gpio_input2;
+
+		sdev.irq2 = gpio_to_irq(pdata->modem_int_gpio2);
+		if (sdev.irq2 < 0) {
+			ret = sdev.irq2;
+			goto err_detect_irq_num_failed2;
+		}
+
+		ret = request_irq(sdev.irq2, int_gpio_irq_handler,
+				  pdata->irq_flags, "usb_sw_interrupt2", &sdev);
+		if (ret < 0)
+			goto err_request_irq2;
+
+		/* disable irq interrupt */
+		disable_irq(sdev.irq2);
+	}
 
 	return 0;
 
-err_request_irq:
-err_detect_irq_num_failed:
-err_set_gpio_input:
-	gpio_free(switch_data->usw_int_gpio);
-err_request_int_gpio:
-	switch_usb_dev_unregister(&switch_data->sdev);
+err_request_irq2:
+err_detect_irq_num_failed2:
+err_set_gpio_input2:
+	smart_gpio_free(pdata->modem_int_gpio2);
+err_request_int_gpio2:
+err_request_irq1:
+err_detect_irq_num_failed1:
+err_set_gpio_input1:
+	smart_gpio_free(pdata->modem_int_gpio1);
+err_request_int_gpio1:
+	switch_usb_dev_unregister(&sdev);
 err_switch_usb_dev_register:
-	kfree(switch_data);
 
 	return ret;
 }
 
 static int __devexit usb_switch_remove(struct platform_device *pdev)
 {
-	struct usb_switch_data *switch_data = platform_get_drvdata(pdev);
+	struct usb_switch_platform_data *pdata = pdev->dev.platform_data;
 
-	if (!switch_data) {
-		return -1;
+	if (!pdata) {
+		return -EINVAL;
 	}
 
-	cancel_work_sync(&switch_data->work);
-	gpio_free(switch_data->usw_int_gpio);
-	switch_usb_dev_unregister(&switch_data->sdev);
-	free_irq(switch_data->irq, switch_data);
-	kfree(switch_data);
+	cancel_work_sync(&sdev.work);
+	smart_gpio_free(pdata->modem_int_gpio1);
+	smart_gpio_free(pdata->modem_int_gpio2);
+	switch_usb_dev_unregister(&sdev);
+	free_irq(sdev.irq1, &sdev);
+	free_irq(sdev.irq2, &sdev);
 
 	return 0;
 }
@@ -145,6 +222,10 @@ static int __devexit usb_switch_remove(struct platform_device *pdev)
 static struct platform_driver usb_switch_driver = {
 	.probe		= usb_switch_probe,
 	.remove		= __devexit_p(usb_switch_remove),
+#ifdef CONFIG_PM
+	.suspend	= usb_switch_suspend,
+	.resume		= usb_switch_resume,
+#endif
 	.driver		= {
 		.name	= "switch-usb",
 		.owner	= THIS_MODULE,

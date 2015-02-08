@@ -1047,8 +1047,8 @@ static int cyttsp4_upgrade_firmware(struct cyttsp4_device *ttsp,
 		dev_err(dev,
 			"%s: FBL Firmware update failed with error code %d\n",
 			__func__, rc);
-	} else if (data->loader_pdata &&
-			(data->loader_pdata->flags & CY_FLAG_AUTO_CALIBRATE)) {
+	} else if( (data->loader_pdata &&
+			(data->loader_pdata->flags & CY_FLAG_AUTO_CALIBRATE)) || config_v_before30) {
 		/* set up startup call back */
 		dev_vdbg(dev, "%s: Adding callback for calibration\n",
 				__func__);
@@ -1064,7 +1064,10 @@ static int cyttsp4_upgrade_firmware(struct cyttsp4_device *ttsp,
 		}
 	}
 
-	cyttsp4_release_exclusive(ttsp);
+	rc = cyttsp4_release_exclusive(ttsp);
+	if (rc < 0)
+		dev_err(dev, "%s: Error on release exclusive r=%d\n", __func__, rc);
+
 	cyttsp4_request_restart(ttsp, false);
 
 exit:
@@ -1721,7 +1724,7 @@ static int __init cyttsp4_loader_init(void)
 	return 0;
 
 fail_unregister_devices:
-	for (i--; i <= 0; i--) {
+	for (i--; i >= 0; i--) {
 		cyttsp4_unregister_device(cyttsp4_loader_infos[i].name,
 			cyttsp4_loader_infos[i].core_id);
 		pr_info("%s: Unregistering loader device for core_id: %s\n",

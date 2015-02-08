@@ -1,12 +1,20 @@
 ##############################################################################
 #
-#    Copyright (c) 2005 - 2012 by Vivante Corp.  All rights reserved.
+#    Copyright (C) 2005 - 2013 by Vivante Corp.
 #
-#    The material in this file is confidential and contains trade secrets
-#    of Vivante Corporation. This is proprietary information owned by
-#    Vivante Corporation. No part of this work may be disclosed,
-#    reproduced, copied, transmitted, or used in any way for any purpose,
-#    without the express written permission of Vivante Corporation.
+#    This program is free software; you can redistribute it and/or modify
+#    it under the terms of the GNU General Public License as published by
+#    the Free Software Foundation; either version 2 of the license, or
+#    (at your option) any later version.
+#
+#    This program is distributed in the hope that it will be useful,
+#    but WITHOUT ANY WARRANTY; without even the implied warranty of
+#    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+#    GNU General Public License for more details.
+#
+#    You should have received a copy of the GNU General Public License
+#    along with this program; if not write to the Free Software
+#    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 #
 ##############################################################################
 
@@ -37,8 +45,6 @@ OBJS := $(OS_KERNEL_DIR)/gc_hal_kernel_device.o \
         $(OS_KERNEL_DIR)/gc_hal_kernel_os.o \
         $(OS_KERNEL_DIR)/gc_hal_kernel_debugfs.o
 
-ifeq ($(USE_3D_VG), 1)
-
 OBJS += $(HAL_KERNEL_DIR)/gc_hal_kernel.o \
         $(HAL_KERNEL_DIR)/gc_hal_kernel_command.o \
         $(HAL_KERNEL_DIR)/gc_hal_kernel_db.o \
@@ -46,7 +52,8 @@ OBJS += $(HAL_KERNEL_DIR)/gc_hal_kernel.o \
         $(HAL_KERNEL_DIR)/gc_hal_kernel_event.o \
         $(HAL_KERNEL_DIR)/gc_hal_kernel_heap.o \
         $(HAL_KERNEL_DIR)/gc_hal_kernel_mmu.o \
-        $(HAL_KERNEL_DIR)/gc_hal_kernel_video_memory.o
+        $(HAL_KERNEL_DIR)/gc_hal_kernel_video_memory.o \
+        $(HAL_KERNEL_DIR)/gc_hal_kernel_power.o
 
 OBJS += $(ARCH_KERNEL_DIR)/gc_hal_kernel_context.o \
         $(ARCH_KERNEL_DIR)/gc_hal_kernel_hardware.o
@@ -60,19 +67,9 @@ OBJS +=\
           $(ARCH_VG_KERNEL_DIR)/gc_hal_kernel_hardware_command_vg.o\
           $(ARCH_VG_KERNEL_DIR)/gc_hal_kernel_hardware_vg.o
 endif
-else
 
-OBJS += $(HAL_KERNEL_DIR)/gc_hal_kernel.o \
-        $(HAL_KERNEL_DIR)/gc_hal_kernel_command.o \
-        $(HAL_KERNEL_DIR)/gc_hal_kernel_heap.o \
-        $(HAL_KERNEL_DIR)/gc_hal_kernel_interrupt.o \
-        $(HAL_KERNEL_DIR)/gc_hal_kernel_mmu.o \
-        $(HAL_KERNEL_DIR)/gc_hal_kernel_video_memory.o \
-        $(OS_KERNEL_DIR)/gc_hal_kernel_debug.o
-
-OBJS += $(ARCH_KERNEL_DIR)/gc_hal_kernel_hardware.o \
-        $(ARCH_KERNEL_DIR)/gc_hal_kernel_hardware_command.o
-
+ifneq ($(CONFIG_SYNC),)
+OBJS += $(OS_KERNEL_DIR)/gc_hal_kernel_sync.o
 endif
 
 ifeq ($(KERNELRELEASE), )
@@ -115,18 +112,12 @@ else
 EXTRA_CFLAGS += -DDBG=0
 endif
 
-#ifeq ($(NO_DMA_COHERENT), 1)
+ifeq ($(NO_DMA_COHERENT), 1)
 EXTRA_CFLAGS += -DNO_DMA_COHERENT
-#endif
+endif
 
 ifeq ($(CONFIG_DOVE_GPU), 1)
 EXTRA_CFLAGS += -DCONFIG_DOVE_GPU=1
-endif
-
-ifeq ($(USE_POWER_MANAGEMENT), 1)
-EXTRA_CFLAGS += -DgcdPOWER_MANAGEMENT=1
-else
-EXTRA_CFLAGS += -DgcdPOWER_MANAGEMENT=0
 endif
 
 ifeq ($(USE_OPENCL), 1)
@@ -141,11 +132,10 @@ else
 EXTRA_CFLAGS += -DUSE_PLATFORM_DRIVER=0
 endif
 
-ifeq ($(USE_PROFILER), 1)
+
 EXTRA_CFLAGS += -DVIVANTE_PROFILER=1
-else
-EXTRA_CFLAGS += -DVIVANTE_PROFILER=0
-endif
+EXTRA_CFLAGS += -DVIVANTE_PROFILER_CONTEXT=1
+
 
 ifeq ($(ANDROID), 1)
 EXTRA_CFLAGS += -DANDROID=1
@@ -221,6 +211,8 @@ else
 EXTRA_CFLAGS += -DgcdENABLE_OUTER_CACHE_PATCH=0
 endif
 
+EXTRA_CFLAGS += -DANDROID_SDK_VERSION=$(ANDROID_SDK_VERSION)
+
 ifeq ($(USE_BANK_ALIGNMENT), 1)
     EXTRA_CFLAGS += -DgcdENABLE_BANK_ALIGNMENT=1
     ifneq ($(BANK_BIT_START), 0)
@@ -235,9 +227,14 @@ ifeq ($(USE_BANK_ALIGNMENT), 1)
     endif
 endif
 
+ifneq ($(CONFIG_SYNC),)
+EXTRA_CFLAGS += -DgcdANDROID_NATIVE_FENCE_SYNC=1
+endif
+
 EXTRA_CFLAGS += -I$(AQROOT)/hal/kernel/inc
 EXTRA_CFLAGS += -I$(AQROOT)/hal/kernel
 EXTRA_CFLAGS += -I$(AQARCH)/hal/kernel
+EXTRA_CFLAGS += -I$(AQROOT)/hal/kernel/inc
 EXTRA_CFLAGS += -I$(AQROOT)/hal/os/linux/kernel
 
 ifeq ($(VIVANTE_ENABLE_VG), 1)

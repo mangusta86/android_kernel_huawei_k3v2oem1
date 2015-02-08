@@ -4,7 +4,7 @@
  *  Author: 	Zhoujie (zhou.jie1981@163.com)
  *  Date:  	2013/01/05
  *  Version:	1.0
- *  History:	2013/01/05      Frist add driver for sonyimx134 
+ *  History:	2013/01/05      Frist add driver for sonyimx134
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -716,7 +716,7 @@ struct _sensor_reg_t sonyimx134_hdr_regs_y[] = {
  * sonyimx134 init sensor registers list
  *
  ***********************************************************************/
-const struct _sensor_reg_t sonyimx134_init_regs[] = {				
+const struct _sensor_reg_t sonyimx134_init_regs[] = {
 	{	0x0101	,	0x00	},
 	{	0x0105	,	0x01	},
 	{	0x0110	,	0x00	},
@@ -749,12 +749,12 @@ const struct _sensor_reg_t sonyimx134_init_regs[] = {
 	{	0x3617	,	0x2D	},
 
 
-//Defect Correction Recommended Setting				
+//Defect Correction Recommended Setting
 {	0x380A	,	0x00	},
 {	0x380B	,	0x00	},
 {	0x4103	,	0x00	},
 #if 1
-//Color Artifact Recommended Setting				
+//Color Artifact Recommended Setting
 {	0x4243	,	0x9A	},
 {	0x4330	,	0x01	},
 {	0x4331	,	0x90	},
@@ -770,7 +770,7 @@ const struct _sensor_reg_t sonyimx134_init_regs[] = {
 {	0x4342	,	0x03	},
 {	0x4343	,	0x52	},
 
-//Moir¨¦ reduction Parameter Setting				
+//Moir¨¦ reduction Parameter Setting
 {	0x4364	,	0x0B	},
 {	0x4368	,	0x00	},
 {	0x4369	,	0x0F	},
@@ -780,7 +780,7 @@ const struct _sensor_reg_t sonyimx134_init_regs[] = {
 {	0x436D	,	0x00	},
 {	0x436E	,	0x00	},
 {	0x436F	,	0x06	},
-//CNR parameter setting				
+//CNR parameter setting
 {	0x4281	,	0x21	},
 {	0x4282	,	0x18	},
 {	0x4283	,	0x04	},
@@ -799,11 +799,11 @@ const struct _sensor_reg_t sonyimx134_init_regs[] = {
 {	0x42A6	,	0xDF	},
 {	0x42A7	,	0xB7	},
 {	0x42AF	,	0x03	},
-//ARNR Parameter Setting				
+//ARNR Parameter Setting
 {	0x4207	,	0x03	},
 {	0x4216	,	0x08	},
 {	0x4217	,	0x08	},
-//DLC Parameter Setting				
+//DLC Parameter Setting
 {	0x4218	,	0x00	},
 {	0x421B	,	0x20	},
 {	0x421F	,	0x04	},
@@ -820,7 +820,7 @@ const struct _sensor_reg_t sonyimx134_init_regs[] = {
 {	0x4239	,	0x4E	},
 {	0x423A	,	0xFC	},
 {	0x423B	,	0xFD	},
-//HDR Setting				
+//HDR Setting
 {	0x4300	,	0x00	},
 {	0x4316	,	0x12	},
 {	0x4317	,	0x22	},
@@ -904,9 +904,9 @@ const struct _sensor_reg_t sonyimx134_init_regs[] = {
 {	0x446C	,	0x00	},
 {	0x446D	,	0x00	},
 {	0x446E	,	0x00	},
-//LSC Setting				
+//LSC Setting
 {	0x452A	,	0x02	},
-//White Balance Setting				
+//White Balance Setting
 {	0x0712	,	0x01	},
 {	0x0713	,	0x00	},
 {	0x0714	,	0x01	},
@@ -915,18 +915,18 @@ const struct _sensor_reg_t sonyimx134_init_regs[] = {
 {	0x0717	,	0x00	},
 {	0x0718	,	0x01	},
 {	0x0719	,	0x00	},
-//Shading setting				
+//Shading setting
 {	0x4500	,	0x1F	}
 #endif
-	
+
 };
 
 
 /*1600x1200.4-lane,30fps*/
 const struct _sensor_reg_t sonyimx134_framesize_1600x1200[] = {
 	{0x0100, 0x00}, //stand by
-	//1600x1200 30fps				
-	//Clock Setting				
+	//1600x1200 30fps
+	//Clock Setting
 	{	0x011E	,	0x14	},
 	{	0x011F	,	0x00	},
 	{	0x0301	,	0x05	},
@@ -938,7 +938,7 @@ const struct _sensor_reg_t sonyimx134_framesize_1600x1200[] = {
 	{	0x030D	,	0x28	},
 	{	0x030E	,	0x01	},
 	{0x3A06,	0x11},
-	//Mode setting				
+	//Mode setting
 	{	0x0108	,	0x03	},
 	{	0x0112	,	0x0A	},
 	{	0x0113	,	0x0A	},
@@ -964,7 +964,7 @@ const struct _sensor_reg_t sonyimx134_framesize_1600x1200[] = {
 	{	0x4203	,	0xFF	},
 	{	0x4344	,	0x00	},
 	{	0x441C	,	0x01	},
-	//Size setting				
+	//Size setting
 	{	0x0340	,	0x05	},
 	{	0x0341	,	0xC8	},
 	{	0x0342	,	0x0E	},
@@ -1001,7 +1001,7 @@ const struct _sensor_reg_t sonyimx134_framesize_1600x1200[] = {
 	{	0x4086	,	0x00	},
 	{	0x4087	,	0x00	},
 	{	0x4400	,	0x00	},
-	//Global Timing Setting				
+	//Global Timing Setting
 	{0x0830,	0x67},
 	{0x0831,	0x1F},
 	{0x0832,	0x47},
@@ -1013,10 +1013,10 @@ const struct _sensor_reg_t sonyimx134_framesize_1600x1200[] = {
 	{	0x0839	,	0x1F	},
 	{	0x083A	,	0x17	},
 	{	0x083B	,	0x02	},
-	//Integration Time Setting				
+	//Integration Time Setting
 	//{	0x0202	,	0x05	},
 	//{	0x0203	,	0xC4	},
-	//Gain Setting				
+	//Gain Setting
 	//{	0x0205	,	0x00	},
 	//{	0x020E	,	0x01	},
 	//{	0x020F	,	0x00	},
@@ -1026,7 +1026,7 @@ const struct _sensor_reg_t sonyimx134_framesize_1600x1200[] = {
 	//{	0x0213	,	0x00	},
 	//{	0x0214	,	0x01	},
 	//{	0x0215	,	0x00	},
-	//HDR Setting				
+	//HDR Setting
 	{	0x0230	,	0x00	},
 	{	0x0231	,	0x00	},
 	{	0x0233	,	0x00	},
@@ -1051,8 +1051,8 @@ const struct _sensor_reg_t sonyimx134_framesize_1600x1200[] = {
 /*RES_2560x1440*/
 const struct _sensor_reg_t sonyimx134_framesize_5M_wide[] = {
 	{0x0100, 0x00}, //stand by
-//2560x1440 30fps				
-//Clock Setting				
+//2560x1440 30fps
+//Clock Setting
 {	0x011E	,	0x14	},
 {	0x011F	,	0x00	},
 {	0x0301	,	0x05	},
@@ -1064,7 +1064,7 @@ const struct _sensor_reg_t sonyimx134_framesize_5M_wide[] = {
 {	0x030D	,	0x28	},
 {	0x030E	,	0x01	},
 {	0x3A06	,	0x11	},
-//Mode setting				
+//Mode setting
 {	0x0108	,	0x03	},
 {	0x0112	,	0x0A	},
 {	0x0113	,	0x0A	},
@@ -1081,7 +1081,7 @@ const struct _sensor_reg_t sonyimx134_framesize_5M_wide[] = {
 {	0x4082	,	0x01	},
 {	0x4083	,	0x01	},
 {	0x7006	,	0x04	},
-//OptionnalFunction setting				
+//OptionnalFunction setting
 	#ifndef IMX134_OTP
 	{	0x0700	,	0x00	},
 	{	0x3A63	,	0x00	},
@@ -1090,7 +1090,7 @@ const struct _sensor_reg_t sonyimx134_framesize_5M_wide[] = {
 {	0x4203	,	0xff	},
 {	0x4344	,	0x00	},
 {	0x441C	,	0x01	},
-//Size setting				
+//Size setting
 {	0x0340	,	0x05	},
 {	0x0341	,	0xC8	},
 {	0x0342	,	0x0E	},
@@ -1127,7 +1127,7 @@ const struct _sensor_reg_t sonyimx134_framesize_5M_wide[] = {
 {	0x4086	,	0x00	},
 {	0x4087	,	0x00	},
 {	0x4400	,	0x00	},
-//Global Timing Setting				
+//Global Timing Setting
 {	0x0830	,	0x67	},
 {	0x0831	,	0x1F	},
 {	0x0832	,	0x47	},
@@ -1139,10 +1139,10 @@ const struct _sensor_reg_t sonyimx134_framesize_5M_wide[] = {
 {	0x0839	,	0x1F	},
 {	0x083A	,	0x17	},
 {	0x083B	,	0x02	},
-//Integration Time Setting				
+//Integration Time Setting
 //{	0x0202	,	0x05	},
 //{	0x0203	,	0xC4	},
-//Gain Setting				
+//Gain Setting
 //{	0x0205	,	0x00	},
 //{	0x020E	,	0x01	},
 //{	0x020F	,	0x00	},
@@ -1152,7 +1152,7 @@ const struct _sensor_reg_t sonyimx134_framesize_5M_wide[] = {
 //{	0x0213	,	0x00	},
 //{	0x0214	,	0x01	},
 //{	0x0215	,	0x00	},
-//HDR Setting				
+//HDR Setting
 {	0x0230	,	0x00	},
 {	0x0231	,	0x00	},
 {	0x0233	,	0x00	},
@@ -1177,8 +1177,8 @@ const struct _sensor_reg_t sonyimx134_framesize_5M_wide[] = {
 const struct _sensor_reg_t sonyimx134_framesize_8M_wide[] = {
 	{0x0100, 0x00},
 
-	//3280x1856 23.6fps				
-	//Clock Setting				
+	//3280x1856 23.6fps
+	//Clock Setting
 	{	0x011E	,	0x14	},
 	{	0x011F	,	0x00	},
 	{	0x0301	,	0x05	},
@@ -1190,7 +1190,7 @@ const struct _sensor_reg_t sonyimx134_framesize_8M_wide[] = {
 	{	0x030D	,	0x28	},
 	{	0x030E	,	0x01	},
 	{	0x3A06	,	0x11	},
-	//Mode setting				
+	//Mode setting
 	{	0x0108	,	0x03	},
 	{	0x0112	,	0x0A	},
 	{	0x0113	,	0x0A	},
@@ -1207,7 +1207,7 @@ const struct _sensor_reg_t sonyimx134_framesize_8M_wide[] = {
 	{	0x4082	,	0x01	},
 	{	0x4083	,	0x01	},
 	{	0x7006	,	0x04	},
-	//OptionnalFunction setting				
+	//OptionnalFunction setting
 	#ifndef IMX134_OTP
 	{	0x0700	,	0x00	},
 	{	0x3A63	,	0x00	},
@@ -1216,7 +1216,7 @@ const struct _sensor_reg_t sonyimx134_framesize_8M_wide[] = {
 	{	0x4203	,	0xff	},
 	{	0x4344	,	0x00	},
 	{	0x441C	,	0x01	},
-	//Size setting				
+	//Size setting
 	{	0x0340	,	0x07	},
 	{	0x0341	,	0x56	},
 	{	0x0342	,	0x0E	},
@@ -1253,7 +1253,7 @@ const struct _sensor_reg_t sonyimx134_framesize_8M_wide[] = {
 	{	0x4086	,	0x00	},
 	{	0x4087	,	0x00	},
 	{	0x4400	,	0x00	},
-	//Global Timing Setting				
+	//Global Timing Setting
 	{	0x0830	,	0x67	},
 	{	0x0831	,	0x1F	},
 	{	0x0832	,	0x47	},
@@ -1265,10 +1265,10 @@ const struct _sensor_reg_t sonyimx134_framesize_8M_wide[] = {
 	{	0x0839	,	0x1F	},
 	{	0x083A	,	0x17	},
 	{	0x083B	,	0x02	},
-	//Integration Time Setting				
+	//Integration Time Setting
 	//{	0x0202	,	0x07	},
 	//{	0x0203	,	0x52	},
-	//Gain Setting				
+	//Gain Setting
 	//{	0x0205	,	0x00	},
 	//{	0x020E	,	0x01	},
 	//{	0x020F	,	0x00	},
@@ -1278,7 +1278,7 @@ const struct _sensor_reg_t sonyimx134_framesize_8M_wide[] = {
 	//{	0x0213	,	0x00	},
 	//{	0x0214	,	0x01	},
 	//{	0x0215	,	0x00	},
-	//HDR Setting				
+	//HDR Setting
 	{	0x0230	,	0x00	},
 	{	0x0231	,	0x00	},
 	{	0x0233	,	0x00	},
@@ -1300,8 +1300,8 @@ const struct _sensor_reg_t sonyimx134_framesize_8M_wide[] = {
 
 const struct _sensor_reg_t sonyimx134_framesize_full[] = {
 	{0x0100, 0x00},
-//3280x2464 15fps				
-//Clock Setting				
+//3280x2464 15fps
+//Clock Setting
 {	0x011E	,	0x14	},
 {	0x011F	,	0x00	},
 {	0x0301	,	0x05	},
@@ -1313,7 +1313,7 @@ const struct _sensor_reg_t sonyimx134_framesize_full[] = {
 {	0x030D	,	0x28	},
 {	0x030E	,	0x01	},
 {	0x3A06	,	0x11	},
-//Mode setting				
+//Mode setting
 {	0x0108	,	0x03	},
 {	0x0112	,	0x0A	},
 {	0x0113	,	0x0A	},
@@ -1330,7 +1330,7 @@ const struct _sensor_reg_t sonyimx134_framesize_full[] = {
 {	0x4082	,	0x01	},
 {	0x4083	,	0x01	},
 {	0x7006	,	0x04	},
-//OptionnalFunction setting				
+//OptionnalFunction setting
 	#ifndef IMX134_OTP
 	{	0x0700	,	0x00	},
 	{	0x3A63	,	0x00	},
@@ -1339,7 +1339,7 @@ const struct _sensor_reg_t sonyimx134_framesize_full[] = {
 {	0x4203	,	0xff	},
 {	0x4344	,	0x00	},
 {	0x441C	,	0x01	},
-//Size setting				
+//Size setting
 {	0x0340	,	0x0B	},
 {	0x0341	,	0x90	},
 {	0x0342	,	0x10	},
@@ -1376,7 +1376,7 @@ const struct _sensor_reg_t sonyimx134_framesize_full[] = {
 {	0x4086	,	0x00	},
 {	0x4087	,	0x00	},
 {	0x4400	,	0x00	},
-//Global Timing Setting				
+//Global Timing Setting
 {	0x0830	,	0x67	},
 {	0x0831	,	0x1F	},
 {	0x0832	,	0x47	},
@@ -1388,10 +1388,10 @@ const struct _sensor_reg_t sonyimx134_framesize_full[] = {
 {	0x0839	,	0x1F	},
 {	0x083A	,	0x17	},
 {	0x083B	,	0x02	},
-//Integration Time Setting				
+//Integration Time Setting
 //{	0x0202	,	0x0B	},
 //{	0x0203	,	0x8C	},
-//Gain Setting				
+//Gain Setting
 //{	0x0205	,	0x00	},
 //{	0x020E	,	0x01	},
 //{	0x020F	,	0x00	},
@@ -1401,7 +1401,7 @@ const struct _sensor_reg_t sonyimx134_framesize_full[] = {
 //{	0x0213	,	0x00	},
 //{	0x0214	,	0x01	},
 //{	0x0215	,	0x00	},
-//HDR Setting				
+//HDR Setting
 {	0x0230	,	0x00	},
 {	0x0231	,	0x00	},
 {	0x0233	,	0x00	},
@@ -1539,25 +1539,25 @@ const struct _sensor_reg_t sonyimx134_rgb_framesize_1280x720_HDR[] = {
 	{0x33B4,0x01},
 	{0x3800,0x00},
 
-	{0x34A9,0x00},//-6db                      
-	//false color                             
-	{0x4344,0x01},                            
-	{0x4364,0x0B},                            
-	{0x436C,0x00},                            
-	{0x436D,0x00},                            
-	{0x436E,0x00},                            
-	{0x436F,0x06},                            
-	                                          
-	{0x0238,0x01},//direct 1 auto 0           
+	{0x34A9,0x00},//-6db
+	//false color
+	{0x4344,0x01},
+	{0x4364,0x0B},
+	{0x436C,0x00},
+	{0x436D,0x00},
+	{0x436E,0x00},
+	{0x436F,0x06},
+
+	{0x0238,0x01},//direct 1 auto 0
 	{0x0239,0x04},//hdr ratio 1:2,2:4,4:8,8:16
-	{0x3800,0x01},//stat I2c on               
-	                                          
-	{0x4400,0x02},//0 16*16 1 8*8 2 4*4 4 1*1 
-	{0x4203,0xff},//ARNR off                  
-	{0x4100,0xF8},//DC                        
-	{0x4344,0x01},//0:off, 1:on               
-	{0x3A43,0x01},//init pd                   
-	{0x0100,0x01},                            
+	{0x3800,0x01},//stat I2c on
+
+	{0x4400,0x02},//0 16*16 1 8*8 2 4*4 4 1*1
+	{0x4203,0xff},//ARNR off
+	{0x4100,0xF8},//DC
+	{0x4344,0x01},//0:off, 1:on
+	{0x3A43,0x01},//init pd
+	{0x0100,0x01},
 };
 
 
@@ -1698,7 +1698,7 @@ const struct _sensor_reg_t sonyimx134_rgb_framesize_1632x1232_HDR[] = {
 #if 1
 const struct _sensor_reg_t sonyimx134_framesize_1920x1088[] = {
 	{	0x0100	,	0x00	},
-	//	FHD mode  *30fps	
+	//	FHD mode  *30fps
 	//	H : 1920
 	//	V : 1088
 	//	Clock Setting
@@ -1739,7 +1739,7 @@ const struct _sensor_reg_t sonyimx134_framesize_1920x1088[] = {
 	{		0x4203	,	0xFF	},
 	{		0x4344	,	0x00	},
 	{		0x441C	,	0x01	},
-	//Size setting	
+	//Size setting
 	{		0x0340	,	0x07	},
 	{		0x0341	,	0x42	},
 	{		0x0342	,	0x0E	},
@@ -1776,7 +1776,7 @@ const struct _sensor_reg_t sonyimx134_framesize_1920x1088[] = {
 	{		0x4086	,	0x04	},
 	{		0x4087	,	0x40	},
 	{		0x4400	,	0x00	},
-	//Global Timing Setting	
+	//Global Timing Setting
 	{		0x0830	,	0x5F	},
 	{		0x0831	,	0x17	},
 	{		0x0832	,	0x37	},
@@ -1788,10 +1788,10 @@ const struct _sensor_reg_t sonyimx134_framesize_1920x1088[] = {
 	{		0x0839	,	0x1F	},
 	{		0x083A	,	0x17	},
 	{		0x083B	,	0x02	},
-	//	Integration Time Setting	
+	//	Integration Time Setting
 	//		0x0202	,	0x07	},
 	//		0x0203	,	0x3E	},
-	//	Gain Setting	
+	//	Gain Setting
 	//		0x0205	,	0x00	},
 	//{		0x020E	,	0x01	},
 	//{		0x020F	,	0x00	},
@@ -1824,11 +1824,11 @@ const struct _sensor_reg_t sonyimx134_framesize_1920x1088[] = {
 const struct _sensor_reg_t sonyimx134_framesize_1920x1088[] = {
 
 	{	0x0100	,	0x00	},
-	//FHD mode  *24fps				
-	//H : 1920				
-	//V : 1088				
-	//Clock Setting				
-	//	Address		value	
+	//FHD mode  *24fps
+	//H : 1920
+	//V : 1088
+	//Clock Setting
+	//	Address		value
 	{	0x011E	,	0x14	},
 	{	0x011F	,	0x00	},
 	{	0x0301	,	0x05	},
@@ -1840,8 +1840,8 @@ const struct _sensor_reg_t sonyimx134_framesize_1920x1088[] = {
 	{	0x030D	,	0x28	},
 	{	0x030E	,	0x01	},
 	{	0x3A06	,	0x11	},
-	//Mode setting				
-	//	Address		value	
+	//Mode setting
+	//	Address		value
 	{	0x0108	,	0x03	},
 	{	0x0112	,	0x0A	},
 	{	0x0113	,	0x0A	},
@@ -1858,8 +1858,8 @@ const struct _sensor_reg_t sonyimx134_framesize_1920x1088[] = {
 	{	0x4082	,	0x00	},
 	{	0x4083	,	0x00	},
 	{	0x7006	,	0x04	},
-	//OptionnalFunction setting				
-	//	Address		value	
+	//OptionnalFunction setting
+	//	Address		value
 #ifndef IMX134_OTP
 	{	0x0700	,	0x00	},
 	{	0x3A63	,	0x00	},
@@ -1868,8 +1868,8 @@ const struct _sensor_reg_t sonyimx134_framesize_1920x1088[] = {
 	{	0x4203	,	0xC1	},
 	{	0x4344	,	0x00	},
 	{	0x441C	,	0x01	},
-	//Size setting				
-	//	Address		value	
+	//Size setting
+	//	Address		value
 	{	0x0340	,	0x07	},
 	{	0x0341	,	0x42	},
 	{	0x0342	,	0x0E	},
@@ -1906,8 +1906,8 @@ const struct _sensor_reg_t sonyimx134_framesize_1920x1088[] = {
 	{	0x4086	,	0x04	},
 	{	0x4087	,	0x40	},
 	{	0x4400	,	0x00	},
-	//Global Timing Setting				
-	//	Address		value	
+	//Global Timing Setting
+	//	Address		value
 	{	0x0830	,	0x67	},
 	{	0x0831	,	0x1F	},
 	{	0x0832	,	0x47	},
@@ -1919,12 +1919,12 @@ const struct _sensor_reg_t sonyimx134_framesize_1920x1088[] = {
 	{	0x0839	,	0x1F	},
 	{	0x083A	,	0x17	},
 	{	0x083B	,	0x02	},
-	//Integration Time Setting				
-	//	Address		value	
+	//Integration Time Setting
+	//	Address		value
 	//{	0x0202	,	0x07	},
 	//{	0x0203	,	0x3E	},
-	//Gain Setting				
-	//	Address		value	
+	//Gain Setting
+	//	Address		value
 	//{	0x0205	,	0x00	},
 	{	0x020E	,	0x01	},
 	{	0x020F	,	0x00	},
@@ -1934,8 +1934,8 @@ const struct _sensor_reg_t sonyimx134_framesize_1920x1088[] = {
 	{	0x0213	,	0x00	},
 	{	0x0214	,	0x01	},
 	{	0x0215	,	0x00	},
-	//HDR Setting				
-	//	Address		value	
+	//HDR Setting
+	//	Address		value
 	{	0x0230	,	0x00	},
 	{	0x0231	,	0x00	},
 	{	0x0233	,	0x00	},

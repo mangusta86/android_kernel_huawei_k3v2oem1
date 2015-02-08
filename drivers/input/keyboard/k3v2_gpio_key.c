@@ -48,6 +48,7 @@
 #define GPIO_KEY_PRESS      (1)
 #define GPIO_HIGH_VOLTAGE   (1)
 #define GPIO_LOW_VOLTAGE    (0)
+#define TIMER_DEBOUNCE       (20)		
 
 static unsigned int g_keyup      = 1;
 static unsigned int g_keydown = 1;
@@ -64,6 +65,8 @@ struct k3v2_gpio_key {
 	int    			volume_down_irq;    /*volumn down key irq.*/
 	int				camera_irq;/*camera key irq.*/
 	int				camera_focus_irq;/*camera_focus key irq.*/
+	struct timer_list key_up_timer;
+	struct timer_list key_down_timer;
 };
 
 static int k3v2_gpio_key_open(struct input_dev *dev)
@@ -201,7 +204,17 @@ static void k3v2_gpio_camera_work(struct work_struct *work)
 
 	return;
 }
+static void gpio_key_up_timer(unsigned long _data)
+{
+	struct k3v2_gpio_key *data =(struct k3v2_gpio_key *) _data;
+	schedule_delayed_work(&(data->gpio_keyup_work), 0);
+}
 
+static void gpio_key_down_timer(unsigned long _data)
+{
+	struct k3v2_gpio_key *data =(struct k3v2_gpio_key *) _data;
+	schedule_delayed_work(&(data->gpio_keydown_work), 0);
+}
 
 static irqreturn_t k3v2_gpio_key_irq_handler(int irq, void *dev_id)
 {
@@ -209,11 +222,11 @@ static irqreturn_t k3v2_gpio_key_irq_handler(int irq, void *dev_id)
 
 	switch (irq) {
 	case IRQ_GPIO(GPIO_17_1):
-		schedule_delayed_work(&(gpio_key->gpio_keyup_work), 0);
+		mod_timer(&(gpio_key->key_up_timer),jiffies + msecs_to_jiffies(TIMER_DEBOUNCE));
 		break;
 
 	case IRQ_GPIO(GPIO_17_2):
-		schedule_delayed_work(&(gpio_key->gpio_keydown_work), 0);
+		mod_timer(&(gpio_key->key_down_timer),jiffies + msecs_to_jiffies(TIMER_DEBOUNCE));
 		break;
 	case IRQ_GPIO(GPIO_17_6):
 		schedule_delayed_work(&(gpio_key->gpio_camerafocus_work), 0);
@@ -278,6 +291,8 @@ static int __devinit k3v2_gpio_key_probe(struct platform_device* pdev)
 	INIT_DELAYED_WORK(&(gpio_key->gpio_camerafocus_work), k3v2_gpio_camerafocus_work);
 	INIT_DELAYED_WORK(&(gpio_key->gpio_camera_work), k3v2_gpio_camera_work);
 
+	setup_timer(&(gpio_key->key_up_timer),gpio_key_up_timer, (unsigned long)gpio_key);
+	setup_timer(&(gpio_key->key_down_timer),gpio_key_down_timer,(unsigned long)gpio_key);
 	/*get volume-up-key irq.*/
 	gpio_key->volume_up_irq = platform_get_irq(pdev, 0);
 	if (gpio_key->volume_up_irq < 0) {

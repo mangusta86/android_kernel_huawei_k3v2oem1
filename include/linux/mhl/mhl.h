@@ -64,7 +64,10 @@ int      SiiMhlReset(void);
 bool    GetMhlCableConnect(void);
 void    SiiCBusIDSwitcherOpen(void);
 
+#endif
 
+#if defined(MHL_SII8240)
+void    CBUS_ID_Opened_AfterPlugedout(void);
 #endif
 
 #endif

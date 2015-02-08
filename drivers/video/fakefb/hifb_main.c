@@ -251,7 +251,7 @@ static int hi_framebuffer_probe(struct platform_device *pdev)
         goto ERR;
     }
 
-    /*printk("succeed in registering the fb%d: %s frame buffer device, info->screen_size=%lu\n", info->node, info->fix.id, info->screen_size);*/
+    printk("succeed in registering the fb%d: %s frame buffer device, info->screen_size=%d\n", info->node, info->fix.id, info->screen_size);
 
     return 0;
     

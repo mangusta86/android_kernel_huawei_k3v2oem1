@@ -56,7 +56,7 @@
 #define CRASH_CAUSED_BY_MODEM "modemcrash "
 #define CRASH_CAUSED_BY_APANIC "apanic "
 
-#if DUMP_MODEM_LOG
+#if defined(CONFIG_DUMP_MODEM_LOG)
 #define MODEM_NOTIFIER_START_RESET 0x1 /* 这个要根据高通modem的代码及时修改 */
 #endif
 
@@ -76,7 +76,13 @@ typedef struct
     int (*init_module)(srecorder_module_init_params_t *pinit_params);
     int (*get_log)(srecorder_reserved_mem_info_t *pmem_info);
     void (*exit_module)(void);
-} srecorder_log_operations;
+} srecorder_module_operations;
+
+typedef struct
+{
+    srecorder_info_type_e type;
+    srecorder_module_operations module_operation;
+} srecorder_log_dump_module_operations;
 
 
 /*----global variables-----------------------------------------------------------------*/
@@ -101,9 +107,9 @@ static int srecorder_emergency_reboot_notifier_handler(struct notifier_block *th
 #endif
 #endif
 
-#if DUMP_MODEM_LOG
+#if defined(CONFIG_DUMP_MODEM_LOG)
 static inline void srecorder_modem_reset_handler(bool do_delay, void *cmd);
-#if DUMP_MODEM_LOG_BY_FIQ
+#if defined(CONFIG_DUMP_MODEM_LOG_BY_FIQ)
 static int srecorder_modem_fiq_notifier_handler(struct notifier_block *this, unsigned long code, void *cmd);
 #endif
 
@@ -131,7 +137,7 @@ static unsigned long srecorder_convert_version_string2num(char *pversion);
 
 /*----global function prototypes---------------------------------------------------------*/
 
-#if DUMP_MODEM_LOG
+#if defined(CONFIG_DUMP_MODEM_LOG)
 extern int modem_register_notifier(struct notifier_block *nb);
 extern int modem_unregister_notifier(struct notifier_block *nb);
 #endif
@@ -152,8 +158,8 @@ static struct notifier_block s_oom_notifier_block =
 {
     .notifier_call = srecorder_oom_notifier_handler, 
 };
-#if DUMP_MODEM_LOG
-#if DUMP_MODEM_LOG_BY_FIQ
+#if defined(CONFIG_DUMP_MODEM_LOG)
+#if defined(CONFIG_DUMP_MODEM_LOG_BY_FIQ)
 static struct notifier_block s_modem_fiq_notifier_block =
 {
     .notifier_call = srecorder_modem_fiq_notifier_handler,
@@ -245,7 +251,7 @@ MODULE_PARM_DESC(params, "SRecorder Install Parameters");
 /*判断SRecorder保留内存区是否已经映射完毕*/
 static bool s_srecorder_log_info_saved = false;
 
-static srecorder_log_operations s_srecorder_common_operations[] = 
+static srecorder_module_operations s_srecorder_common_operations[] = 
 {
     /*==================================================================*/
     /*                          公共模块 begin                          */
@@ -263,13 +269,16 @@ static srecorder_log_operations s_srecorder_common_operations[] =
     /*==================================================================*/
 };
 
-static srecorder_log_operations s_srecorder_log_operations[] = 
+static srecorder_log_dump_module_operations s_srecorder_log_operations[] = 
 {
     /*==================================================================*/
     /*                      系统死机时间和原因 begin                    */
     /*==================================================================*/
     /*建议把crash time放在最前面，dmesg紧随其后，allcpu stack放在后面，其他函数的顺序无所谓*/
-    {"srecorder_init_crash_time", srecorder_init_crash_time, srecorder_get_crash_time, srecorder_exit_crash_time}, 
+    {
+        .type = CRASH_REASON_TIME_BIT0,
+        .module_operation = {"crash reason and time", srecorder_init_crash_time, srecorder_get_crash_time, srecorder_exit_crash_time}
+    },
     /*==================================================================*/
     /*                      系统死机时间和原因 end                      */
     /*==================================================================*/
@@ -278,13 +287,34 @@ static srecorder_log_operations s_srecorder_log_operations[] =
     /*==================================================================*/
     /*                         Linux死机日志 begin                      */
     /*==================================================================*/
-    {"srecorder_init_dmesg", srecorder_init_dmesg, srecorder_get_dmesg, srecorder_exit_dmesg}, /* dump dmesg in boot stage */
-    {"srecorder_init_current_ps_backtrace", srecorder_init_current_ps_backtrace, 
-        srecorder_get_current_ps_backtrace, srecorder_exit_current_ps_backtrace}, 
-    {"srecorder_init_allps_info", srecorder_init_allps_info, srecorder_get_allps_info, srecorder_exit_allps_info}, 
-    {"srecorder_init_allcpu_stack", srecorder_init_allcpu_stack, srecorder_get_allcpu_stack, srecorder_exit_allcpu_stack}, 
-    {"srecorder_init_sys_info", srecorder_init_sys_info, srecorder_get_sys_info, srecorder_exit_sys_info}, 
-    {"srecorder_init_slabinfo", srecorder_init_slabinfo, srecorder_get_slabinfo, srecorder_exit_slabinfo}, 
+#ifdef CONFIG_SRECORDER_DUMP_LOG_TO_STORAGECARD
+    {
+        .type = DMESG_BIT2,
+        .module_operation = {"dmesg", srecorder_init_dmesg, srecorder_get_dmesg, srecorder_exit_dmesg} /* dump dmesg in boot stage */
+    }, 
+#endif
+    {
+        .type = CURRENT_PS_BACKTRACE_BIT5,
+        .module_operation = {"current ps backtrace", srecorder_init_current_ps_backtrace, 
+            srecorder_get_current_ps_backtrace, srecorder_exit_current_ps_backtrace}
+    },
+    {
+        .type = ALL_PS_INFO_BIT4,
+        .module_operation = {"allps info", srecorder_init_allps_info, srecorder_get_allps_info, srecorder_exit_allps_info}
+    }, 
+    {
+        .type = ALL_CPU_STACK_BIT3,
+        .module_operation = {"allcpu stack", srecorder_init_allcpu_stack, srecorder_get_allcpu_stack, srecorder_exit_allcpu_stack}
+    }, 
+    {
+        .type = SYS_INFO_BIT1,
+        .module_operation = {"sysinfo", srecorder_init_sys_info, srecorder_get_sys_info, srecorder_exit_sys_info}
+    }, 
+    {
+        .type = SLABINFO_BIT6,
+        .module_operation = {"slabinfo", srecorder_init_slabinfo, srecorder_get_slabinfo, srecorder_exit_slabinfo}
+    }, 
+    
     /*==================================================================*/
     /*                         Linux死机日志 end                        */
     /*==================================================================*/
@@ -293,7 +323,14 @@ static srecorder_log_operations s_srecorder_log_operations[] =
     /*==================================================================*/
     /*                         modem死机信息 end                        */
     /*==================================================================*/
-    {"srecorder_init_modem_log", srecorder_init_modem_log, srecorder_get_modem_log, srecorder_exit_modem_log}, 
+    {
+        .type = MODEM_ERR_BIT7,
+        .module_operation = {"modem err", srecorder_init_modem_log, srecorder_get_modem_log, srecorder_exit_modem_log}
+    },
+    {
+        .type = MODEM_ERR_F3_BIT8,
+        .module_operation = {"modem err f3", srecorder_init_modem_log, srecorder_get_modem_log, srecorder_exit_modem_log}
+    }
     /*==================================================================*/
     /*                         modem死机信息 end                        */
     /*==================================================================*/
@@ -370,7 +407,7 @@ void srecorder_write_reserved_mem_header(bool normal_reset,
     }
 
     /* 修改保留内存头部描述信息 - 填写版本和魔数 */
-    pmem_header->version = srecorder_convert_version_string2num(SRECORDER_VERSION);
+    pmem_header->version = srecorder_convert_version_string2num(CONFIG_SRECORDER_VERSION);
     pmem_header->magic_num = magic_number;
     pmem_header->data_length = (unsigned long)valid_log_len;
     pmem_header->reset_flag = (normal_reset) ? (NORMAL_RESET) : (ABNORMAL_RESET); /* 系统正常重启时将该标志清0 */
@@ -393,6 +430,17 @@ void srecorder_write_reserved_mem_header(bool normal_reset,
         mem_info.srecorder_log_buf = __pa(params[0]);
         mem_info.srecorder_log_buf_len = params[1];
 
+#ifdef CONFIG_DUMP_LOGCAT
+        (void)get_logcat_buf_info(&(mem_info.logcat_buf_info[0]));
+        SRECORDER_PRINTK("log_main: %08lx, len: %08lx\n", mem_info.logcat_buf_info[LOGCAT_MAIN].log_buf, 
+            mem_info.logcat_buf_info[LOGCAT_MAIN].log_buf_len);
+        SRECORDER_PRINTK("log_system: %08lx, len: %08lx\n", mem_info.logcat_buf_info[LOGCAT_SYSTEM].log_buf, 
+            mem_info.logcat_buf_info[LOGCAT_SYSTEM].log_buf_len);
+        SRECORDER_PRINTK("log_events: %08lx, len: %08lx\n", mem_info.logcat_buf_info[LOGCAT_EVENTS].log_buf, 
+            mem_info.logcat_buf_info[LOGCAT_EVENTS].log_buf_len);
+        SRECORDER_PRINTK("log_radio: %08lx, len: %08lx\n", mem_info.logcat_buf_info[LOGCAT_RADIO].log_buf, 
+            mem_info.logcat_buf_info[LOGCAT_RADIO].log_buf_len);
+#endif
         /* 保存Linux内核ring buffer的物理地址和大小 */
         mem_info.crc32 = srecorder_get_crc32((unsigned char *)&mem_info, (unsigned long)
             (sizeof(platform_special_reserved_mem_info_t) - sizeof(mem_info.crc32)));
@@ -428,6 +476,12 @@ static void srecorder_dump_log(char *reason)
     /* 删除2行 */
     int i = 0;
     int array_size = 0;
+
+    if (!srecorder_has_been_enabled())
+    {
+        SRECORDER_PRINTK("SRecorder hasn't been enabled, it can not dump anything!\n");
+        return;
+    }
     
     /* 先修正魔数，防止日志导不全时dumptool解析不到数据*/
     srecorder_write_reserved_mem_header(true, false, SRECORDER_MAGIC_NUM, s_srecorder_reserved_mem_info.bytes_read);
@@ -437,15 +491,20 @@ static void srecorder_dump_log(char *reason)
     s_srecorder_reserved_mem_info.crash_reason2 = reason;  
     for (i = 0; i < array_size; i++)
     {
-    
-        if (NULL != s_srecorder_log_operations[i].get_log)
+        if (!srecorder_dump_enable_bit_has_been_set(s_srecorder_log_operations[i].type))
         {
-            s_srecorder_log_operations[i].get_log(&s_srecorder_reserved_mem_info);
+            SRECORDER_PRINTK("dump %s has not been enabled!\n", s_srecorder_log_operations[i].module_operation.module_name);
+            continue;   
+        }
+        
+        if (NULL != s_srecorder_log_operations[i].module_operation.get_log)
+        {
+            s_srecorder_log_operations[i].module_operation.get_log(&s_srecorder_reserved_mem_info);
         }
 
-        if (NULL != s_srecorder_log_operations[i].exit_module)
+        if (NULL != s_srecorder_log_operations[i].module_operation.exit_module)
         {
-            s_srecorder_log_operations[i].exit_module();
+            s_srecorder_log_operations[i].module_operation.exit_module();
         }
     }
     
@@ -456,7 +515,7 @@ static void srecorder_dump_log(char *reason)
 }
 
 
-#if DUMP_MODEM_LOG
+#if defined(CONFIG_DUMP_MODEM_LOG)
 static inline void srecorder_modem_reset_handler(bool do_delay, void *cmd)
 {
     if (spin_trylock(&s_srecorder_reserved_mem_info.lock))
@@ -474,7 +533,7 @@ static inline void srecorder_modem_reset_handler(bool do_delay, void *cmd)
 }
 
 
-#if DUMP_MODEM_LOG_BY_FIQ
+#if defined(CONFIG_DUMP_MODEM_LOG_BY_FIQ)
 static int srecorder_modem_fiq_notifier_handler(struct notifier_block *this, unsigned long code, void *cmd)
 {
     srecorder_modem_reset_handler(true, cmd);
@@ -698,6 +757,22 @@ srecorder_reserved_mem_info_t* srecorder_get_reserved_mem_info(void)
 
 
 /**
+    @function: unsigned long srecorder_get_reserved_mem_addr(void)
+    @brief: 获取SRecorder保留内存起始地址
+
+    @param: none
+    
+    @return: SRecorder保留内存起始地址
+
+    @note: 
+*/
+unsigned long srecorder_get_reserved_mem_addr(void)
+{
+    return (unsigned long)params[0];
+}
+
+
+/**
     @function: static int srecorder_init_modules(srecorder_module_init_params_t *pinit_params)
     @brief: 初始化所有模块
     
@@ -727,10 +802,10 @@ static int srecorder_init_modules(srecorder_module_init_params_t *pinit_params)
     array_size = sizeof(s_srecorder_log_operations) / sizeof(s_srecorder_log_operations[0]);
     for (i = 0; i < array_size; i++)
     {
-        if ((NULL == s_srecorder_log_operations[i].init_module)
-            || (0 != s_srecorder_log_operations[i].init_module(pinit_params)))
+        if ((NULL == s_srecorder_log_operations[i].module_operation.init_module)
+            || (0 != s_srecorder_log_operations[i].module_operation.init_module(pinit_params)))
         {
-            PRINT_INFO(("%s failed!\n", s_srecorder_log_operations[i].module_name), DEBUG_SRECORDER);
+            PRINT_INFO(("%s failed!\n", s_srecorder_log_operations[i].module_operation.module_name), DEBUG_SRECORDER);
             goto __error_exit;
         }
     }
@@ -766,8 +841,8 @@ static int __init srecorder_init(void)
 
     bool register_oom_notifier_successfully = false;
 
-#if DUMP_MODEM_LOG
-#if DUMP_MODEM_LOG_BY_FIQ
+#if defined(CONFIG_DUMP_MODEM_LOG)
+#if defined(CONFIG_DUMP_MODEM_LOG_BY_FIQ)
     bool register_modem_fiq_notifier_successfully = false;
 #endif
 
@@ -789,14 +864,23 @@ static int __init srecorder_init(void)
 #endif
 
 #ifdef CONFIG_SRECORDER_DUMP_LOG_TO_STORAGECARD
+    unsigned long log_buf = 0x0;
+    unsigned long log_end = 0x0;
+    unsigned long log_buf_len = 0x0;
     char  *temp_buf_addr_for_srecorder = NULL;
     unsigned long temp_buf_size_for_srecorder = CONFIG_SRECORDER_LOG_BUF_LEN;
 #endif
+    int i = 0;
 
+    /* Enable SRecorder when startup */
+    srecorder_enable();
+    
     /* 获取SRecorder的保留内存地址和大小 */
     get_srecorder_log_buf_info(&params[0], &params[1]);
     
 #ifdef CONFIG_SRECORDER_DUMP_LOG_TO_STORAGECARD
+    get_log_buf_info(&log_buf, &log_end, &log_buf_len);
+    temp_buf_size_for_srecorder += log_buf_len;
     temp_buf_addr_for_srecorder = alloc_buf_for_srecorder(temp_buf_size_for_srecorder);
     if (NULL == temp_buf_addr_for_srecorder)
     {
@@ -809,6 +893,7 @@ static int __init srecorder_init(void)
     
     /* 初始化s_reserved_mem_info，该结构体保存SRecorder保留内存的详细信息 */
     memset(&s_srecorder_reserved_mem_info, 0, sizeof(srecorder_reserved_mem_info_t));
+    memset((char *)params[0], 0, sizeof(srecorder_reserved_mem_header_t));
     
 #ifdef CONFIG_SRECORDER_DUMP_LOG_TO_STORAGECARD
     s_srecorder_reserved_mem_info.mem_size = temp_buf_size_for_srecorder - sizeof(srecorder_reserved_mem_header_t);
@@ -925,8 +1010,8 @@ static int __init srecorder_init(void)
 #endif
 #endif
 
-#if DUMP_MODEM_LOG
-#if DUMP_MODEM_LOG_BY_FIQ
+#if defined(CONFIG_DUMP_MODEM_LOG)
+#if defined(CONFIG_DUMP_MODEM_LOG_BY_FIQ)
     if (0 > register_modem_fiq_notifier(&s_modem_fiq_notifier_block))
     {
         PRINT_INFO(("unable to register s_modem_fiq_notifier_block\n"), DEBUG_SRECORDER);
@@ -952,7 +1037,16 @@ static int __init srecorder_init(void)
     register_modem_notifier_successfully = true;
 #endif
 #endif
+
+    /* Enable SRecorder dump all kinds of log except the "log cat" */
+    for (i = 0; i < LOG_TYPE_COUNT; i++)
+    {
+        srecorder_set_dump_enable_bit((unsigned long)i);
+    }
+    srecorder_clear_dump_enable_bit(LOGCAT_BIT9);
         
+    SRECORDER_PRINTK("^_^ SRecorder has been installed successfully!\n");
+    
     return 0;
     
 __error_exit:
@@ -1013,8 +1107,8 @@ __error_exit:
 #endif
 #endif
 
-#if DUMP_MODEM_LOG
-#if DUMP_MODEM_LOG_BY_FIQ
+#if defined(CONFIG_DUMP_MODEM_LOG)
+#if defined(CONFIG_DUMP_MODEM_LOG_BY_FIQ)
     if (register_modem_fiq_notifier_successfully)
     {
         unregister_modem_fiq_notifier(&s_modem_fiq_notifier_block);
@@ -1089,8 +1183,8 @@ static void __exit srecorder_exit(void)
 #endif
 #endif
 
-#if DUMP_MODEM_LOG
-#if DUMP_MODEM_LOG_BY_FIQ
+#if defined(CONFIG_DUMP_MODEM_LOG)
+#if defined(CONFIG_DUMP_MODEM_LOG_BY_FIQ)
     unregister_modem_fiq_notifier(&s_modem_fiq_notifier_block);
 #endif
 
@@ -1113,9 +1207,9 @@ static void __exit srecorder_exit(void)
     array_size = sizeof(s_srecorder_log_operations) / sizeof(s_srecorder_log_operations[0]);
     for (i = 0; i < array_size; i++)
     {
-        if (NULL != s_srecorder_log_operations[i].exit_module)
+        if (NULL != s_srecorder_log_operations[i].module_operation.exit_module)
         {
-            s_srecorder_log_operations[i].exit_module();
+            s_srecorder_log_operations[i].module_operation.exit_module();
         }
     }
 }

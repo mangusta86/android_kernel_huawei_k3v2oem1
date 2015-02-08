@@ -119,6 +119,37 @@ sdio_bus_uevent(struct device *dev, struct kobj_uevent_env *env)
 
 	return 0;
 }
+void dump_dev_pm_info(char * msg, struct device *dev){
+	if(NULL != msg){
+		printk(KERN_ERR "%s , wifi bug test: dump_dev_pm_info: \n", msg);
+	}
+	if(NULL != dev ){
+		printk(KERN_ERR "usage count = %d \n", dev->power.usage_count);
+		printk(KERN_ERR "!!!disable_depth= %d \n", dev->power.disable_depth);
+		printk(KERN_ERR "ignore_children = %d \n", dev->power.ignore_children);
+		printk(KERN_ERR "request_pending = %d \n", dev->power.request_pending);
+		printk(KERN_ERR "deferred_resume = %d \n", dev->power.deferred_resume);
+		printk(KERN_ERR " request= %d \n", dev->power.request);
+		printk(KERN_ERR "!!! runtime_status = %d \n", dev->power.runtime_status);
+		printk(KERN_ERR "!!!! runtime_error = %d \n", dev->power.runtime_error);
+		printk(KERN_ERR "timer_autosuspends = %d \n", dev->power.timer_autosuspends);
+		printk(KERN_ERR "no_callbacks = %d \n", dev->power.no_callbacks);
+
+		if (dev->pwr_domain)
+			printk(KERN_ERR " have call back:pwr_domain \n");
+		else if (dev->type && dev->type->pm)
+			printk(KERN_ERR " have call back: type->pm\n");
+		else if (dev->class && dev->class->pm)
+			printk(KERN_ERR " have call back: class->pm\n");
+		else if (dev->bus && dev->bus->pm)
+			printk(KERN_ERR " have call back: bus->pm\n");
+		else
+			printk(KERN_ERR " not call back\n");	
+		
+	}
+}
+/*K3V2_WIFI_PM_ERR_FLAG_CLEAN*/
+//extern void k3v2_clean_card_pm_error_flag(void);
 
 static int sdio_bus_probe(struct device *dev)
 {

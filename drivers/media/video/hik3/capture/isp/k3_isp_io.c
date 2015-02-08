@@ -263,25 +263,6 @@ EXPORT_SYMBOL(k3_ispgpio_power_sensor);
 
 /*
  **************************************************************************
- * FunctionName: k3_ispio_i2c_ioconfig;
- * Description : i2c io config;
- * Input       : NA;
- * Output      : NA;
- * ReturnValue : NA;
- * Other       : NA;
- **************************************************************************
- */
-int k3_ispio_i2c_ioconfig(camera_sensor *sensor, camera_power_state power_state)
-{
-
-	print_debug("enter %s", __func__);
-
-	return ispio_hw_ctl->i2c_ioconfig(power_state, sensor->interface_type);
-}
-EXPORT_SYMBOL(k3_ispio_i2c_ioconfig);
-
-/*
- **************************************************************************
  * FunctionName: k3_ispio_ioconfig;
  * Description : io config;
  * Input       : NA;

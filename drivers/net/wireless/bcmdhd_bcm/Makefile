@@ -20,7 +20,6 @@ obj-$(CONFIG_BCMDHD_BCM) += bcmdhd.o
 bcmdhd-objs += $(DHDOFILES)
 ifneq ($(CONFIG_WIRELESS_EXT),)
 bcmdhd-objs += wl_iw.o
-# add WL_WIRELESS_EXT for softap manager
 DHDCFLAGS += -DSOFTAP -DWL_WIRELESS_EXT
 endif
 ifneq ($(CONFIG_CFG80211),)

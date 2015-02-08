@@ -24,7 +24,7 @@
 #include <linux/random.h>
 #include <linux/time.h>
 #include <linux/compiler.h>
-
+#include <linux/wakelock.h>
 #include <mach/gpio.h>
 #include <mach/platform.h>
 #include "mach/modem_boot.h"
@@ -77,7 +77,17 @@ extern void sprd_transfer_deconfig(void);
 
 extern int  is_spi_busy_mode();
 
+int wake_ms=500;
+
 static unsigned int flashless = 0;
+
+static struct wake_lock wake_host_lock;
+
+void sprd_wake_lock_timeout()
+{
+       wake_lock_timeout(&wake_host_lock,msecs_to_jiffies(wake_ms));
+}
+
 unsigned int get_modem_flashless()
 {
     return flashless;
@@ -266,6 +276,7 @@ static irqreturn_t mdm_sw_state_isr(int irq, void *dev_id)
         else
         {
             my_boot->mdm_state = mdm_state = MODEM_STATE_POWER;
+	     sprd_wake_lock_timeout();
         }
         modem_monitor_uevent_notify(mdm_state);
         spin_unlock_irqrestore(&my_boot->lock, flags);
@@ -473,17 +484,24 @@ static void modem_boot_power_off(void)
     if( modem_boot.mdm_wakeup.irq_flag==true )
     {
         disable_irq( gpio_to_irq(GPIO_CP_PM_INDICATION) );
-        disable_irq( gpio_to_irq(GPIO_CP_SW_INDICATION) );
-
-        //if(flashless)
-            //disable_irq( gpio_to_irq(GPIO_CP_SYS_INDICATION) );
-
-	 sprd_transfer_deconfig();
+        if(flashless)
+        {
+            disable_irq( gpio_to_irq(GPIO_CP_SW_INDICATION_FLASHLESS) );
+        }
+        else
+        {
+            disable_irq( gpio_to_irq(GPIO_CP_SW_INDICATION) );
+        }
+        sprd_transfer_deconfig();
         modem_boot.mdm_wakeup.irq_flag = false;
     }
+    iomux_block_set_lowpower_mode(modem_driver_plat_data->block_spi1_name);
 
-    
-    gpio_direction_output(GPIO_CP_POWER_ON, 0);
+    iomux_block_set_lowpower_mode(modem_driver_plat_data->block_name);
+
+    iomux_block_set_lowpower_mode(modem_driver_plat_data->block_spi1_gpio_name);
+
+    iomux_block_set_lowpower_mode(modem_driver_plat_data->block_gpio_name);
 
     if(flashless)
     {
@@ -493,9 +511,7 @@ static void modem_boot_power_off(void)
     {
         modem_boot_gpio_config(POWEROFF,modem_driver_plat_data->gpios,1);
     }
-    iomux_block_set_lowpower_mode(modem_driver_plat_data->block_spi1_gpio_name);
-
-    iomux_block_set_lowpower_mode(modem_driver_plat_data->block_gpio_name);
+    gpio_direction_output(GPIO_CP_POWER_ON, 0);
 }
 
 static DEFINE_MUTEX(boot_state_mutex);
@@ -652,6 +668,39 @@ static ssize_t modem_state_show(struct device *dev, struct device_attribute *att
 
 static DEVICE_ATTR(state, S_IRUGO | S_IWUSR, modem_boot_get, modem_boot_set);
 static DEVICE_ATTR(modem_state, S_IRUGO, modem_state_show, NULL);
+
+static ssize_t modem_waketimer_get(struct device *dev,
+                              struct device_attribute *attr,
+                              char *buf)
+{
+    ssize_t ret=-1;
+
+
+    ret = wake_ms;
+
+
+    return sprintf(buf, "%d\n", ret);
+}
+
+static ssize_t modem_waketimer_set(struct device *dev,
+                              struct device_attribute *attr,
+                              const char *buf, size_t count)
+{
+    int state;
+    printk("%s enter.\n", __func__);
+    
+
+    if (sscanf(buf, "%d", &state) != 1)
+        return -EINVAL;
+
+    wake_ms = state;
+  
+
+    return count;
+}
+
+
+static DEVICE_ATTR(waketimer, S_IRUGO | S_IWUSR, modem_waketimer_get, modem_waketimer_set);
 /* gpio are for debug */
 static DEVICE_ATTR(gpio, S_IRUGO | S_IWUSR, modem_gpio_get, modem_gpio_set);
 
@@ -708,6 +757,13 @@ static int modem_boot_probe(struct platform_device *pdev)
         goto error;
     }
 
+    status = device_create_file(&(pdev->dev), &dev_attr_waketimer);
+    if (status)
+    {
+        dev_err(&pdev->dev, "Failed to create sysfs entry waketimer\n");
+        goto error;
+    }
+
     status = device_create_file(&(pdev->dev), &dev_attr_gpio);
     if (status)
     {
@@ -724,6 +780,7 @@ static int modem_boot_probe(struct platform_device *pdev)
     }
 
     spin_lock_init( &modem_boot.lock );
+    wake_lock_init(&wake_host_lock, WAKE_LOCK_SUSPEND, "sprd8803g");
     modem_boot.tail = modem_boot.head = 0;
     INIT_WORK(&modem_boot.uevent_work, uevent_work_func);
 

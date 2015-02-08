@@ -236,6 +236,7 @@ static int wl_android_set_suspendmode(struct net_device *dev, char *command, int
 #endif
 	return ret;
 }
+
 static int wl_android_get_band(struct net_device *dev, char *command, int total_len)
 {
 	uint band;

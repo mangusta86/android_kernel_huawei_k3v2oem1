@@ -41,15 +41,16 @@ typedef struct
 
 static srecorder_header_info_type_description_t s_srecorder_head_info[] = 
 {
-    {CRASH_REASON_TIME, CRASH_REASON_KEYWORD},
-    {SYS_INFO, SYSINFO_KEYWORD}, 
-    {DMESG, DMESG_KEYWORD},
-    {ALL_CPU_STACK, ALL_CPU_CALL_STACK_KEYWORD},
-    {ALL_PS_INFO, ALL_PS_INFO_KEYWORD},
-    {CURRENT_PS_BACKTRACE, CURRENT_PS_BACKTRACE_KEYWORD},
-    {SLABINFO, SLABINFO_KEYWORD},
-    {MODEM_ERR, MODEM_ERR_KEYWORD},
-    {MODEM_ERR_F3, MODEM_ERR_F3_KEYWORD},
+    {CRASH_REASON_TIME_BIT0, CRASH_REASON_KEYWORD},
+    {SYS_INFO_BIT1, SYSINFO_KEYWORD}, 
+    {DMESG_BIT2, DMESG_KEYWORD},
+    {ALL_CPU_STACK_BIT3, ALL_CPU_CALL_STACK_KEYWORD},
+    {ALL_PS_INFO_BIT4, ALL_PS_INFO_KEYWORD},
+    {CURRENT_PS_BACKTRACE_BIT5, CURRENT_PS_BACKTRACE_KEYWORD},
+    {SLABINFO_BIT6, SLABINFO_KEYWORD},
+    {MODEM_ERR_BIT7, MODEM_ERR_KEYWORD},
+    {MODEM_ERR_F3_BIT8, MODEM_ERR_F3_KEYWORD},
+	{LOGCAT_BIT9, LOGCAT_KEYWORD},
 };
 
 
@@ -107,7 +108,7 @@ int srecorder_write_info_header(srecorder_reserved_mem_info_t *pmem_info,
 #endif
 
     if (unlikely(NULL == pmem_info || NULL == pmem_info->start_addr || NULL == pinfo_header 
-        || (TYPE_MAX <= (int)type || (int)type < 0)))
+        || (LOG_TYPE_COUNT <= (int)type || (int)type < 0)))
     {
         SRECORDER_PRINTK("File [%s] line [%d] invalid param!\n", __FILE__, __LINE__);
         return -1;

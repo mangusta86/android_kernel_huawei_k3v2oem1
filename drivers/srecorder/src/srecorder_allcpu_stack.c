@@ -31,7 +31,7 @@
 #include "../include/srecorder_snprintf.h"
 
 
-#if DUMP_ALLCPU_STACK
+#if defined(CONFIG_DUMP_ALLCPU_STACK)
 
 /*----local macroes------------------------------------------------------------------*/
 
@@ -478,13 +478,13 @@ int srecorder_get_allcpu_stack(srecorder_reserved_mem_info_t *pmem_info)
         return -1;
     }
 
-    if (srecorder_get_bit(ALL_CPU_STACK) || pmem_info->dump_modem_crash_log_only)
+    if (srecorder_log_has_been_dumped(ALL_CPU_STACK_BIT3) || pmem_info->dump_modem_crash_log_only)
     {
         SRECORDER_PRINTK("all cpu stack have been dumped successfully!\n");
         return -1;   
     }
     
-    if (0 != srecorder_write_info_header(pmem_info, ALL_CPU_STACK, &pinfo_header))
+    if (0 != srecorder_write_info_header(pmem_info, ALL_CPU_STACK_BIT3, &pinfo_header))
     {
         return -1;
     }
@@ -521,7 +521,7 @@ int srecorder_get_allcpu_stack(srecorder_reserved_mem_info_t *pmem_info)
 */
 int srecorder_init_allcpu_stack(srecorder_module_init_params_t *pinit_params)
 {
-    srecorder_clear_bit(ALL_CPU_STACK);
+    srecorder_clear_log_dumped_bit(ALL_CPU_STACK_BIT3);
     
     return 0;
 }
@@ -541,7 +541,7 @@ int srecorder_init_allcpu_stack(srecorder_module_init_params_t *pinit_params)
 */
 void srecorder_exit_allcpu_stack(void)
 {
-    srecorder_set_bit(ALL_CPU_STACK);
+    srecorder_set_log_dumped_bit(ALL_CPU_STACK_BIT3);
 }
 #else
 int srecorder_get_allcpu_stack(srecorder_reserved_mem_info_t *pmem_info)

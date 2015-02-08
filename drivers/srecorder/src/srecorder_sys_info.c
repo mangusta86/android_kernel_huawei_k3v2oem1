@@ -41,7 +41,7 @@
 #include "../include/srecorder_snprintf.h"
 
 
-#if DUMP_SYS_INFO
+#if defined(CONFIG_DUMP_SYS_INFO)
 
 /*----local prototypes----------------------------------------------------------------*/
 
@@ -257,14 +257,15 @@ int srecorder_get_sys_info(srecorder_reserved_mem_info_t *pmem_info)
         return -1;
     }
 
-    if (srecorder_get_bit(SYS_INFO) || pmem_info->dump_modem_crash_log_only)
+    if (srecorder_log_has_been_dumped(SYS_INFO_BIT1) || pmem_info->dump_modem_crash_log_only)
     {
         SRECORDER_PRINTK("sys info has been dumped successfully!\n");
         return 0;  
     }
     
-    if (0 != srecorder_write_info_header(pmem_info, SYS_INFO, &pinfo_header))
+    if (0 != srecorder_write_info_header(pmem_info, SYS_INFO_BIT1, &pinfo_header))
     {
+        SRECORDER_PRINTK("File [%s] line [%d] can not reserve memory for sysinfo!\n", __FILE__, __LINE__);
         return -1;
     }
     
@@ -435,7 +436,7 @@ int srecorder_get_sys_info(srecorder_reserved_mem_info_t *pmem_info)
 */
 int srecorder_init_sys_info(srecorder_module_init_params_t *pinit_params)
 {
-    srecorder_clear_bit(SYS_INFO);
+    srecorder_clear_log_dumped_bit(SYS_INFO_BIT1);
     
     return 0;
 }
@@ -453,7 +454,7 @@ int srecorder_init_sys_info(srecorder_module_init_params_t *pinit_params)
 */
 void srecorder_exit_sys_info(void)
 {
-    srecorder_set_bit(SYS_INFO);
+    srecorder_set_log_dumped_bit(SYS_INFO_BIT1);
 }
 #else
 int srecorder_get_sys_info(srecorder_reserved_mem_info_t *pmem_info)

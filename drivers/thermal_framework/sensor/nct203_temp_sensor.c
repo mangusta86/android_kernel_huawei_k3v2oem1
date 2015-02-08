@@ -78,6 +78,10 @@ static void nct203_report_fw_temp(struct thermal_dev *tdev)
 	struct nct203_temp_sensor *temp_sensor = platform_get_drvdata(pdev);
 	int ret;
 
+	if(NULL == temp_sensor) {
+	     dev_err(&pdev->dev, "%s: nct203_temp_sensor is null\n", __func__);
+	     return;
+	}
 	temp_sensor->therm_fw->current_temp = nct203_read_current_temp();
 
 	if (temp_sensor->therm_fw->current_temp > 0) {
@@ -142,6 +146,10 @@ static int __devexit nct203_temp_sensor_remove(struct platform_device *pdev)
 {
 	struct nct203_temp_sensor *temp_sensor = platform_get_drvdata(pdev);
 
+	if(NULL == temp_sensor) {
+	     dev_err(&pdev->dev, "%s: nct203_temp_sensor is null\n", __func__);
+	     return -ENODEV;
+	}
 	thermal_sensor_dev_unregister(temp_sensor->therm_fw);
 	kfree(temp_sensor->therm_fw);
 	kobject_uevent(&temp_sensor->dev->kobj, KOBJ_REMOVE);

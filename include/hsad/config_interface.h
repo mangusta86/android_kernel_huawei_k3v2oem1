@@ -16,13 +16,15 @@ extern int get_sd_detect_type(void);
 extern int get_sensor_type(void);
 extern int get_apds_type(void);
 extern int get_iomux_type(void);
-extern int get_sensor_timing_type();
+extern int get_sensor_timing_type(void);
 extern int  get_rgb_sensor_value(void);
 extern int get_rgb_sensor_type(void);
 extern int get_gpu_dcdc_supply(void);
 extern int get_sensor_tp_type(void);
 extern int get_gyro_exist_info(void);
 extern bool is_modem_switch_support(void);
+extern bool is_smartpa_support(void);
+extern int get_battery_removable(void);
 
 typedef enum _config_touchscreen_type {
 	E_TOUCHSCREEN_TYPE_PLATFORM = 0,
@@ -31,12 +33,11 @@ typedef enum _config_touchscreen_type {
 
 typedef enum _config_usbphy_tune {
 	E_USBPHY_TUNE_PLATFORM = 0,
-	E_USBPHY_TUNE_U9510
+	E_USBPHY_TUNE_U9508
 } config_usbphy_tune;
 
 typedef enum _config_board_type {
 	E_BOARD_TYPE_PLATFORM = 0,
-	E_BOARD_TYPE_U9510,
 	E_BOARD_TYPE_U9508
 } config_board_type;
 
@@ -46,12 +47,8 @@ typedef enum _config_sensor_type {
 } config_sensor_type;
 
 typedef enum _config_apds_type {
-	E_APDS_TYPE_D2 = 0,
-	E_APDS_TYPE_U9701L,
-	E_APDS_TYPE_U9700L,
-	E_APDS_TYPE_U9700G,
-	E_APDS_TYPE_EDGE,       //U版本的V3以后带均光膜方案
-	E_APDS_TYPE_EDGE_N    //无均光膜方案
+	E_APDS_TYPE_PLATFORM = 0,
+	E_APDS_TYPE_U9508
 } config_apds_type;
 
 typedef enum _config_iomux_type {
@@ -64,17 +61,6 @@ typedef enum _config_iomux_type {
 	E_IOMUX_PALTFORM_TOSHIBA_MW70,
 	E_IOMUX_PALTFORM_TOSHIBA_MY90,
 #endif
-	E_IOMUX_PHONE_C9800D,
-	E_IOMUX_PHONE_U9700L,
-	E_IOMUX_PHONE_U9900,
-	E_IOMUX_PHONE_U9701L,
-	E_IOMUX_PHONE_CEDGE,
-	E_IOMUX_PHONE_UEDGE,
-	E_IOMUX_PHONE_T9900,
-	E_IOMUX_PHONE_UT9800,
-	E_IOMUX_PHONE_U9701G,
-	E_IOMUX_PHONE_TEDGE,
-	E_IOMUX_PHONE_U9700GVA,
 	E_IOMUX_MAX
 } config_iomux_type;
 
@@ -85,10 +71,6 @@ typedef enum _sd_detect_type
         SD_DETECT_TYPE_MAX
 }sd_detect_type;
 
-typedef enum _config_felica_board_type {
-	E_FELICA_BOARD_TYPE_U9701 = 0,
-	E_FELICA_BOARD_TYPE_U9700
-} config_felica_board_type;
 
 typedef enum _config_touchkey_key_port {
 	E_TOUCHKEY_KEY_PORT_U9700S0 = 7,
@@ -114,6 +96,9 @@ typedef enum _config_touchkey_led_gpio_control {
 typedef enum _config_touchscreen_fw_type {
 	E_TOUSCREEN_FW_GLOVE = 0,
 	E_TOUSCREEN_FW_WATER_PROOF = 1,
+	E_TOUSCREEN_FW_C = 2,
+	E_TOUSCREEN_FW_U = 3,
+	E_TOUSCREEN_FW_T = 4,
 } config_touchscreen_fw_type;
 
 typedef enum _config_uart_headset_type {
@@ -175,17 +160,17 @@ extern int get_touchkey_regulator_vout(void);
 extern int get_touchkey_led_brightness(void);
 extern int get_touchkey_sensitivity(void);
 extern int get_touchkey_sensitivity_glove(void);
+extern bool get_touchkey_enable(void);
 extern int get_vibrator_vout_number(void);
 extern int get_vibrator_vout_min_voltage(void);
 extern int get_vibrator_vout_max_voltage(void);
-extern bool get_so340010_enable(void);
 extern bool get_cyttsp4_enable(void);
-extern bool get_jdi_tk_enable(void);
 extern int get_primary_sensor_flip_type(void);
 extern int get_secondary_sensor_flip_type(void);
 extern int check_suspensory_camera(char *cname);
 extern int get_camera_focus_key(void);
 extern int get_u9700_ldo_ctrl(void);
+extern int get_mate_new_lcd_type(void);
 extern bool get_pmu_out26m_enable(void);
 extern int get_nfc_module(void);
 extern int get_nfc_product(void);

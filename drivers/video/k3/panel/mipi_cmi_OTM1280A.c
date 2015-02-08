@@ -522,6 +522,19 @@ static char cabcVidData3[] = {
 	0x40, 0x00, 0x5d
 };
 
+
+#if defined(CONFIG_PARTIAL_UPDATES)
+static char lcd_disp_x[] = {
+	0x2A,
+	0x00, 0x00,0x02,0xCF
+};
+
+static char lcd_disp_y[] = {
+	0x2B,
+	0x00, 0x00,0x04,0xFF
+};
+#endif
+
 static struct dsi_cmd_desc cmi_cabc_ui_cmds[] = {
 	{DTYPE_GEN_LWRITE, 0, 30, WAIT_TYPE_US,
 		sizeof(cabcUiData1), cabcUiData1},
@@ -771,6 +784,15 @@ static struct dsi_cmd_desc cmi_display_off_cmds[] = {
 	{DTYPE_DCS_WRITE, 0, 120, WAIT_TYPE_MS,
 		sizeof(enter_sleep), enter_sleep}
 };
+
+#if defined(CONFIG_PARTIAL_UPDATES)
+ static struct dsi_cmd_desc set_display_address[] = {
+        {DTYPE_DCS_LWRITE, 0, 5, WAIT_TYPE_US,
+                sizeof(lcd_disp_x), lcd_disp_x},
+         {DTYPE_DCS_LWRITE, 0, 5, WAIT_TYPE_US,
+                sizeof(lcd_disp_y), lcd_disp_y},
+};
+#endif
 
 /*******************************************************************************
 ** LCD VCC
@@ -1270,6 +1292,41 @@ static int mipi_cmi_panel_set_cabc(struct platform_device *pdev, int value)
 	return 0;
 }
 
+#if defined(CONFIG_PARTIAL_UPDATES)
+static int mipi_jdi_panel_set_display_region(struct platform_device *pdev, int x, int y, int width, int height)
+{
+    u32 edc_base = 0;
+    struct k3_fb_data_type *k3fd = NULL;
+
+    BUG_ON(pdev == NULL);
+    k3fd = (struct k3_fb_data_type *)platform_get_drvdata(pdev);
+    BUG_ON(k3fd == NULL);
+    edc_base = k3fd->edc_base;
+
+    lcd_disp_x[1] = (x >> 8) & 0xff;
+    lcd_disp_x[2] = x & 0xff;
+    lcd_disp_x[3] = ((x + width -1) >> 8) & 0xff;
+    lcd_disp_x[4] = (x + width -1) & 0xff;
+
+    lcd_disp_y[1] = (y >> 8) & 0xff;
+    lcd_disp_y[2] = y & 0xff;
+    lcd_disp_y[3] = ((y + height -1) >> 8) & 0xff;
+    lcd_disp_y[4] = (y + height -1) & 0xff;
+
+    // low speed mode config
+    set_reg(edc_base + MIPIDSI_PHY_IF_CTRL_OFFSET, 0x0, 1, 0);
+    set_reg(edc_base + MIPIDSI_CMD_MODE_CFG_OFFSET, 0x1001, 13, 0);
+
+    mipi_dsi_cmds_tx(set_display_address, \
+    ARRAY_SIZE(set_display_address), edc_base);
+
+    // low speed mode restore
+    set_reg(edc_base + MIPIDSI_CMD_MODE_CFG_OFFSET, 0x1, 13, 0);
+    set_reg(edc_base + MIPIDSI_PHY_IF_CTRL_OFFSET, 0x1, 1, 0);
+    return 0;
+}
+#endif
+
 static struct k3_panel_info cmi_panel_info = {0};
 static struct k3_fb_panel_data cmi_panel_data = {
 	.panel_info = &cmi_panel_info,
@@ -1280,6 +1337,9 @@ static struct k3_fb_panel_data cmi_panel_data = {
 	.set_fastboot = mipi_cmi_panel_set_fastboot,
 	.check_esd = mipi_cmi_panel_check_esd,
 	.set_cabc = mipi_cmi_panel_set_cabc,
+#if defined(CONFIG_PARTIAL_UPDATES)
+	.set_display_region = mipi_jdi_panel_set_display_region,
+#endif
 };
 
 
@@ -1322,7 +1382,7 @@ static int __devinit cmi_probe(struct platform_device *pdev)
 	pinfo->ldi.h_front_porch = 80;
 	pinfo->ldi.h_pulse_width = 57;
 	pinfo->ldi.v_back_porch = 4;
-	pinfo->ldi.v_front_porch = 15;
+	pinfo->ldi.v_front_porch = 115;
 	pinfo->ldi.v_pulse_width = 2;
 
 	pinfo->ldi.hsync_plr = 1;

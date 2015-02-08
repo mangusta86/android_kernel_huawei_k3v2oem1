@@ -660,9 +660,10 @@ TEST_RESULT:
 		}
 
 		dev_info(&gyro_temp->client->dev, "selftest_gyro-------out\n");
-		return DISABLE_SELFTEST;
+		return ENABLE_SELFTEST;
 	}
 
+	return DISABLE_SELFTEST;
 }
 
 

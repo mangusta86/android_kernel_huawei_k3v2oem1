@@ -82,7 +82,7 @@ int mmc_card_sleepawake(struct mmc_host *host, int sleep)
 	 * others) is invalid while the card sleeps.
 	 */
 	if (!(host->caps & MMC_CAP_WAIT_WHILE_BUSY))
-		mmc_delay(DIV_ROUND_UP(card->ext_csd.sa_timeout, 10000));
+		mmc_delay( 2 * DIV_ROUND_UP(card->ext_csd.sa_timeout, 10000)); //double wait data0 busy time just in case
 
 	if (!sleep)
 		err = mmc_select_card(card);

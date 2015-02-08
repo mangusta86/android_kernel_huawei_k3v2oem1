@@ -689,7 +689,7 @@ geomagnetic_delay_show(struct device *dev, struct device_attribute *attr,
 
 	geomagnetic_multi_unlock();
 
-	return sprintf(buf, "%d\n", delay);
+	return snprintf(buf, PAGE_SIZE, "%d\n", delay);
 }
 
 static ssize_t
@@ -723,7 +723,7 @@ geomagnetic_enable_show(struct device *dev, struct device_attribute *attr,
 	struct input_dev *input_data = to_input_dev(dev);
 	struct geomagnetic_data *data = input_get_drvdata(input_data);
 
-	return sprintf(buf, "%d\n", atomic_read(&data->enable));
+	return snprintf(buf, PAGE_SIZE, "%d\n", atomic_read(&data->enable));
 }
 
 static ssize_t
@@ -768,7 +768,7 @@ geomagnetic_filter_enable_show(struct device *dev,
 
 	geomagnetic_multi_unlock();
 
-	return sprintf(buf, "%d\n", filter_enable);
+	return snprintf(buf, PAGE_SIZE, "%d\n", filter_enable);
 }
 
 static ssize_t
@@ -809,7 +809,7 @@ geomagnetic_filter_len_show(struct device *dev, struct device_attribute *attr,
 
 	geomagnetic_multi_unlock();
 
-	return sprintf(buf, "%d\n", filter_len);
+	return snprintf(buf, PAGE_SIZE, "%d\n", filter_len);
 }
 
 static ssize_t
@@ -849,7 +849,7 @@ geomagnetic_filter_noise_show(struct device *dev, struct device_attribute *attr,
 
 	geomagnetic_multi_lock();
 
-	rt = sprintf(buf, "%d %d %d\n", data->filter_noise[0],
+	rt = snprintf(buf, PAGE_SIZE, "%d %d %d\n", data->filter_noise[0],
 			data->filter_noise[1], data->filter_noise[2]);
 
 	geomagnetic_multi_unlock();
@@ -893,7 +893,7 @@ geomagnetic_filter_threshold_show(struct device *dev,
 
 	geomagnetic_multi_unlock();
 
-	return sprintf(buf, "%d\n", filter_threshold);
+	return snprintf(buf, PAGE_SIZE, "%d\n", filter_threshold);
 }
 
 static ssize_t
@@ -929,7 +929,7 @@ geomagnetic_position_show(struct device *dev, struct device_attribute *attr,
 {
 	if (hwdriver.get_position == NULL)
 		return -ENOTTY;
-	return sprintf(buf, "%d\n", hwdriver.get_position());
+	return snprintf(buf, PAGE_SIZE, "%d\n", hwdriver.get_position());
 }
 
 static ssize_t
@@ -956,7 +956,7 @@ geomagnetic_data_show(struct device *dev, struct device_attribute *attr,
 	struct geomagnetic_data *data = input_get_drvdata(input_data);
 	int rt;
 
-	rt = sprintf(buf, "%d %d %d\n", atomic_read(&data->last_data[0]),
+	rt = snprintf(buf, PAGE_SIZE, "%d %d %d\n", atomic_read(&data->last_data[0]),
 			atomic_read(&data->last_data[1]),
 			atomic_read(&data->last_data[2]));
 
@@ -971,7 +971,7 @@ geomagnetic_status_show(struct device *dev, struct device_attribute *attr,
 	struct geomagnetic_data *data = input_get_drvdata(input_data);
 	int rt;
 
-	rt = sprintf(buf, "%d\n", atomic_read(&data->last_status));
+	rt = snprintf(buf, PAGE_SIZE, "%d\n", atomic_read(&data->last_status));
 
 	return rt;
 }
@@ -1035,7 +1035,7 @@ geomagnetic_set_cal_show(
 	struct device *dev, struct device_attribute *attr, char *buf)
 {
        int err = 0;
-	err = sprintf(buf, "%d\n", calibration_value);
+	err = snprintf(buf, PAGE_SIZE, "%d\n", calibration_value);
 	return err;
 }
 static ssize_t 
@@ -1113,7 +1113,7 @@ geomagnetic_raw_threshold_show(struct device *dev,
 
 	geomagnetic_multi_unlock();
 
-	return sprintf(buf, "%d\n", threshold);
+	return snprintf(buf, PAGE_SIZE, "%d\n", threshold);
 }
 
 static ssize_t
@@ -1157,7 +1157,7 @@ geomagnetic_raw_distortion_show(struct device *dev,
 
 	geomagnetic_multi_lock();
 
-	rt = sprintf(buf, "%d %d %d\n", data->distortion[0],
+	rt = snprintf(buf, PAGE_SIZE, "%d %d %d\n", data->distortion[0],
 			data->distortion[1], data->distortion[2]);
 
 	geomagnetic_multi_unlock();
@@ -1211,7 +1211,7 @@ geomagnetic_raw_shape_show(struct device *dev, struct device_attribute *attr,
 
 	geomagnetic_multi_unlock();
 
-	return sprintf(buf, "%d\n", shape);
+	return snprintf(buf, PAGE_SIZE, "%d\n", shape);
 }
 
 static ssize_t
@@ -1261,7 +1261,7 @@ geomagnetic_raw_offsets_show(struct device *dev, struct device_attribute *attr,
 
 	geomagnetic_multi_unlock();
 
-	return sprintf(buf, "%d %d %d %d %d %d %d\n", offset.hard_offset[0],
+	return snprintf(buf, PAGE_SIZE, "%d %d %d %d %d %d %d\n", offset.hard_offset[0],
 			offset.hard_offset[1], offset.hard_offset[2],
 			offset.calib_offset.v[0], offset.calib_offset.v[1],
 			offset.calib_offset.v[2], accuracy);
@@ -1350,7 +1350,7 @@ geomagnetic_raw_static_matrix_show(struct device *dev,
 
 	geomagnetic_multi_unlock();
 
-	return sprintf(buf, "%d %d %d %d %d %d %d %d %d\n", matrix.matrix[0],
+	return snprintf(buf, PAGE_SIZE, "%d %d %d %d %d %d %d %d %d\n", matrix.matrix[0],
 			matrix.matrix[1], matrix.matrix[2], matrix.matrix[3],
 			matrix.matrix[4], matrix.matrix[5], matrix.matrix[6],
 			matrix.matrix[7], matrix.matrix[8]);
@@ -1393,7 +1393,7 @@ geomagnetic_raw_dynamic_matrix_show(struct device *dev,
 
 	geomagnetic_multi_unlock();
 
-	return sprintf(buf, "%d %d %d %d %d %d %d %d %d\n", matrix.matrix[0],
+	return snprintf(buf, PAGE_SIZE, "%d %d %d %d %d %d %d %d %d\n", matrix.matrix[0],
 			matrix.matrix[1], matrix.matrix[2], matrix.matrix[3],
 			matrix.matrix[4], matrix.matrix[5], matrix.matrix[6],
 			matrix.matrix[7], matrix.matrix[8]);
@@ -1436,7 +1436,7 @@ geomagnetic_raw_ellipsoid_mode_show(struct device *dev,
 
 	geomagnetic_multi_unlock();
 
-	return sprintf(buf, "%d\n", ellipsoid_mode);
+	return snprintf(buf, PAGE_SIZE, "%d\n", ellipsoid_mode);
 }
 
 static ssize_t
@@ -1703,8 +1703,8 @@ geomagnetic_probe(struct i2c_client *client, const struct i2c_device_id *id)
     rt = geomagnetic_i2c_read(YAS_REGADDR_DEVICE_ID, &device_id, 1);
     if(rt)
     {
-    	goto err;
-		dev_err(&client->dev, "^-^^-^HT: Entry %s get device id failed, id = %d\n",__FUNCTION__,device_id);    
+		dev_err(&client->dev, "^-^^-^HT: Entry %s get device id failed, id = %d\n",__FUNCTION__,device_id);
+		goto err;
     }
     else
     {

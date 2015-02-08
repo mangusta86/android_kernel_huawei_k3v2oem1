@@ -53,7 +53,7 @@ s32 wldev_ioctl(
 	s32 ret = 0;
 	struct wl_ioctl ioc;
 
-
+	
 	memset(&ioc, 0, sizeof(ioc));
 	ioc.cmd = cmd;
 	ioc.buf = arg;
@@ -61,7 +61,7 @@ s32 wldev_ioctl(
 	ioc.set = set;
 	ret = dhd_ioctl_entry_local(dev, &ioc, cmd);
 
-
+	
 	return ret;
 }
 
@@ -192,6 +192,7 @@ s32 wldev_mkiovar_bsscfg(
 	return iolen;
 
 }
+
 s32 wldev_iovar_getbuf_bsscfg(
 	struct net_device *dev, s8 *iovar_name,
 	void *param, s32 paramlen, void *buf, s32 buflen, s32 bsscfg_idx, struct mutex* buf_sync)
@@ -333,7 +334,9 @@ int wldev_set_country(
 	scb_val_t scbval;
 	char smbuf[WLC_IOCTL_SMLEN];
 
-	if (!country_code)
+	if (!country_code) {
+		WLDEV_ERROR(("%s: set country failed for %s\n",
+			__FUNCTION__, country_code));
 		return error;
 
 	error = wldev_iovar_getbuf(dev, "country", &cspec, sizeof(cspec),
@@ -359,6 +362,11 @@ int wldev_set_country(
 		smbuf, sizeof(smbuf), NULL);
 	if (error < 0) {
 		WLDEV_ERROR(("%s: set country for %s as %s rev %d failed\n",
+				__FUNCTION__, country_code, cspec.ccode, cspec.rev));
+			return error;
+		}
+		dhd_bus_country_set(dev, &cspec);
+		WLDEV_ERROR(("%s: set country for %s as %s rev %d\n",
 			__FUNCTION__, country_code, cspec.ccode, cspec.rev));
 		return error;
 	}

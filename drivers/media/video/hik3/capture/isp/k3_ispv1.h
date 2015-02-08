@@ -45,7 +45,7 @@
 			(GETREG8((reg) + 2) << 8) + \
 			(GETREG8((reg) + 3)); \
 	} while (0)
-	
+
 #define GETREG16(reg, value) \
 	do { \
 		(value) = (GETREG8(reg) << 8) + \
@@ -743,12 +743,6 @@ typedef enum {
 	FLASH_AWBTEST_POLICY_FREEGO,
 } FLASH_AWBTEST_POLICY;
 
-typedef enum {
-	U9508_FLASH_TYPE_UNKNOW = 0,
-	U9508_FLASH_TYPE_EVERLIGHT,
-	U9508_FLASH_TYPE_OSRAM,
-} U9508_FLASH_TYPE_T;
-
 typedef struct _irq_reg {
 	u32 irq_status;
 	u32 mac_irqstatus_h;
@@ -818,8 +812,6 @@ typedef struct _isp_hw_data {
 	awb_gain_t led_awb[2];
 	FLASH_AWBTEST_POLICY awb_test; /* used to save policy of flash awb test. */
 
-	U9508_FLASH_TYPE_T flash_type;
-
 	isp_process_mode_t process_mode;
 
 	volatile u8 aec_cmd_id;
@@ -842,7 +834,7 @@ extern isp_hw_data_t isp_hw_data;
 
 static inline void SETREG8(u32 reg, u8 value) {
 	(reg >= COMMAND_BUFFER_END) ?
-		iowrite8_mutex(value, isp_hw_data.base + reg) : 
+		iowrite8_mutex(value, isp_hw_data.base + reg) :
 		iowrite8_mutex(value, isp_hw_data.base + BIG_ENDIAN(reg));
 }
 
@@ -1367,6 +1359,8 @@ u32 get_writeback_cap_gain(void);
 
 /* only useful for ISO auto mode */
 int ispv1_get_actual_iso(void);
+
+int ispv1_get_algorithm_iso(void);
 int ispv1_get_hdr_iso_exp(hdr_para_reserved *iso_exp);
 
 #define ispv1_expo_time2line(expo_time, fps, vts) ((fps) * (vts) / (expo_time))
@@ -1452,46 +1446,11 @@ int ispv1_switch_contrast(camera_state state, camera_contrast contrast);
 
 int ispv1_set_effect(camera_effects effect);
 
-/* if 1 is on, 0 is off, default is off */
-int ispv1_set_hue(int flag);
-
-/*
- * related to sensor.
- */
-int ispv1_init_LENC(u8 *lensc_param);
-int ispv1_init_CCM(u16 *ccm_param);
-int ispv1_init_AWB(u8 *awb_param);
-
 /*
  * before start_preview or start_capture, it should be called to update size information
  */
 int ispv1_update_LENC_scale(u32 inwidth, u32 inheight);
 
-/*
- * binning correction
- */
-int ispv1_init_BC(int binningMode, int mirror, int filp);
-
-/*
- * defect_pixel_correction
- */
-int ispv1_init_DPC(int bWhitePixel, int bBlackPixel);
-
-/* Flag: if 1 is on, 0 is off, default is off */
-int ispv1_init_rawDNS(int flag);
-/* Flag: if 1 is on, 0 is off, default is off */
-int ispv1_init_uvDNS(int flag);
-
-/*
- * level: if >0 is on, 0 is off, default is 6
- * 16: keep full Gb/Gr difference as resolution;
- * 8: remove half Gb/Gr difference;
- * 0: remove all Gb/Gr difference;
- */
-int ispv1_init_GbGrDNS(int level);
-
-/* Flag: if 1 is on, 0 is off, default is off, default is on, 0x65004 bit[5] */
-int ispv1_init_RGBGamma(int flag);
 /*using for write ad register(set position) of vcm driver ic by i2c bus*/
 int ispv1_write_vcm(u8 i2c_addr, u16 reg, u16 val, i2c_length length, int mutex_wait);
 
@@ -1529,6 +1488,7 @@ int ispv1_uv_stat_init(void);
 void ispv1_uv_stat_excute(void);
 void ispv1_uv_stat_exit(void);
 
+void ispv1_refresh_yuv_crop_pos(void);
 int ispv1_load_isp_setting(char *filename);
 int ispv1_load_sensor_setting(camera_sensor *sensor,char *filename);
 void ispv1_dynamic_ydenoise(camera_sensor *sensor, camera_state state, bool flash_on);

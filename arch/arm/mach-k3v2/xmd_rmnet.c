@@ -33,6 +33,9 @@
 #include <linux/wakelock.h>
 #include <linux/workqueue.h>
 
+#include <mach/xmm_power.h>
+#include <hsad/config_interface.h>
+
 MODULE_LICENSE("GPL");
 
 /********************CONFIGURABLE OPTIONS********************/
@@ -47,7 +50,12 @@ MODULE_LICENSE("GPL");
 #define RMNET_IPV4_VER 0x4
 #define RMNET_IPV6_VER 0x6
 #define IPV6_HEADER_SZ 40
-#define N_RMNET 	25
+
+//#define IPV6_PROTO_TYPE 0x08DD
+#define IPV6_PROTO_TYPE 0x86DD
+
+#undef  N_RMNET
+#define N_RMNET   N_RMNET_XMM6260
 #define MAX_NET_IF      3
 #define MAX_TX_TIME     3000   /*ms*/
 #ifndef MODEM_STREAMING
@@ -534,6 +542,13 @@ static int __init rmnet_async_init(void)
 	int err = -EFAULT;
 	
 	pr_info("%s++\n", __FUNCTION__);
+
+	err = get_modem_type( MODEM_XMM6260 );
+	pr_info("MODEM[%s] %s: get_modem_type \"%s\". %d\n",MODEM_DEVICE_BOOT(MODEM_XMM6260),__func__,MODEM_XMM6260,err);
+	if( err<=0 ) {
+            pr_err("MODEM[%s] %s: modem \"%s\" not support on this board. %d\n",MODEM_DEVICE_BOOT(MODEM_XMM6260),__func__,MODEM_XMM6260,err);
+            return( -1 );
+	}
 
 	/* 
 	    The N_RMNET value should not be used by any other line disc driver in the system.

@@ -155,7 +155,7 @@
 #define SONYIMX135_CHIP_ID_ES2_ADRESS_L       (0x0017)
 #define SONYIMX135_CHIP_ID_ES2                         (0x0135)
 
-#define SONYIMX135_OTP_MODE_ENABLE_REG		0x3B00      
+#define SONYIMX135_OTP_MODE_ENABLE_REG		0x3B00
 #define SONYIMX135_OTP_STATUS_REG			0x3B01
 #define SONYIMX135_OTP_PAGE_SELECT_REG		0x3B02
 #define SONYIMX135_OTP_CFA_FMT_REG			0x3B2C
@@ -200,7 +200,7 @@ static u8 sonyimx135_otp_lsc_param[SONYIMX135_OTP_LSC_SIZE] = {
 static camera_capability sonyimx135_cap[] = {
 	{V4L2_CID_FLASH_MODE, THIS_FLASH},
 	{V4L2_CID_FOCUS_MODE, THIS_FOCUS_MODE},
-	{V4L2_CID_FOCAL_LENGTH, 222},//2.22mm
+	{V4L2_CID_FOCAL_LENGTH, 385},//3.85mm
 };
 
 //#define SONYIMX135_AP_WRITEAE_MODE
@@ -215,7 +215,7 @@ static camera_capability sonyimx135_cap[] = {
 #define SONYIMX135_AUTOFPS_GAIN_MID2LOW		0x88
 
 #define SONYIMX135_MAX_FRAMERATE		30
-#define SONYIMX135_MIDDLE_FRAMERATE		20
+#define SONYIMX135_MIDDLE_FRAMERATE		10
 #define SONYIMX135_MIN_FRAMERATE		10
 #define SONYIMX135_MIN_CAP_FRAMERATE	8
 
@@ -275,7 +275,7 @@ const struct isp_reg_t isp_init_regs_sonyimx135[] = {
 	{0x1c14e, 0x08}, //slow step//08
 	{0x1c140, 0x01}, //banding
 	{0x1c13e, 0x02}, //real gain mode for OV8830
-	
+
 	{0x66401, 0x00}, //window weight
 	{0x66402, 0x20}, //StatWin_Left
 	{0x66403, 0x00},
@@ -315,7 +315,7 @@ const struct isp_reg_t isp_init_regs_sonyimx135[] = {
 	{0x66467, 0x14}, //saturate weight1
 	{0x66469, 0x14}, //saturate weight2
 	//auto AE control
-	
+
 /* Raw Stretch */
 	{0x65020, 0x00}, //RAW Stretch Target0x01-->00
 	{0x66500, 0x28},
@@ -336,11 +336,11 @@ const struct isp_reg_t isp_init_regs_sonyimx135[] = {
 	{0x1c5a7, 0x08}, //stretch slow range
 	{0x1c5a8, 0x02}, //stretch slow step
 	{0x1c1b8, 0x10}, //ratio scale
-	
+
 	{0x1c5a0, 0x50}, //AE target high, should close
 	{0x1c5a2, 0x04}, //target stable range
 	{0x1c5a3, 0x06}, //stretch target slow range
-	
+
 /* De-noise */
 	{0x65604, 0x00}, //Richard for new curve 0314
 	{0x65605, 0x00}, //Richard for new curve 0314
@@ -356,7 +356,7 @@ const struct isp_reg_t isp_init_regs_sonyimx135[] = {
 	{0x6551e, SONYIMX135_ISP_YDENOISE_COFF_16X},//
 	{0x6551f, SONYIMX135_ISP_YDENOISE_COFF_32X},//
 	{0x65520, SONYIMX135_ISP_YDENOISE_COFF_64X},//
-	{0x65522, 0x00},// 
+	{0x65522, 0x00},//
 	{0x65523, SONYIMX135_ISP_UVDENOISE_COFF_1X},//
 	{0x65524, 0x00},
 	{0x65525, SONYIMX135_ISP_UVDENOISE_COFF_2X},//
@@ -370,15 +370,15 @@ const struct isp_reg_t isp_init_regs_sonyimx135[] = {
 	{0x6552d, SONYIMX135_ISP_UVDENOISE_COFF_32X},
 	{0x6552e, 0x00},
 	{0x6552f, SONYIMX135_ISP_UVDENOISE_COFF_64X},
-	
+
 	{0x65c00, 0x03}, //UV De-noise
 	{0x65c01, 0x05},
 	{0x65c02, 0x08},
-	{0x65c03, 0x1f}, // 8X 
+	{0x65c03, 0x1f}, // 8X
 	{0x65c04, 0x1f},
 	{0x65c05, 0x1f},
 
-/* sharpeness */   
+/* sharpeness */
 	{0x65600, 0x00},
 	{0x65601, 0x20}, //0319
 	{0x65602, 0x00},
@@ -442,7 +442,7 @@ const struct isp_reg_t isp_init_regs_sonyimx135[] = {
 
 	//YUV curve gain control,expoure frist
 	{0x1c1b3, 0x40}, //Gain thre1
-	{0x1c1b4, 0x70}, //Gain thre2 
+	{0x1c1b4, 0x70}, //Gain thre2
 	{0x1c1b5, 0x01}, //EDR gain control
 	{0x1c1b6, 0x01}, //Curve Gain control
 	{0x1c1b7, 0x40}, //after gamma cut ratio
@@ -520,113 +520,113 @@ const struct isp_reg_t isp_init_regs_sonyimx135[] = {
 /* OVISP LENC setting for D50 Long Exposure (HDR/3D) */
 	//Y channel re-back to old version(do not plus 8) 20120821 by y00215412
 	{0x1c264, 0x13}, //Y1
-	{0x1c265, 0xD }, 
-	{0x1c266, 0x8 }, 
-	{0x1c267, 0x8 }, 
-	{0x1c268, 0xC }, 
-	{0x1c269, 0x14}, 
+	{0x1c265, 0xD },
+	{0x1c266, 0x8 },
+	{0x1c267, 0x8 },
+	{0x1c268, 0xC },
+	{0x1c269, 0x14},
 	{0x1c26a, 0x7 }, //Y2
-	{0x1c26b, 0x3 }, 
-	{0x1c26c, 0x2 }, 
-	{0x1c26d, 0x2 }, 
-	{0x1c26e, 0x4 }, 
-	{0x1c26f, 0x7 }, 
+	{0x1c26b, 0x3 },
+	{0x1c26c, 0x2 },
+	{0x1c26d, 0x2 },
+	{0x1c26e, 0x4 },
+	{0x1c26f, 0x7 },
 	{0x1c270, 0x3 }, //Y3
-	{0x1c271, 0x1 }, 
-	{0x1c272, 0x0 }, 
-	{0x1c273, 0x0 }, 
-	{0x1c274, 0x1 }, 
-	{0x1c275, 0x4 }, 
+	{0x1c271, 0x1 },
+	{0x1c272, 0x0 },
+	{0x1c273, 0x0 },
+	{0x1c274, 0x1 },
+	{0x1c275, 0x4 },
 	{0x1c276, 0x3 }, //Y4
-	{0x1c277, 0x1 }, 
-	{0x1c278, 0x0 }, 
-	{0x1c279, 0x0 }, 
-	{0x1c27a, 0x1 }, 
-	{0x1c27b, 0x4 }, 
+	{0x1c277, 0x1 },
+	{0x1c278, 0x0 },
+	{0x1c279, 0x0 },
+	{0x1c27a, 0x1 },
+	{0x1c27b, 0x4 },
 	{0x1c27c, 0x7 }, //Y5
-	{0x1c27d, 0x3 }, 
-	{0x1c27e, 0x2 }, 
-	{0x1c27f, 0x2 }, 
-	{0x1c280, 0x3 }, 
-	{0x1c281, 0x7 }, 
+	{0x1c27d, 0x3 },
+	{0x1c27e, 0x2 },
+	{0x1c27f, 0x2 },
+	{0x1c280, 0x3 },
+	{0x1c281, 0x7 },
 	{0x1c282, 0x14}, //Y6
-	{0x1c283, 0xD }, 
-	{0x1c284, 0x8 }, 
-	{0x1c285, 0x8 }, 
-	{0x1c286, 0xC }, 
-	{0x1c287, 0x13}, 
+	{0x1c283, 0xD },
+	{0x1c284, 0x8 },
+	{0x1c285, 0x8 },
+	{0x1c286, 0xC },
+	{0x1c287, 0x13},
 	{0x1c288, 0x20}, //Cb1
-	{0x1c289, 0x20}, 
-	{0x1c28a, 0x20}, 
-	{0x1c28b, 0x20}, 
-	{0x1c28c, 0x20}, 
+	{0x1c289, 0x20},
+	{0x1c28a, 0x20},
+	{0x1c28b, 0x20},
+	{0x1c28c, 0x20},
 	{0x1c28d, 0x20}, //Cb2
-	{0x1c28e, 0x20}, 
-	{0x1c28f, 0x20}, 
-	{0x1c290, 0x20}, 
-	{0x1c291, 0x20}, 
+	{0x1c28e, 0x20},
+	{0x1c28f, 0x20},
+	{0x1c290, 0x20},
+	{0x1c291, 0x20},
 	{0x1c292, 0x20}, //Cb3
-	{0x1c293, 0x20}, 
-	{0x1c294, 0x20}, 
-	{0x1c295, 0x20}, 
-	{0x1c296, 0x20}, 
+	{0x1c293, 0x20},
+	{0x1c294, 0x20},
+	{0x1c295, 0x20},
+	{0x1c296, 0x20},
 	{0x1c297, 0x20}, //Cb4
-	{0x1c298, 0x20}, 
-	{0x1c299, 0x20}, 
-	{0x1c29a, 0x20}, 
-	{0x1c29b, 0x20}, 
+	{0x1c298, 0x20},
+	{0x1c299, 0x20},
+	{0x1c29a, 0x20},
+	{0x1c29b, 0x20},
 	{0x1c29c, 0x20}, //Cb5
-	{0x1c29d, 0x20}, 
-	{0x1c29e, 0x20}, 
-	{0x1c29f, 0x20}, 
-	{0x1c2a0, 0x20}, 	
+	{0x1c29d, 0x20},
+	{0x1c29e, 0x20},
+	{0x1c29f, 0x20},
+	{0x1c2a0, 0x20},
 	{0x1c2a1, 0x20}, //Cr1
-	{0x1c2a2, 0x20},      
-	{0x1c2a3, 0x20},      
-	{0x1c2a4, 0x20},      
-	{0x1c2a5, 0x20},      
+	{0x1c2a2, 0x20},
+	{0x1c2a3, 0x20},
+	{0x1c2a4, 0x20},
+	{0x1c2a5, 0x20},
 	{0x1c2a6, 0x20}, //Cr2
-	{0x1c2a7, 0x20},      
-	{0x1c2a8, 0x20},      
-	{0x1c2a9, 0x20},      
-	{0x1c2aa, 0x20},      
+	{0x1c2a7, 0x20},
+	{0x1c2a8, 0x20},
+	{0x1c2a9, 0x20},
+	{0x1c2aa, 0x20},
 	{0x1c2ab, 0x20}, //Cr3
-	{0x1c2ac, 0x20},      
-	{0x1c2ad, 0x20},      
-	{0x1c2ae, 0x20},      
-	{0x1c2af, 0x20},      
+	{0x1c2ac, 0x20},
+	{0x1c2ad, 0x20},
+	{0x1c2ae, 0x20},
+	{0x1c2af, 0x20},
 	{0x1c2b0, 0x20}, //Cr4
-	{0x1c2b1, 0x20},      
-	{0x1c2b2, 0x20},      
-	{0x1c2b3, 0x20},      
-	{0x1c2b4, 0x20},      
+	{0x1c2b1, 0x20},
+	{0x1c2b2, 0x20},
+	{0x1c2b3, 0x20},
+	{0x1c2b4, 0x20},
 	{0x1c2b5, 0x20}, //cr5
-	{0x1c2b6, 0x20},      
-	{0x1c2b7, 0x20},      
-	{0x1c2b8, 0x20},      
-	{0x1c2b9, 0x20},   
-	
+	{0x1c2b6, 0x20},
+	{0x1c2b7, 0x20},
+	{0x1c2b8, 0x20},
+	{0x1c2b9, 0x20},
+
 /* AWB */
 	{0x66201, 0x52},
 	{0x66203, 0x14}, //crop window
 	{0x66211, 0xe8}, //awb top limit
-	{0x66212, 0x04}, //awb bottom limit	
+	{0x66212, 0x04}, //awb bottom limit
 	//{0x1c17c, 0x01}, //CT mode should close
 	{0x1c182, 0x04},
 	{0x1c183, 0x00}, //MinNum
-	{0x1c184, 0x04}, //AWB Step		
+	{0x1c184, 0x04}, //AWB Step
 	{0x1c58d, 0x00}, //LimitAWBAtD65Enable
 	{0x1c1be, 0x00}, //AWB offset
 	{0x1c1bf, 0x00},
 	{0x1c1c0, 0x00},
 	{0x1c1c1, 0x00},
 
-	{0x1c1aa, 0x00}, //avgAllEnable	
+	{0x1c1aa, 0x00}, //avgAllEnable
 	{0x1c1ad, 0x02}, //weight of A
 	{0x1c1ae, 0x06}, //weight of D65
 	{0x1c1af, 0x04}, //weight of CWF
-	
-	{0x1c5ac, 0x80}, //pre-gain 
+
+	{0x1c5ac, 0x80}, //pre-gain
 	{0x1c5ad, 0x80},
 	{0x1c5ae, 0x80},
 
@@ -649,7 +649,7 @@ const struct isp_reg_t isp_init_regs_sonyimx135[] = {
 	{0x1c5b6, 0x04}, //C indoor/outdoor switch
 	{0x1c5b7, 0xff}, //C indoor/outdoor switch
 
-	//add awb  shift detect parameter according 0x1c734~0x1c736 
+	//add awb  shift detect parameter according 0x1c734~0x1c736
 	{0x1ccd5, 0x41}, //CT_A, 2012.06.02 yuanyabin
 	{0x1ccd6, 0x69}, //CT_C
 	{0x1ccd7, 0xb8}, //CT_D
@@ -681,15 +681,15 @@ const struct isp_reg_t isp_init_regs_sonyimx135[] = {
 	{0x6620f, 0x68}, //D65 split
 	{0x66210, 0x58}, //A split
 	{0x66201, 0x52},
-	
-	//add ccm detect parameter according 0x1c734~0x1c736 
+
+	//add ccm detect parameter according 0x1c734~0x1c736
 	{0x1c1c8 ,0x01}, //center CT, CWF
 	{0x1c1c9 ,0x37},
 	{0x1c1cc, 0x00}, //daylight
 	{0x1c1cd, 0xb1},
 	{0x1c1d0, 0x01}, //a
 	{0x1c1d1, 0xf4},
-	
+
 	{0x1c254, 0x00},
 	{0x1c255, 0xce},
 	{0x1c256, 0x00},
@@ -698,15 +698,15 @@ const struct isp_reg_t isp_init_regs_sonyimx135[] = {
 	{0x1c259, 0x69},
 	{0x1c25a, 0x01},
 	{0x1c25b, 0xd2},
-	
+
 /* Color matrix */
-	{0x1C1d8, 0x02},//center matrix, 
+	{0x1C1d8, 0x02},//center matrix,
 	{0x1C1d9, 0x34},
 	{0x1C1da, 0xFE},
 	{0x1C1db, 0xC7},
 	{0x1C1dc, 0x00},
 	{0x1C1dd, 0x05},
-	
+
 	{0x1C1de, 0xFF},
 	{0x1C1df, 0xD5},
 	{0x1C1e0, 0x01},
@@ -746,21 +746,21 @@ const struct isp_reg_t isp_init_regs_sonyimx135[] = {
 	{0x1C223, 0x09},
 	{0x1C224, 0x00},
 	{0x1C225, 0x04},
-	
+
 	{0x1C226, 0x00},
 	{0x1C227, 0x09},
 	{0x1C228, 0xff},
 	{0x1C229, 0xe2},
 	{0x1C22A, 0x00},
 	{0x1C22B, 0x15},
-	
+
 	{0x1C22C, 0x00},
 	{0x1C22D, 0x08},
 	{0x1C22E, 0x00},
 	{0x1C22F, 0x07},
 	{0x1C230, 0xFF},
 	{0x1C231, 0xF1},
-	
+
 	/* dpc */
 	{0x65409, 0x08},
 	{0x6540a, 0x08},
@@ -770,25 +770,25 @@ const struct isp_reg_t isp_init_regs_sonyimx135[] = {
 	{0x6540e, 0x08},
 	{0x6540f, 0x08},
 	{0x65410, 0x08},
-	{0x65408, 0x0b},  
+	{0x65408, 0x0b},
         //low gain Y curv
 
 	//dynamic high gain Y curve for dark color change 20120728
-	{0x1d963, 0x1a}, 
-	{0x1d964, 0x28}, 
-	{0x1d965, 0x33}, 
-	{0x1d966, 0x3f}, 
-	{0x1d967, 0x4a}, 
-	{0x1d968, 0x56}, 
-	{0x1d969, 0x61}, 
-	{0x1d96a, 0x6c}, 
-	{0x1d96b, 0x78}, 
-	{0x1d96c, 0x84}, 
-	{0x1d96d, 0x91}, 
-	{0x1d96e, 0xa0}, 
-	{0x1d96f, 0xb0}, 
-	{0x1d970, 0xc5}, 
-	{0x1d971, 0xdf}, 
+	{0x1d963, 0x1a},
+	{0x1d964, 0x28},
+	{0x1d965, 0x33},
+	{0x1d966, 0x3f},
+	{0x1d967, 0x4a},
+	{0x1d968, 0x56},
+	{0x1d969, 0x61},
+	{0x1d96a, 0x6c},
+	{0x1d96b, 0x78},
+	{0x1d96c, 0x84},
+	{0x1d96d, 0x91},
+	{0x1d96e, 0xa0},
+	{0x1d96f, 0xb0},
+	{0x1d970, 0xc5},
+	{0x1d971, 0xdf},
 /* auto uv saturation */
 	{0x1d8fe, 0x01}, //UV cut gain control
 	{0x1d8ff, 0x50}, //low gain thres
@@ -849,7 +849,7 @@ const struct isp_reg_t isp_init_regs_sonyimx135[] = {
 	{0x1d950, 0x00}, //Br thres,super highlight threshold
 	{0x1d951, 0x30}, //Br thres
 	{0x1d952, 0x30}, //Br Ratio,Ratio for transition region
-	
+
 	{0x1d8dc, 0x00}, //Br thres0
 	{0x1d8dd, 0xf0}, //Br thres0
 	{0x1d8de, 0x44}, //Br thres1
@@ -860,23 +860,23 @@ const struct isp_reg_t isp_init_regs_sonyimx135[] = {
 	{0x1d925, 0x11}, //highlight cwf thres //66206
 	{0x1d926, 0x11}, //middlelight cwf thres
 	{0x1d927, 0x12}, //lowlight cwf thres
-	
+
 	{0x1d94a, 0x1b}, //super highlight A thres //66207
 	{0x1d928, 0x1b}, //highlight A thres //66207
 	{0x1d929, 0x26}, //middlelight A thres
 	{0x1d92a, 0x26}, //lowlight A thres
 
-	{0x1d94b, 0x13}, //super highlight D thres //66208                                 
-	{0x1d92b, 0x20}, //highlight D thres //66208                                       
-	{0x1d92c, 0x23}, //middlelight D thres                                             
+	{0x1d94b, 0x13}, //super highlight D thres //66208
+	{0x1d92b, 0x20}, //highlight D thres //66208
+	{0x1d92c, 0x23}, //middlelight D thres
 	{0x1d92d, 0x23}, //lowlight D thres
 
-	{0x1d94c, 0x57}, //super highlight D limit //6620    
-	{0x1d92e, 0x53}, //highlight D limit //6620d          
-	{0x1d92f, 0x4a}, //middlelight D limit                         
+	{0x1d94c, 0x57}, //super highlight D limit //6620
+	{0x1d92e, 0x53}, //highlight D limit //6620d
+	{0x1d92f, 0x4a}, //middlelight D limit
 	{0x1d930, 0x4a}, //lowlight D limit
 
-	{0x1d94d, 0x49}, //super highlight A limit //6620e                
+	{0x1d94d, 0x49}, //super highlight A limit //6620e
 	{0x1d931, 0x43}, //highlight A limit //6620e
 	{0x1d932, 0x3d}, //middlelight A limit
 	{0x1d933, 0x3d}, //lowlight A limit
@@ -913,7 +913,7 @@ const struct isp_reg_t isp_init_regs_sonyimx135_HDR[] = {
 	{0x1c14e, 0x08}, //slow step//08
 	{0x1c140, 0x01}, //banding
 	{0x1c13e, 0x02}, //real gain mode for OV8830
-	
+
 	{0x66401, 0x00}, //window weight
 	{0x66402, 0x20}, //StatWin_Left
 	{0x66403, 0x00},
@@ -953,7 +953,7 @@ const struct isp_reg_t isp_init_regs_sonyimx135_HDR[] = {
 	{0x66467, 0x14}, //saturate weight1
 	{0x66469, 0x14}, //saturate weight2
 	//auto AE control
-	
+
 /* Raw Stretch */
 	{0x65020, 0x00}, //RAW Stretch Target0x01-->00
 	{0x66500, 0x28},
@@ -974,17 +974,17 @@ const struct isp_reg_t isp_init_regs_sonyimx135_HDR[] = {
 	{0x1c5a7, 0x08}, //stretch slow range
 	{0x1c5a8, 0x02}, //stretch slow step
 	{0x1c1b8, 0x10}, //ratio scale
-	
+
 	{0x1c5a0, 0x50}, //AE target high, should close
 	{0x1c5a2, 0x04}, //target stable range
 	{0x1c5a3, 0x06}, //stretch target slow range
-	
+
 /* De-noise */
 	{0x65604, 0x00}, //Richard for new curve 0314
 	{0x65605, 0x00}, //Richard for new curve 0314
 	{0x65606, 0x00}, //Richard for new curve 0314
 	{0x65607, 0x00}, //Richard for new curve 0314
-	
+
 	{0x65510, 0x0F}, //G dns slope change from 0x4 to 0xf Richard 0320
 	{0x65511, 0x1E}, //G dns slope change from 0x4 to 0xf Richard 0320
 	{0x6551a, 0x00}, // 1X  Raw G Dns improve white pixel 20120728
@@ -999,23 +999,23 @@ const struct isp_reg_t isp_init_regs_sonyimx135_HDR[] = {
 	{0x65524, 0x00},
 	{0x65525, 0x08}, // 2X
 	{0x65526, 0x00},
-	{0x65527, 0x16}, // 4X  
+	{0x65527, 0x16}, // 4X
 	{0x65528, 0x00},
-	{0x65529, 0x20}, // 8X 
+	{0x65529, 0x20}, // 8X
 	{0x6552a, 0x00},
-	{0x6552b, 0x30}, // 16X 
+	{0x6552b, 0x30}, // 16X
 	{0x6552c, 0x00},
-	{0x6552d, 0x40}, // 32X 
+	{0x6552d, 0x40}, // 32X
 	{0x6552e, 0x00},
-	{0x6552f, 0x50}, // 64X 
-	
+	{0x6552f, 0x50}, // 64X
+
 	{0x65c00, 0x03}, //UV De-noise
 	{0x65c01, 0x05},
 	{0x65c02, 0x08},
-	{0x65c03, 0x1f}, // 8X 
+	{0x65c03, 0x1f}, // 8X
 	{0x65c04, 0x1f},
 	{0x65c05, 0x1f},
-/* sharpeness */   
+/* sharpeness */
 	{0x65600, 0x00},
 	{0x65601, 0x20}, //0319
 	{0x65602, 0x00},
@@ -1079,7 +1079,7 @@ const struct isp_reg_t isp_init_regs_sonyimx135_HDR[] = {
 
 	//YUV curve gain control,expoure frist
 	{0x1c1b3, 0x40}, //Gain thre1
-	{0x1c1b4, 0x70}, //Gain thre2 
+	{0x1c1b4, 0x70}, //Gain thre2
 	{0x1c1b5, 0x01}, //EDR gain control
 	{0x1c1b6, 0x01}, //Curve Gain control
 	{0x1c1b7, 0x40}, //after gamma cut ratio
@@ -1157,137 +1157,137 @@ const struct isp_reg_t isp_init_regs_sonyimx135_HDR[] = {
 /* OVISP LENC setting for D50 Long Exposure (HDR/3D) */
 	//Y channel re-back to old version(do not plus 8) 20120821 by y00215412
 	{0x1c264, 0x13}, //Y1
-	{0x1c265, 0xD }, 
-	{0x1c266, 0x8 }, 
-	{0x1c267, 0x8 }, 
-	{0x1c268, 0xC }, 
-	{0x1c269, 0x14}, 
+	{0x1c265, 0xD },
+	{0x1c266, 0x8 },
+	{0x1c267, 0x8 },
+	{0x1c268, 0xC },
+	{0x1c269, 0x14},
 	{0x1c26a, 0x7 }, //Y2
-	{0x1c26b, 0x3 }, 
-	{0x1c26c, 0x2 }, 
-	{0x1c26d, 0x2 }, 
-	{0x1c26e, 0x4 }, 
-	{0x1c26f, 0x7 }, 
+	{0x1c26b, 0x3 },
+	{0x1c26c, 0x2 },
+	{0x1c26d, 0x2 },
+	{0x1c26e, 0x4 },
+	{0x1c26f, 0x7 },
 	{0x1c270, 0x3 }, //Y3
-	{0x1c271, 0x1 }, 
-	{0x1c272, 0x0 }, 
-	{0x1c273, 0x0 }, 
-	{0x1c274, 0x1 }, 
-	{0x1c275, 0x4 }, 
+	{0x1c271, 0x1 },
+	{0x1c272, 0x0 },
+	{0x1c273, 0x0 },
+	{0x1c274, 0x1 },
+	{0x1c275, 0x4 },
 	{0x1c276, 0x3 }, //Y4
-	{0x1c277, 0x1 }, 
-	{0x1c278, 0x0 }, 
-	{0x1c279, 0x0 }, 
-	{0x1c27a, 0x1 }, 
-	{0x1c27b, 0x4 }, 
+	{0x1c277, 0x1 },
+	{0x1c278, 0x0 },
+	{0x1c279, 0x0 },
+	{0x1c27a, 0x1 },
+	{0x1c27b, 0x4 },
 	{0x1c27c, 0x7 }, //Y5
-	{0x1c27d, 0x3 }, 
-	{0x1c27e, 0x2 }, 
-	{0x1c27f, 0x2 }, 
-	{0x1c280, 0x3 }, 
-	{0x1c281, 0x7 }, 
+	{0x1c27d, 0x3 },
+	{0x1c27e, 0x2 },
+	{0x1c27f, 0x2 },
+	{0x1c280, 0x3 },
+	{0x1c281, 0x7 },
 	{0x1c282, 0x14}, //Y6
-	{0x1c283, 0xD }, 
-	{0x1c284, 0x8 }, 
-	{0x1c285, 0x8 }, 
-	{0x1c286, 0xC }, 
-	{0x1c287, 0x13}, 
+	{0x1c283, 0xD },
+	{0x1c284, 0x8 },
+	{0x1c285, 0x8 },
+	{0x1c286, 0xC },
+	{0x1c287, 0x13},
 	{0x1c288, 0x20}, //Cb1
-	{0x1c289, 0x20}, 
-	{0x1c28a, 0x20}, 
-	{0x1c28b, 0x20}, 
-	{0x1c28c, 0x20}, 
+	{0x1c289, 0x20},
+	{0x1c28a, 0x20},
+	{0x1c28b, 0x20},
+	{0x1c28c, 0x20},
 	{0x1c28d, 0x20}, //Cb2
-	{0x1c28e, 0x20}, 
-	{0x1c28f, 0x20}, 
-	{0x1c290, 0x20}, 
-	{0x1c291, 0x20}, 
+	{0x1c28e, 0x20},
+	{0x1c28f, 0x20},
+	{0x1c290, 0x20},
+	{0x1c291, 0x20},
 	{0x1c292, 0x20}, //Cb3
-	{0x1c293, 0x20}, 
-	{0x1c294, 0x20}, 
-	{0x1c295, 0x20}, 
-	{0x1c296, 0x20}, 
+	{0x1c293, 0x20},
+	{0x1c294, 0x20},
+	{0x1c295, 0x20},
+	{0x1c296, 0x20},
 	{0x1c297, 0x20}, //Cb4
-	{0x1c298, 0x20}, 
-	{0x1c299, 0x20}, 
-	{0x1c29a, 0x20}, 
-	{0x1c29b, 0x20}, 
+	{0x1c298, 0x20},
+	{0x1c299, 0x20},
+	{0x1c29a, 0x20},
+	{0x1c29b, 0x20},
 	{0x1c29c, 0x20}, //Cb5
-	{0x1c29d, 0x20}, 
-	{0x1c29e, 0x20}, 
-	{0x1c29f, 0x20}, 
-	{0x1c2a0, 0x20}, 	
+	{0x1c29d, 0x20},
+	{0x1c29e, 0x20},
+	{0x1c29f, 0x20},
+	{0x1c2a0, 0x20},
 	{0x1c2a1, 0x20}, //Cr1
-	{0x1c2a2, 0x20},      
-	{0x1c2a3, 0x20},      
-	{0x1c2a4, 0x20},      
-	{0x1c2a5, 0x20},      
+	{0x1c2a2, 0x20},
+	{0x1c2a3, 0x20},
+	{0x1c2a4, 0x20},
+	{0x1c2a5, 0x20},
 	{0x1c2a6, 0x20}, //Cr2
-	{0x1c2a7, 0x20},      
-	{0x1c2a8, 0x20},      
-	{0x1c2a9, 0x20},      
-	{0x1c2aa, 0x20},      
+	{0x1c2a7, 0x20},
+	{0x1c2a8, 0x20},
+	{0x1c2a9, 0x20},
+	{0x1c2aa, 0x20},
 	{0x1c2ab, 0x20}, //Cr3
-	{0x1c2ac, 0x20},      
-	{0x1c2ad, 0x20},      
-	{0x1c2ae, 0x20},      
-	{0x1c2af, 0x20},      
+	{0x1c2ac, 0x20},
+	{0x1c2ad, 0x20},
+	{0x1c2ae, 0x20},
+	{0x1c2af, 0x20},
 	{0x1c2b0, 0x20}, //Cr4
-	{0x1c2b1, 0x20},      
-	{0x1c2b2, 0x20},      
-	{0x1c2b3, 0x20},      
-	{0x1c2b4, 0x20},      
+	{0x1c2b1, 0x20},
+	{0x1c2b2, 0x20},
+	{0x1c2b3, 0x20},
+	{0x1c2b4, 0x20},
 	{0x1c2b5, 0x20}, //cr5
-	{0x1c2b6, 0x20},      
-	{0x1c2b7, 0x20},      
-	{0x1c2b8, 0x20},      
-	{0x1c2b9, 0x20},   
-	
+	{0x1c2b6, 0x20},
+	{0x1c2b7, 0x20},
+	{0x1c2b8, 0x20},
+	{0x1c2b9, 0x20},
+
 /* AWB */
 	{0x66201, 0x52},
 	{0x66203, 0x14}, //crop window
 	{0x66211, 0xe8}, //awb top limit
-	{0x66212, 0x04}, //awb bottom limit	
+	{0x66212, 0x04}, //awb bottom limit
 	//{0x1c17c, 0x01}, //CT mode should close
 	{0x1c182, 0x04},
 	{0x1c183, 0x00}, //MinNum
-	{0x1c184, 0x04}, //AWB Step		
+	{0x1c184, 0x04}, //AWB Step
 	{0x1c58d, 0x00}, //LimitAWBAtD65Enable
 	{0x1c1be, 0x00}, //AWB offset
 	{0x1c1bf, 0x00},
 	{0x1c1c0, 0x00},
 	{0x1c1c1, 0x00},
 
-	{0x1c1aa, 0x00}, //avgAllEnable	
+	{0x1c1aa, 0x00}, //avgAllEnable
 	{0x1c1ad, 0x02}, //weight of A
 	{0x1c1ae, 0x06}, //weight of D65
 	{0x1c1af, 0x04}, //weight of CWF
-	
-	{0x1c5ac, 0x80}, //pre-gain 
+
+	{0x1c5ac, 0x80}, //pre-gain
 	{0x1c5ad, 0x80},
 	{0x1c5ae, 0x80},
 
-	{0x1ccce, 0x02}, //awb shift,open=02	
-	{0x1cccf, 0x38},//B gain for A                                   
-	{0x1ccd0, 0x28},//R gain for A         
-	                          
-	{0x1c5b8, 0x20},//B gain for C outdoor Richard@0517                       
-	{0x1c5b9, 0x34},//R gain for C outdoor Richard@0517                       
-	{0x1ccd1, 0x20},//B gain for C indoor Richard@0517                        
-	{0x1ccd2, 0x34},//R gain for C indoor Richard@0517                        
-	                  
-	{0x1ccd3, 0x00},//B gain for D indoor                                   
-	{0x1ccd4, 0x38},//R gain for D indoor                                   
-	{0x1cccc, 0x00},//B gain for D outdoor                                  
-	{0x1cccd, 0x38},//R gain for D outdoor  
-	                                
-	// for detect indoor/outdoor awb shift on cwf light,epxo*gain>>8
-	{0x1c5b4, 0x02}, //C indoor/outdoor switch 
-	{0x1c5b5, 0xff}, //C indoor/outdoor switch 
-	{0x1c5b6, 0x04}, //C indoor/outdoor switch 
-	{0x1c5b7, 0xff}, //C indoor/outdoor switch 
+	{0x1ccce, 0x02}, //awb shift,open=02
+	{0x1cccf, 0x38},//B gain for A
+	{0x1ccd0, 0x28},//R gain for A
 
-	//add awb  shift detect parameter according 0x1c734~0x1c736 
+	{0x1c5b8, 0x20},//B gain for C outdoor Richard@0517
+	{0x1c5b9, 0x34},//R gain for C outdoor Richard@0517
+	{0x1ccd1, 0x20},//B gain for C indoor Richard@0517
+	{0x1ccd2, 0x34},//R gain for C indoor Richard@0517
+
+	{0x1ccd3, 0x00},//B gain for D indoor
+	{0x1ccd4, 0x38},//R gain for D indoor
+	{0x1cccc, 0x00},//B gain for D outdoor
+	{0x1cccd, 0x38},//R gain for D outdoor
+
+	// for detect indoor/outdoor awb shift on cwf light,epxo*gain>>8
+	{0x1c5b4, 0x02}, //C indoor/outdoor switch
+	{0x1c5b5, 0xff}, //C indoor/outdoor switch
+	{0x1c5b6, 0x04}, //C indoor/outdoor switch
+	{0x1c5b7, 0xff}, //C indoor/outdoor switch
+
+	//add awb  shift detect parameter according 0x1c734~0x1c736
 	{0x1ccd5, 0x41}, //CT_A, 2012.06.02 yuanyabin
 	{0x1ccd6, 0x69}, //CT_C
 	{0x1ccd7, 0xb8}, //CT_D
@@ -1319,15 +1319,15 @@ const struct isp_reg_t isp_init_regs_sonyimx135_HDR[] = {
 	{0x6620f, 0x68}, //D65 split
 	{0x66210, 0x58}, //A split
 	{0x66201, 0x52},
-	
-	//add ccm detect parameter according 0x1c734~0x1c736 
+
+	//add ccm detect parameter according 0x1c734~0x1c736
 	{0x1c1c8 ,0x01}, //center CT, CWF
 	{0x1c1c9 ,0x37},
 	{0x1c1cc, 0x00}, //daylight
 	{0x1c1cd, 0xb1},
 	{0x1c1d0, 0x01}, //a
 	{0x1c1d1, 0xf4},
-	
+
 	{0x1c254, 0x00},
 	{0x1c255, 0xce},
 	{0x1c256, 0x00},
@@ -1336,9 +1336,9 @@ const struct isp_reg_t isp_init_regs_sonyimx135_HDR[] = {
 	{0x1c259, 0x69},
 	{0x1c25a, 0x01},
 	{0x1c25b, 0xd2},
-	
+
 /* Color matrix */
-	{0x1C1d8, 0x02},//center matrix, 
+	{0x1C1d8, 0x02},//center matrix,
 	{0x1C1d9, 0x6a},
 	{0x1C1da, 0xfe},
 	{0x1C1db, 0x9e},
@@ -1355,8 +1355,8 @@ const struct isp_reg_t isp_init_regs_sonyimx135_HDR[] = {
 	{0x1C1e6, 0xfe},
 	{0x1C1e7, 0xae},
 	{0x1C1e8, 0x02},
-	{0x1C1e9, 0x4c},		
-	
+	{0x1C1e9, 0x4c},
+
 	{0x1C1FC, 0xff},//cmx left delta,daylight
 	{0x1C1FD, 0xd9},
 	{0x1C1FE, 0x00},
@@ -1375,7 +1375,7 @@ const struct isp_reg_t isp_init_regs_sonyimx135_HDR[] = {
 	{0x1C20B, 0x33},
 	{0x1C20C, 0xff},
 	{0x1C20D, 0xea},
-	
+
 	{0x1C220, 0x00},//cmx right delta,a light
 	{0x1C221, 0x9b},
 	{0x1C222, 0xff},
@@ -1394,7 +1394,7 @@ const struct isp_reg_t isp_init_regs_sonyimx135_HDR[] = {
 	{0x1C22F, 0x23},
 	{0x1C230, 0xff},
 	{0x1C231, 0x26},
-	
+
 	/* dpc */
 	{0x65409, 0x08},
 	{0x6540a, 0x08},
@@ -1404,25 +1404,25 @@ const struct isp_reg_t isp_init_regs_sonyimx135_HDR[] = {
 	{0x6540e, 0x08},
 	{0x6540f, 0x08},
 	{0x65410, 0x08},
-	{0x65408, 0x0b},  
+	{0x65408, 0x0b},
         //low gain Y curv
 
 	//dynamic high gain Y curve for dark color change 20120728
-	{0x1d963, 0x1a}, 
-	{0x1d964, 0x28}, 
-	{0x1d965, 0x33}, 
-	{0x1d966, 0x3f}, 
-	{0x1d967, 0x4a}, 
-	{0x1d968, 0x56}, 
-	{0x1d969, 0x61}, 
-	{0x1d96a, 0x6c}, 
-	{0x1d96b, 0x78}, 
-	{0x1d96c, 0x84}, 
-	{0x1d96d, 0x91}, 
-	{0x1d96e, 0xa0}, 
-	{0x1d96f, 0xb0}, 
-	{0x1d970, 0xc5}, 
-	{0x1d971, 0xdf}, 
+	{0x1d963, 0x1a},
+	{0x1d964, 0x28},
+	{0x1d965, 0x33},
+	{0x1d966, 0x3f},
+	{0x1d967, 0x4a},
+	{0x1d968, 0x56},
+	{0x1d969, 0x61},
+	{0x1d96a, 0x6c},
+	{0x1d96b, 0x78},
+	{0x1d96c, 0x84},
+	{0x1d96d, 0x91},
+	{0x1d96e, 0xa0},
+	{0x1d96f, 0xb0},
+	{0x1d970, 0xc5},
+	{0x1d971, 0xdf},
 /* auto uv saturation */
 	{0x1d8fe, 0x01}, //UV cut gain control
 	{0x1d8ff, 0x50}, //low gain thres
@@ -1457,7 +1457,7 @@ const struct isp_reg_t isp_init_regs_sonyimx135_HDR[] = {
 	{0x1d90e, 0x88},
 	{0x1d90f, 0x88},
 	{0x1d910, 0x88},
-	{0x1d911, 0x86}, 
+	{0x1d911, 0x86},
 	{0x1d912, 0x73},
 	{0x1d913, 0x55},
 	//high gain UV curve 1/2
@@ -1483,7 +1483,7 @@ const struct isp_reg_t isp_init_regs_sonyimx135_HDR[] = {
 	{0x1d950, 0x00}, //Br thres,super highlight threshold
 	{0x1d951, 0x30}, //Br thres
 	{0x1d952, 0x30}, //Br Ratio,Ratio for transition region
-	
+
 	{0x1d8dc, 0x00}, //Br thres0
 	{0x1d8dd, 0xf0}, //Br thres0
 	{0x1d8de, 0x44}, //Br thres1
@@ -1494,41 +1494,52 @@ const struct isp_reg_t isp_init_regs_sonyimx135_HDR[] = {
 	{0x1d925, 0x11}, //highlight cwf thres //66206
 	{0x1d926, 0x11}, //middlelight cwf thres
 	{0x1d927, 0x12}, //lowlight cwf thres
-	
+
 	{0x1d94a, 0x1b}, //super highlight A thres //66207
 	{0x1d928, 0x1b}, //highlight A thres //66207
 	{0x1d929, 0x24}, //middlelight A thres
 	{0x1d92a, 0x24}, //lowlight A thres
-		
-	{0x1d94b, 0x13}, //super highlight D thres //66208                                 
-	{0x1d92b, 0x20}, //highlight D thres //66208                                       
-	{0x1d92c, 0x23}, //middlelight D thres                                             
+
+	{0x1d94b, 0x13}, //super highlight D thres //66208
+	{0x1d92b, 0x20}, //highlight D thres //66208
+	{0x1d92c, 0x23}, //middlelight D thres
 	{0x1d92d, 0x23}, //lowlight D thres
-		                                          
-	{0x1d94c, 0x57}, //super highlight D limit //6620    
-	{0x1d92e, 0x53}, //highlight D limit //6620d          
-	{0x1d92f, 0x4a}, //middlelight D limit                         
+
+	{0x1d94c, 0x57}, //super highlight D limit //6620
+	{0x1d92e, 0x53}, //highlight D limit //6620d
+	{0x1d92f, 0x4a}, //middlelight D limit
 	{0x1d930, 0x4a}, //lowlight D limit
-			            
-	{0x1d94d, 0x49}, //super highlight A limit //6620e                
-	{0x1d931, 0x49}, //highlight A limit //6620e                      
-	{0x1d932, 0x40}, //middlelight A limit                            
+
+	{0x1d94d, 0x49}, //super highlight A limit //6620e
+	{0x1d931, 0x49}, //highlight A limit //6620e
+	{0x1d932, 0x40}, //middlelight A limit
 	{0x1d933, 0x40}, //lowlight A limit
-			               
-	{0x1d94e, 0x67}, //super highlight D split //6620f                
-	{0x1d934, 0x67}, //highlight D split //6620f                      
-	{0x1d935, 0x67}, //middlelight D split                            
-	{0x1d936, 0x67}, //lowlight D split  
-	                             
-	{0x1d94f, 0x58},	//super highlight A split //66210                
-	{0x1d937, 0x58}, //highlight A split //66210                      
-	{0x1d938, 0x58}, //middlelight A split                            
-	{0x1d939, 0x58}, //lowlight A split		               
+
+	{0x1d94e, 0x67}, //super highlight D split //6620f
+	{0x1d934, 0x67}, //highlight D split //6620f
+	{0x1d935, 0x67}, //middlelight D split
+	{0x1d936, 0x67}, //lowlight D split
+
+	{0x1d94f, 0x58},	//super highlight A split //66210
+	{0x1d937, 0x58}, //highlight A split //66210
+	{0x1d938, 0x58}, //middlelight A split
+	{0x1d939, 0x58}, //lowlight A split
 	{0x1d998, 0x1},
 
 
 #endif
 };
+
+struct isp_reg_t sonyimx135_lowlight_regs_backup[] = {
+
+};
+
+
+const struct isp_reg_t sonyimx135_lowlight_regs[] = {
+
+};
+
+
 /*
  * should be calibrated, three lights, from 0x1c264B gain for D outdoor
  * here is long exposure
@@ -1679,7 +1690,7 @@ static void sonyimx135_write_isp_reg(u32 reg_addr, u32 data, u32 size)
 	int i = 0;
 	print_debug("Enter %s, size=%d", __func__, size);
 	print_debug("data:%x", data);
-	
+
 	/*initialize buffer */
 	for (i = 0; i < size; i++) {
 		reg_seq[i].subaddr = reg_addr;
@@ -1690,7 +1701,7 @@ static void sonyimx135_write_isp_reg(u32 reg_addr, u32 data, u32 size)
 		print_debug("reg_seq[%d].subaddr:%x", i, reg_seq[i].subaddr);
 		print_debug("reg_seq[%d].value:%x", i, reg_seq[i].value);
 	}
-	
+
 	/*write register of isp for imx135 */
 	sonyimx135_write_isp_seq(reg_seq, size);
 }
@@ -1727,7 +1738,7 @@ static u32 sonyimx135_read_isp_reg(u32 reg_addr, u32 size)
 	int i = 0;
 	u32 reg_value = 0x00;
 	print_debug("Enter %s, size=%d", __func__, size);
-	
+
 	/*initialize buffer */
 	for (i = 0; i < size; i++) {
 		reg_seq[i].subaddr = reg_addr;
@@ -1735,7 +1746,7 @@ static u32 sonyimx135_read_isp_reg(u32 reg_addr, u32 size)
 		reg_seq[i].mask = 0x00;
 		reg_addr++;
 	}
-	
+
 	/*read register of isp for imx135 */
 	sonyimx135_read_isp_seq(reg_seq, size);
 	/*construct return value */
@@ -2042,6 +2053,41 @@ static void sonyimx135_set_hdr_movie_switch(hdr_movie_switch on)
 	print_info("Enter Function:%s on = %d",__func__,on);
 	sonyimx135_sensor.hdrInfo.hdr_on = on;
 }
+
+
+/*
+ **************************************************************************
+ * FunctionName: sonyimx135_support_hw_lowlight;
+ * Description : check sensor support hw lowlight or not;
+ * ReturnValue : 1-supported 0-not;
+ **************************************************************************
+*/
+
+static int sonyimx135_support_hw_lowlight(void)
+{
+	return 1;
+}
+
+
+static void sonyimx135_switch_to_lowlight_isp_seq(bool mode)
+{
+	u32 size = sizeof(sonyimx135_lowlight_regs_backup)/sizeof(sonyimx135_lowlight_regs_backup[0]);
+
+	print_debug("enter %s", __func__);
+
+	if(mode == true)
+	{
+		sonyimx135_read_isp_seq(sonyimx135_lowlight_regs_backup, size);
+		sonyimx135_write_isp_seq(sonyimx135_lowlight_regs, size);
+	}
+	else
+	{
+		sonyimx135_write_isp_seq(sonyimx135_lowlight_regs_backup, size);
+	}
+
+}
+
+
 /*
  **************************************************************************
  * FunctionName: sonyimx135_init_reg;
@@ -2056,7 +2102,7 @@ static int sonyimx135_init_reg(void)
 {
 	int size = 0;
        struct _sensor_reg_t *sonyimx135_init_regs = sonyimx135_sensor_module[sensor_mode_index].preg;
-	
+
 	sonyimx135_init_isp_reg();
 
 	if (0 != k3_ispio_init_csi(sonyimx135_sensor.mipi_index,
@@ -2073,7 +2119,7 @@ static int sonyimx135_init_reg(void)
 	if(E_CAMERA_SENSOR_FLIP_TYPE_H_V == get_primary_sensor_flip_type()) {
 		sonyimx135_write_reg(SONYIMX135_FLIP, 0x03, 0x00); //turn camera layout
 	}
-	
+
 	sonyimx135_otp_enable_lsc(false);
 	if ((sonyimx135_otp_flag & SONYIMX135_OTP_LSC_READ) || sonyimx135_otp_read_lsc()) {
 		if (sonyimx135_otp_set_lsc()) {
@@ -2122,7 +2168,7 @@ static int sonyimx135_update_flip(u16 width, u16 height)
 		k3_ispio_update_flip((sonyimx135_sensor.old_flip ^ new_flip) & 0x03, width, height, PIXEL_ORDER_CHANGED);
 
 		sonyimx135_sensor.old_flip = new_flip;
-		if(E_CAMERA_SENSOR_FLIP_TYPE_H_V == get_primary_sensor_flip_type()) 
+		if(E_CAMERA_SENSOR_FLIP_TYPE_H_V == get_primary_sensor_flip_type())
 		{
 			sonyimx135_write_reg(SONYIMX135_FLIP, sonyimx135_sensor.vflip ? 0x00 : 0x02, ~0x02);
 			sonyimx135_write_reg(SONYIMX135_FLIP, sonyimx135_sensor.hflip ? 0x00 : 0x01, ~0x01);
@@ -2216,7 +2262,7 @@ static bool sonyimx135_open_otp_page(u8 page)
 {
 	int loop = 0;
 	u8 status = 0;
-	
+
 	sonyimx135_write_reg(SONYIMX135_OTP_PAGE_SELECT_REG, page, 0x00); /* Select OTP page. */
 	sonyimx135_write_reg(SONYIMX135_OTP_MODE_ENABLE_REG, 0x01, 0x00); /* Turn on OTP read mode. */
 	udelay(2);
@@ -2255,7 +2301,7 @@ static void sonyimx135_reset_i2c(struct i2c_t *i2c)
 /*
  **************************************************************************
  * FunctionName: sonyimx135_find_sensor;
- * Description :    The function is that finding valid sensor by use of  I2c address , camera id register, cfa_fmt register which 
+ * Description :    The function is that finding valid sensor by use of  I2c address , camera id register, cfa_fmt register which
  *                       disinguish rgbw and rgb
  * Input         : NA;
  * Output      : NA;
@@ -2317,7 +2363,7 @@ static int sonyimx135_check_sensor(void)
 
 	ret = sonyimx135_read_reg(0x0000, &idh);
 	ret = sonyimx135_read_reg(0x0001, &idl);
-	
+
 #if 0
 	ret = sonyimx135_read_reg(0x0002, &val);
 	print_info("%s: read 0x0002, ret=%d, val=%d.", __func__, ret, val);
@@ -2365,7 +2411,7 @@ static int sonyimx135_check_sensor_new(void)
 	size = sizeof(sonyimx135_sensor_module) / sizeof(sonyimx135_sensor_module[0]);
       	msleep(20);
 	for (i = 0; i < size; i++) {
-		
+
 		ret = sonyimx135_find_sensor( &(sonyimx135_sensor_module[i]) );
 		if(ret != IMX135_UNKOWN)
 		{
@@ -2380,7 +2426,7 @@ static int sonyimx135_check_sensor_new(void)
                      break;
 		}
 	}
-       
+
 	if (ret == IMX135_UNKOWN) {
 		print_error("Invalid product id ,Could not load sensor sonyimx135");
 		return -ENODEV;
@@ -2792,7 +2838,7 @@ static bool sonyimx135_otp_lsc_file_exist(void)
 		return true;
 	}
 	print_info("%s, OTP file is not exist.", __func__);
-	
+
 	return false;
 }
 
@@ -2827,7 +2873,7 @@ static bool sonyimx135_otp_read_file(void)
 	}
 	set_fs(fs);
 	print_info("%s, read OTP file OK.", __func__);
-	
+
 ERROR:
 	if (NULL != filp) {
 		filp_close(filp, NULL);
@@ -2856,7 +2902,7 @@ static bool sonyimx135_otp_write_file(void)
 	bool ret = true;
 	mm_segment_t fs;
 	struct file *filp = NULL;
-	
+
 	print_debug("enter %s", __func__);
 	filp = filp_open(SONYIMX135_OTP_LSC_FILE, O_CREAT|O_WRONLY, 0666);
 	if (IS_ERR_OR_NULL(filp)) {
@@ -2874,7 +2920,7 @@ static bool sonyimx135_otp_write_file(void)
 	}
 	set_fs(fs);
 	print_info("%s, write OTP file OK.", __func__);
-	
+
 ERROR:
 	if (NULL != filp) {
 		filp_close(filp, NULL);
@@ -2904,7 +2950,7 @@ static bool sonyimx135_otp_check_page(otp_type type)
 	u8 page = 0;
 	u8 val1 = 0;
 	u8 val2 = 0;
-	
+
 	print_debug("enter %s, OTP type is %d", __func__, type);
 
 	switch (type) {
@@ -2968,9 +3014,9 @@ static bool sonyimx135_otp_read_id_wb()
 	sonyimx135_read_reg(0x3B06, &sonyimx135_otp_id_wb.day);
 	sonyimx135_read_reg(0x3B07, &sonyimx135_otp_id_wb.cam_code);
 	sonyimx135_read_reg(0x3B08, &sonyimx135_otp_id_wb.vend_ver);
-	print_debug("%s: Module yield date: %x-%x-%x", __func__, 
+	print_debug("%s: Module yield date: %x-%x-%x", __func__,
 		sonyimx135_otp_id_wb.year, sonyimx135_otp_id_wb.month, sonyimx135_otp_id_wb.day);
-	print_debug("%s: Module code is: %#x, vendor and version info is %#x: ", 
+	print_debug("%s: Module code is: %#x, vendor and version info is %#x: ",
 		__func__, sonyimx135_otp_id_wb.cam_code, sonyimx135_otp_id_wb.vend_ver);
 
     /* Read WB parameters */
@@ -2999,7 +3045,7 @@ static bool sonyimx135_otp_read_id_wb()
 * Other       : NA;
 ***************************************************************************/
 static void sonyimx135_otp_set_id()
-{	
+{
 	print_debug("enter %s", __func__);
 }
 
@@ -3030,7 +3076,7 @@ static bool sonyimx135_otp_read_lsc(void)
 	u8 page = 0;
 	u16 addr_start = 0;
 	u16 addr_end = 0;
-	
+
 	print_debug("enter %s", __func__);
 
 	/* If lens shading ID is not read, then read it first. */
@@ -3050,7 +3096,7 @@ static bool sonyimx135_otp_read_lsc(void)
 			print_info("%s, read OTP LSC form file.", __func__);
 			return true;
 		}
-		
+
 		pval = &sonyimx135_otp_lsc_param[0];
 		memset(sonyimx135_otp_lsc_param, 0, SONYIMX135_OTP_LSC_SIZE);
 
@@ -3103,7 +3149,7 @@ static bool sonyimx135_otp_set_lsc(void)
 		print_error("%s: Unsupported lens shading ID, %#x", __func__, sonyimx135_otp_lsc_id);
 		return false;
 	}
-	
+
 	/* Write lens shading parameters to sensor registers. */
 	for (i=0; i<SONYIMX135_OTP_LSC_SIZE; i++) {
 		sonyimx135_write_reg(SONYIMX135_SENSOR_LSC_RAM+i, *(pval+i), 0x00);
@@ -3126,7 +3172,7 @@ static void sonyimx135_otp_enable_lsc(bool enable)
 	u8 lscMode = 0x00;
 	u8 selToggle = 0x00;
 	u8 lscEnable = 0x00;
-	
+
 	print_debug("enter %s", __func__);
 
 	/* Open OTP lsc mode */
@@ -3136,7 +3182,7 @@ static void sonyimx135_otp_enable_lsc(bool enable)
 		lscEnable = 0x1F;
 		print_info("%s, OTP LSC enabled!", __func__);
 	}
-	
+
 	sonyimx135_write_reg(SONYIMX135_SENSOR_LSC_MODE, lscMode, 0x00);
 	sonyimx135_write_reg(SONYIMX135_SENSOR_RAM_SEL, selToggle, 0x00);
 	sonyimx135_write_reg(SONYIMX135_SENSOR_LSC_EN, lscEnable, 0x00);
@@ -3153,7 +3199,7 @@ static void sonyimx135_otp_enable_lsc(bool enable)
 static bool sonyimx135_otp_read_vcm()
 {
 	print_debug("enter %s", __func__);
-	
+
 	if (!sonyimx135_otp_check_page(OTP_VCM)) {
 		print_error("%s: Check OTP AF VCM page failed.", __func__);
 		return false;
@@ -3167,7 +3213,7 @@ static bool sonyimx135_otp_read_vcm()
 	sonyimx135_read_reg(0x3B09, &sonyimx135_otp_vcm.macro_curr_l);
 	sonyimx135_read_reg(0x3B0A, &sonyimx135_otp_vcm.meter_curr_h);
 	sonyimx135_read_reg(0x3B0B, &sonyimx135_otp_vcm.meter_curr_l);
-	
+
 	/* VCM param is read  */
 	sonyimx135_otp_flag |= SONYIMX135_OTP_VCM_READ;
 
@@ -3190,7 +3236,7 @@ static void sonyimx135_otp_set_vcm()
 	u8 otp_h = 0;
 	u8 otp_l = 0;
 	u32 rang = 0;
-	
+
 	print_debug("enter %s", __func__);
 
 	otp_h = sonyimx135_otp_vcm.start_curr_h;
@@ -3207,8 +3253,8 @@ static void sonyimx135_otp_set_vcm()
 
 	sonyimx135_vcm_start = start_curr;
 	sonyimx135_vcm_end = sonyimx135_sensor.vcm->normalDistanceEnd;
-	
-	print_debug("%s, start = %#x, infinity = %#x, macro = %#x", 
+
+	print_debug("%s, start = %#x, infinity = %#x, macro = %#x",
 		__func__, start_curr, infinity_curr, macro_curr);
 }
 
@@ -3236,7 +3282,7 @@ static void sonyimx135_otp_get_vcm(u16 *vcm_start, u16 *vcm_end)
 	} else {
 		*vcm_end = sonyimx135_vcm_end;
 	}
-	
+
 	print_info("%s, start: %#x, end: %#x", __func__, sonyimx135_vcm_start, sonyimx135_vcm_end);
 }
 
@@ -3251,7 +3297,7 @@ static void sonyimx135_otp_get_vcm(u16 *vcm_start, u16 *vcm_end)
 static void sonyimx135_otp_update_afwb(void)
 {
 	print_debug("enter %s", __func__);
-	
+
 	if ((sonyimx135_otp_flag & SONYIMX135_OTP_ID_WB_READ)
 		|| sonyimx135_otp_read_id_wb()) {
 		sonyimx135_otp_set_id();
@@ -3259,7 +3305,7 @@ static void sonyimx135_otp_update_afwb(void)
 	} else {
 		print_error("%s: Read OTP Module info and WB parameters failed.", __func__);
 	}
-	
+
 	if ((sonyimx135_otp_flag & SONYIMX135_OTP_VCM_READ) || sonyimx135_otp_read_vcm()) {
 		sonyimx135_otp_set_vcm();
 	} else {
@@ -3470,7 +3516,7 @@ static int sonyimx135_init(void)
 		return -ENODEV;
 	}
 #endif
-	
+
 	if (sonyimx135_sensor.owner && !try_module_get(sonyimx135_sensor.owner)) {
 		print_error("%s: try_module_get fail", __func__);
 		return -ENOENT;
@@ -3876,7 +3922,7 @@ static void sonyimx135_set_default(void)
 	sonyimx135_sensor.update_flip = sonyimx135_update_flip;
 	sonyimx135_sensor.get_sensor_aperture = sonyimx135_get_sensor_aperture;
 	sonyimx135_sensor.get_equivalent_focus = sonyimx135_get_equivalent_focus;
-	
+
 	snprintf(sonyimx135_sensor.info.name, sizeof(sonyimx135_sensor.info.name),"sonyimx135");
 	sonyimx135_sensor.interface_type = MIPI1;
 	sonyimx135_sensor.mipi_lane_count = CSI_LINES_4;
@@ -3987,6 +4033,9 @@ static void sonyimx135_set_default(void)
 	sonyimx135_sensor.sensor_min_gain			=1;
 	sonyimx135_sensor.gain_switch 				= 100;//0x66
 	sonyimx135_sensor.hdrInfo.hdr_on 			= HDR_MOVIE_OFF;//default atr on
+
+	sonyimx135_sensor.support_hw_lowlight		= sonyimx135_support_hw_lowlight;
+	sonyimx135_sensor.switch_to_lowlight_isp_seq = sonyimx135_switch_to_lowlight_isp_seq;
 }
 
 /*

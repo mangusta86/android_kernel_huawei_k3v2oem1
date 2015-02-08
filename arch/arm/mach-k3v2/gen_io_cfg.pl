@@ -60,14 +60,14 @@ sub my_main()
 	}
 
 	printf $hw_iomux_handle "\n";
-	printf $hw_iomux_handle "struct block_table *block_config_tables[] = {\n";
+	printf $hw_iomux_handle "struct block_table_boardid block_config_tables[] = {\n";
 	for($board_id_line = 1; $oSheet0->{Cells}[$board_id_line][0]->Value ne "END"; $board_id_line ++)
 	{
 		$struct_id = $oSheet0->{Cells}[$board_id_line][0]->Value;
 		$oSheet_list = $oBook->{Worksheet}[$board_id_line];
-		printf $hw_iomux_handle "[%s] = %s,\n",$struct_id,$oSheet_list->{Name};
+		printf $hw_iomux_handle "{.boardid = %s, .p_block_table = %s},\n",$struct_id,$oSheet_list->{Name};
 	}
-	printf $hw_iomux_handle "[E_IOMUX_MAX] = NULL,\n};\n";
+	printf $hw_iomux_handle "{ENDSYMBOL, NULL},\n};\n";
 	printf $hw_iomux_handle "\n";
 	printf $hw_iomux_handle "#endif\n";
 
@@ -109,16 +109,16 @@ sub my_main()
 	}
 
 	printf $hw_iomux_handle "\n";
-	printf $hw_iomux_handle "struct iocfg_lp *io_suspend_config_tables[] = {\n";
+	printf $hw_iomux_handle "struct iocfg_lp_boardid io_suspend_config_tables[] = {\n";
 	for($board_id_line = 1; $oSheet0->{Cells}[$board_id_line][0]->Value ne "END"; $board_id_line ++)
 	{
 		$struct_id = $oSheet0->{Cells}[$board_id_line][0]->Value;
 		$oSheet_list = $oSheet0->{Cells}[$board_id_line][1]->Value;
 		printf $hw_iomux_handle "\t";
-		printf $hw_iomux_handle "[%s] = iocfg_lookups_%s,\n",$struct_id,$oSheet_list;
+		printf $hw_iomux_handle "{.boardid = %s, .p_iocfg_lp = iocfg_lookups_%s},\n",$struct_id,$oSheet_list;
 	}
 	printf $hw_iomux_handle "\t";
-	printf $hw_iomux_handle "[E_IOMUX_MAX] = NULL,\n};\n";
+	printf $hw_iomux_handle "{ENDSYMBOL, NULL},\n};\n";
 
 	printf $hw_iomux_handle "\n";
 	printf $hw_iomux_handle "#endif\n";

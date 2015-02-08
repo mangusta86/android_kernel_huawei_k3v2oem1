@@ -79,6 +79,10 @@ static void ap_report_fw_temp(struct thermal_dev *tdev)
 	struct ap_temp_sensor *temp_sensor = platform_get_drvdata(pdev);
 	int ret;
 
+	if(NULL == temp_sensor) {
+	     dev_err(&pdev->dev, "%s: ap_temp_sensor is null\n", __func__);
+	     return;
+	}
 	temp_sensor->therm_fw->current_temp = ap_read_current_temp();
 
 	if (temp_sensor->therm_fw->current_temp > 0) {
@@ -98,6 +102,10 @@ static ssize_t show_ap_temp_user_space(struct device *dev,
 {
 	struct platform_device *pdev = to_platform_device(dev);
 	struct ap_temp_sensor *temp_sensor = platform_get_drvdata(pdev);
+	if(NULL == temp_sensor) {
+	     dev_err(&pdev->dev, "%s: ap_temp_sensor is null\n", __func__);
+	     return -ENODEV;
+	}
 
 	return sprintf(buf, "%d\n", temp_sensor->debug_temp);
 }
@@ -116,6 +124,10 @@ static ssize_t set_ap_temp_user_space(struct device *dev,
 		return count;
 	}
 
+       if(NULL == temp_sensor) {
+	     dev_err(&pdev->dev, "%s: ap_temp_sensor is null\n", __func__);
+	     return -ENODEV;
+	}
 	/* Set new temperature */
 	temp_sensor->debug_temp = val;
 
@@ -220,6 +232,10 @@ static int __devexit ap_temp_sensor_remove(struct platform_device *pdev)
 {
 	struct ap_temp_sensor *temp_sensor = platform_get_drvdata(pdev);
 
+       if(NULL == temp_sensor) {
+	     dev_err(&pdev->dev, "%s: ap_temp_sensor is null\n", __func__);
+	     return -ENODEV;
+	}
 	sysfs_remove_group(&pdev->dev.kobj, &ap_temp_sensor_group);
 	thermal_sensor_dev_unregister(temp_sensor->therm_fw);
 	kfree(temp_sensor->therm_fw);

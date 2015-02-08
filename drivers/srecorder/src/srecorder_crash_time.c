@@ -33,7 +33,7 @@
 #include "../include/srecorder_snprintf.h"
 
 
-#if DUMP_CRASH_TIME
+#if defined(CONFIG_DUMP_CRASH_TIME)
 
 /*----local macroes------------------------------------------------------------------*/
 
@@ -77,7 +77,7 @@ int srecorder_get_crash_time(srecorder_reserved_mem_info_t *pmem_info)
         return -1;
     }
 
-    if (srecorder_get_bit(CRASH_REASON_TIME))
+    if (srecorder_log_has_been_dumped(CRASH_REASON_TIME_BIT0))
     {
         SRECORDER_PRINTK("Crash reason and time have been dumped successfully!\n");
         return 0;
@@ -87,7 +87,7 @@ int srecorder_get_crash_time(srecorder_reserved_mem_info_t *pmem_info)
     /* memset(&txc, 0, sizeof(struct timex)); */
     memset(&tm, 0, sizeof(struct rtc_time));
 
-    if (0 != srecorder_write_info_header(pmem_info, CRASH_REASON_TIME, &pinfo_header))
+    if (0 != srecorder_write_info_header(pmem_info, CRASH_REASON_TIME_BIT0, &pinfo_header))
     {
         return -1;
     }
@@ -121,7 +121,7 @@ int srecorder_get_crash_time(srecorder_reserved_mem_info_t *pmem_info)
 */
 int srecorder_init_crash_time(srecorder_module_init_params_t *pinit_params)
 {
-    srecorder_clear_bit(CRASH_REASON_TIME);
+    srecorder_clear_log_dumped_bit(CRASH_REASON_TIME_BIT0);
     
     return 0;
 }
@@ -139,7 +139,7 @@ int srecorder_init_crash_time(srecorder_module_init_params_t *pinit_params)
 */
 void srecorder_exit_crash_time(void)
 {
-    srecorder_set_bit(CRASH_REASON_TIME);
+    srecorder_set_log_dumped_bit(CRASH_REASON_TIME_BIT0);
 }
 #else
 int srecorder_get_crash_time(srecorder_reserved_mem_info_t *pmem_info)

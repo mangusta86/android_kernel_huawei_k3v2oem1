@@ -52,6 +52,7 @@ static struct k3v2_die_governor *k3v2_gov;
 static struct thermal_dev *ap_sensor;
 static struct thermal_dev *sim_sensor;
 static struct thermal_dev *k3v2_ondie_sensor;
+//static struct thermal_dev *nct203_sensor;
 static struct pm_qos_request_list g_cpumaxlimits;
 static struct pm_qos_request_list g_gpumaxlimits;
 
@@ -61,40 +62,62 @@ static struct pm_qos_request_list g_gpumaxlimits;
 #define COMFORT_THRESHOLD_HOT 58
 #define COMFORT_THRESHOLD_COLD 55
 #define PM_QOS_CPU_MAXPROFILE_VALUE 2000000
-#define PM_QOS_CPU_PROFILE_LIMIT_VALUE 624000
+#define PM_QOS_CPU_PROFILE_LIMIT_HIGH_VALUE 1200000
+#define PM_QOS_CPU_PROFILE_LIMIT_VALUE 832000
 #define PM_QOS_CPU_PROFILE_LIMIT_1_VALUE 416000
+#define PM_QOS_CPU_PROFILE_LIMIT_2_VALUE 208000
 #define PM_QOS_GPU_MAXPROFILE_VALUE 1000000
 #define PM_QOS_GPU_PROFILE_LIMIT_VALUE 120000
+#define PM_QOS_GPU_PROFILE_LOW_LIMIT_VALUE 58000
 #define READ_TEMPERATURE_TIME  20  /*20 second*/
-#define READ_TEMPERATURE_HOT_TIME  300 /*5 minute*/
+#define READ_TEMPERATURE_HOT_TIME  30 /*10 minute*/
 #define ROOM_TEMPERATURE   25
+#define COLD_AREA_TEMP 50
+#define TEMP_LEVEL_1 49
+#define TEMP_LEVEL_1_BACK 47
+#define TEMP_LEVEL_2 54
+#define TEMP_LEVEL_2_BACK 52
+#define TEMP_LEVEL_3 57
+#define TEMP_LEVEL_3_BACK 55
+#define TEMP_LEVEL_4 59
+#define TEMP_LEVEL_5 62
+#define CPU_FRQ_LIMIT_STATE_ZERO 0
+#define CPU_FRQ_LIMIT_STATE_ONE 1
+#define CPU_FRQ_LIMIT_STATE_TWO 2
+
+enum product_thermal_type{        
+		D2,       
+		UNKNOWN    };
+
 struct k3v2_die_governor {
 	struct thermal_dev *temp_sensor;
 	int ap_temp;
 	int sim_temp;
 	int k3v2_temp;
+//	int nct203_temp;
 	int governor_current_temp;
 	int average_period;
 	struct delayed_work average_cpu_sensor_work;
+	int hot_temp ;
+	int cold_temp;
 	int hot_temp_num;
 	int cold_temp_num;
-	int comfort_threshold_hot;
-	int comfort_threshold_cold;
 	bool k3v2_freq_is_lock;
+	int temp_level_hot_flag;
+	int temp_level_cold_flag;
+	int thermal_product_type;
+	s32 cpu_frq_state;
+	s32 gpu_frq_status;
 	int exceed_temperature_time;
 	struct work_struct regulator_otmp_wk;
 	struct workqueue_struct *regulator_otmp_wq;
 };
 static int g_temp_bypass;
+
 #ifdef CONFIG_IPPS_SUPPORT
 static struct ipps_client ipps_client;
 #endif
-static int thermal_sensor_type = 0;
-static enum sensor_type{
-        APSENSOR,
-        SIMSENSOR,
-        UNKONWN
-    };
+
 #ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
 /* pm_qos interface global val*/
 struct pm_qos_lst {
@@ -135,63 +158,111 @@ void k3v2_temperature_pm_qos_remove(void)
 {
 }
 #endif
-static int k3v2_cpu_thermal_manager(int temp)
+
+static void cpu_gpu_limit(s32 cpu_frq, s32 gpu_frq, int hot_new_state,int cold_new_state)
 {
-	if (temp > k3v2_gov->comfort_threshold_hot) {
+	if ( (k3v2_gov->cpu_frq_state != cpu_frq) || (k3v2_gov->gpu_frq_status != gpu_frq ) ){
+		pm_qos_update_request(&g_cpumaxlimits, cpu_frq);
+		pm_qos_update_request(&g_gpumaxlimits, gpu_frq);
+		k3v2_gov->cpu_frq_state = cpu_frq;
+		k3v2_gov->gpu_frq_status = gpu_frq;
+		}
+	k3v2_gov->temp_level_cold_flag = cold_new_state;
+	k3v2_gov->temp_level_hot_flag = hot_new_state;
+}
+static int k3v2_cpu_thermal_manager(int temp)
+{	
+	if (k3v2_gov->ap_temp >= COLD_AREA_TEMP) {
+		k3v2_gov->hot_temp = k3v2_gov->hot_temp +temp ;
+		k3v2_gov->cold_temp = 0;
 		k3v2_gov->hot_temp_num++;
 		k3v2_gov->cold_temp_num = 0;
-	} else if (temp < k3v2_gov->comfort_threshold_cold) {
-		k3v2_gov->cold_temp_num++;
+	}  else {
+		k3v2_gov->hot_temp = 0;
+		k3v2_gov->cold_temp = k3v2_gov->cold_temp + temp;
 		k3v2_gov->hot_temp_num = 0;
-	} else {
-		k3v2_gov->hot_temp_num = 0;
-		k3v2_gov->cold_temp_num = 0;
+		k3v2_gov->cold_temp_num ++;
 	}
 #ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
-	if ((temp > k3v2_gov->comfort_threshold_hot) && (READ_TEMPERATURE_HOT_TIME <= k3v2_gov->hot_temp_num)) {
-
-		k3v2_gov->exceed_temperature_time++;
-		if (3 <= k3v2_gov->exceed_temperature_time) {
-			/*temperature exceed 58 over 15 minutes */
-			pr_warning("Device temperature is very high,board temperature is [%d]!\n\r", temp);
-		} else if (2 == k3v2_gov->exceed_temperature_time) {
-			/*temperature exceed 58 over 10 minutes*/
-			pr_info("thermal_manager2:temperature_time[%d]\n\r", k3v2_gov->exceed_temperature_time);
-			pm_qos_update_request(&g_cpumaxlimits, PM_QOS_CPU_PROFILE_LIMIT_1_VALUE);
-		} else {
-			pr_info("thermal_manager:temperature_time[%d]\n\r", k3v2_gov->exceed_temperature_time);
+	if  (READ_TEMPERATURE_TIME <= k3v2_gov->hot_temp_num){
+		temp = k3v2_gov->hot_temp /READ_TEMPERATURE_TIME;
+		pr_info("thermal_manager_hot[%d]\n\r", temp);
+		k3v2_gov->hot_temp = 0;
+		k3v2_gov->hot_temp_num = 0;
+		if (TEMP_LEVEL_5 < temp )	{
+			pr_err("%s:the device temperature is very high[%d]!\n\r", __func__,temp);
+			cpu_gpu_limit(PM_QOS_CPU_PROFILE_LIMIT_VALUE,PM_QOS_GPU_PROFILE_LIMIT_VALUE,CPU_FRQ_LIMIT_STATE_ONE,CPU_FRQ_LIMIT_STATE_ZERO);
+//			pr_info("thermal_manager_hot:cpu[%d]gpu[%d]step[%d]\n\r", PM_QOS_CPU_PROFILE_LIMIT_2_VALUE,PM_QOS_GPU_PROFILE_LOW_LIMIT_VALUE,0);
+		}else if (TEMP_LEVEL_4 < temp ){
+			k3v2_gov->exceed_temperature_time ++;
+			if ((k3v2_gov->exceed_temperature_time >= READ_TEMPERATURE_HOT_TIME) &&  (CPU_FRQ_LIMIT_STATE_ONE == k3v2_gov->temp_level_hot_flag ) ){
+				pr_err("%s:the device temperature is very high[%d]!\n\r", __func__,temp);
+//				pr_info("thermal_manager_hot:cpu[%d]gpu[%d]step[%d]\n\r", PM_QOS_CPU_PROFILE_LIMIT_2_VALUE,PM_QOS_GPU_PROFILE_LOW_LIMIT_VALUE,1);
+				k3v2_gov->exceed_temperature_time = 0;
+			}else{
+				cpu_gpu_limit(PM_QOS_CPU_PROFILE_LIMIT_VALUE,PM_QOS_GPU_PROFILE_LIMIT_VALUE,CPU_FRQ_LIMIT_STATE_ONE,CPU_FRQ_LIMIT_STATE_ZERO);
+//				pr_info("thermal_manager_hot:cpu[%d]gpu[%d]step[%d]\n\r", PM_QOS_CPU_PROFILE_LIMIT_VALUE,PM_QOS_GPU_PROFILE_LIMIT_VALUE,2);
+			}
+		}else if (TEMP_LEVEL_3 < temp){
+			k3v2_gov->exceed_temperature_time = 0;
+			if (k3v2_gov->temp_level_hot_flag < CPU_FRQ_LIMIT_STATE_ONE ){
+				cpu_gpu_limit(PM_QOS_CPU_PROFILE_LIMIT_HIGH_VALUE,PM_QOS_GPU_PROFILE_LIMIT_VALUE,CPU_FRQ_LIMIT_STATE_ZERO,CPU_FRQ_LIMIT_STATE_ZERO);
+//				pr_info("thermal_manager_hot:cpu[%d]gpu[%d]step[%d]\n\r", PM_QOS_CPU_PROFILE_LIMIT_HIGH_VALUE,PM_QOS_GPU_PROFILE_LIMIT_VALUE,3);
+			}else{
+				cpu_gpu_limit(PM_QOS_CPU_PROFILE_LIMIT_VALUE,PM_QOS_GPU_PROFILE_LIMIT_VALUE,CPU_FRQ_LIMIT_STATE_ONE,CPU_FRQ_LIMIT_STATE_ZERO);
+//				pr_info("thermal_manager_hot:cpu[%d]gpu[%d]step[%d]\n\r", PM_QOS_CPU_PROFILE_LIMIT_VALUE,PM_QOS_GPU_PROFILE_LIMIT_VALUE,4);
+			}
+		}else{
+			k3v2_gov->exceed_temperature_time = 0;
+			cpu_gpu_limit(PM_QOS_CPU_PROFILE_LIMIT_HIGH_VALUE,PM_QOS_GPU_PROFILE_LIMIT_VALUE,CPU_FRQ_LIMIT_STATE_ZERO,CPU_FRQ_LIMIT_STATE_ZERO);
+//			pr_info("thermal_manager_hot:cpu[%d]gpu[%d]step[%d]\n\r", PM_QOS_CPU_PROFILE_LIMIT_HIGH_VALUE,PM_QOS_GPU_PROFILE_LIMIT_VALUE,5);
 		}
 
-		if (k3v2_gov->k3v2_freq_is_lock == false) {
-			/*temperature exceed 58 over 5 minutes*/
-			pm_qos_update_request(&g_cpumaxlimits, PM_QOS_CPU_PROFILE_LIMIT_VALUE);
-			pm_qos_update_request(&g_gpumaxlimits, PM_QOS_GPU_PROFILE_LIMIT_VALUE);
-			k3v2_gov->hot_temp_num = 0;
-			k3v2_gov->cold_temp_num = 0;
-			k3v2_gov->k3v2_freq_is_lock = true;
-			pr_info("COMFORT_THRESHOLD_HOT limit \n\r");
-		}
-	} else if ((temp < k3v2_gov->comfort_threshold_cold) && (READ_TEMPERATURE_TIME <= k3v2_gov->cold_temp_num)) {
-		k3v2_gov->exceed_temperature_time = 0;
-		if (k3v2_gov->k3v2_freq_is_lock == true) {
-			pm_qos_update_request(&g_cpumaxlimits, PM_QOS_CPU_MAXPROFILE_DEFAULT_VALUE);
-			pm_qos_update_request(&g_gpumaxlimits, PM_QOS_GPU_MAXPROFILE_DEFAULT_VALUE);
-			k3v2_gov->hot_temp_num = 0;
-			k3v2_gov->cold_temp_num = 0;
-			k3v2_gov->k3v2_freq_is_lock = false;
-			pr_info("COMFORT_THRESHOLD_COLD release \n\r");
+	}else if (READ_TEMPERATURE_TIME <= k3v2_gov->cold_temp_num){
+		temp = k3v2_gov->cold_temp /READ_TEMPERATURE_TIME;
+		pr_info("thermal_manager_cold[%d]\n\r", temp);
+		k3v2_gov->cold_temp = 0;
+		k3v2_gov->cold_temp_num = 0;
+              if ( TEMP_LEVEL_2 < temp){
+			k3v2_gov->exceed_temperature_time ++;
+			if ((k3v2_gov->exceed_temperature_time >= READ_TEMPERATURE_HOT_TIME ) && (CPU_FRQ_LIMIT_STATE_TWO ==  k3v2_gov->temp_level_cold_flag ) ){
+				pr_err("%s:the device temperature is very high[%d]!\n\r", __func__,temp);
+				k3v2_gov->exceed_temperature_time = 0;
+			}else{
+				cpu_gpu_limit(PM_QOS_CPU_PROFILE_LIMIT_VALUE,PM_QOS_GPU_PROFILE_LIMIT_VALUE,CPU_FRQ_LIMIT_STATE_ZERO,CPU_FRQ_LIMIT_STATE_TWO);
+//				pr_info("thermal_manager_cold:cpu[%d]gpu[%d]step[%d]\n\r", PM_QOS_CPU_PROFILE_LIMIT_VALUE,PM_QOS_GPU_PROFILE_LIMIT_VALUE,8);
+			} 
+		}else if (TEMP_LEVEL_2_BACK < temp){
+			k3v2_gov->exceed_temperature_time = 0;
+			if ( k3v2_gov->temp_level_cold_flag < CPU_FRQ_LIMIT_STATE_TWO)	{
+				cpu_gpu_limit(PM_QOS_CPU_PROFILE_LIMIT_HIGH_VALUE,PM_QOS_GPU_PROFILE_LIMIT_VALUE,CPU_FRQ_LIMIT_STATE_ZERO,CPU_FRQ_LIMIT_STATE_ONE);
+//				pr_info("thermal_manager_cold:cpu[%d]gpu[%d]step[%d]\n\r",PM_QOS_CPU_PROFILE_LIMIT_HIGH_VALUE,PM_QOS_GPU_PROFILE_LIMIT_VALUE,9);
+			}else{
+				cpu_gpu_limit(PM_QOS_CPU_PROFILE_LIMIT_VALUE,PM_QOS_GPU_PROFILE_LIMIT_VALUE,CPU_FRQ_LIMIT_STATE_ZERO,CPU_FRQ_LIMIT_STATE_TWO);
+//				pr_info("thermal_manager_cold:cpu[%d]gpu[%d]step[%d]\n\r",PM_QOS_CPU_PROFILE_LIMIT_VALUE,PM_QOS_GPU_PROFILE_LIMIT_VALUE,10);
+			}
+		}else if (TEMP_LEVEL_1 <  temp){
+			k3v2_gov->exceed_temperature_time = 0;
+			cpu_gpu_limit(PM_QOS_CPU_PROFILE_LIMIT_HIGH_VALUE,PM_QOS_GPU_PROFILE_LIMIT_VALUE,CPU_FRQ_LIMIT_STATE_ZERO,CPU_FRQ_LIMIT_STATE_ONE);
+//			pr_info("thermal_manager_cold:cpu[%d]gpu[%d]step[%d]\n\r",PM_QOS_CPU_PROFILE_LIMIT_HIGH_VALUE,PM_QOS_GPU_PROFILE_LIMIT_VALUE,11);
+		}else if (TEMP_LEVEL_1_BACK < temp){
+			k3v2_gov->exceed_temperature_time = 0;
+			if (CPU_FRQ_LIMIT_STATE_ZERO == k3v2_gov->temp_level_cold_flag ){
+				cpu_gpu_limit(PM_QOS_CPU_MAXPROFILE_VALUE,PM_QOS_GPU_MAXPROFILE_VALUE,CPU_FRQ_LIMIT_STATE_ZERO,CPU_FRQ_LIMIT_STATE_ZERO);
+//				pr_info("thermal_manager_cold:cpu[%d]gpu[%d]step[%d]\n\r",PM_QOS_CPU_MAXPROFILE_VALUE,PM_QOS_GPU_MAXPROFILE_VALUE,12);
+			}else{
+				cpu_gpu_limit(PM_QOS_CPU_PROFILE_LIMIT_HIGH_VALUE,PM_QOS_GPU_PROFILE_LIMIT_VALUE,CPU_FRQ_LIMIT_STATE_ZERO,CPU_FRQ_LIMIT_STATE_ONE);
+//				pr_info("thermal_manager_cold:cpu[%d]gpu[%d]step[%d]\n\r",PM_QOS_CPU_PROFILE_LIMIT_HIGH_VALUE,PM_QOS_GPU_PROFILE_LIMIT_VALUE,13);
+			}
+		}else{
+			k3v2_gov->exceed_temperature_time = 0;
+			cpu_gpu_limit(PM_QOS_CPU_MAXPROFILE_VALUE,PM_QOS_GPU_MAXPROFILE_VALUE,CPU_FRQ_LIMIT_STATE_ZERO,CPU_FRQ_LIMIT_STATE_ZERO);
+//			pr_info("thermal_manager_cold:cpu[%d]gpu[%d]step[%d]\n\r",PM_QOS_CPU_MAXPROFILE_VALUE,PM_QOS_GPU_MAXPROFILE_VALUE,14);
 		}
 	}
 #endif
-	if (k3v2_gov->hot_temp_num >= READ_TEMPERATURE_HOT_TIME) {
-		k3v2_gov->hot_temp_num = 0;
-	} else if (k3v2_gov->cold_temp_num >= READ_TEMPERATURE_TIME) {
-		k3v2_gov->cold_temp_num = 0;
-	}
-
 	return 0;
 }
-
 #ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
 static int k3v2_benchmark_thermal_manager(int temp)
 {
@@ -202,10 +273,10 @@ static int k3v2_benchmark_thermal_manager(int temp)
 		pm_qos_update_request(&g_cpumaxlimits, PM_QOS_CPU_MAXPROFILE_VALUE);
 		pm_qos_update_request(&g_gpumaxlimits, PM_QOS_GPU_MAXPROFILE_VALUE);
 	}
+
 	return 0;
 }
 #endif
-
 static int average_on_die_temperature(void)
 {
 	int temp = 0;
@@ -220,21 +291,12 @@ static int average_on_die_temperature(void)
 
 		temp = (k3v2_gov->sim_temp + k3v2_gov->ap_temp + k3v2_gov->k3v2_temp) / 3;
 	}
-#elif defined(CONFIG_K3V2_AP_SENSOR) && defined(CONFIG_K3V2_SIM_SENSOR)
-	if ((ap_sensor) && (APSENSOR == thermal_sensor_type )) {
-		k3v2_gov->ap_temp = thermal_request_temp(ap_sensor);
-		temp = k3v2_gov->ap_temp;/*judgement base on ap temp */
-//		pr_info("[brand] %s,ap_temp[%d]\n\r", __func__,k3v2_gov->ap_temp);
-	}
-	else if ((sim_sensor) && (SIMSENSOR == thermal_sensor_type)) {
-		k3v2_gov->sim_temp = thermal_request_temp(sim_sensor);
-		temp = k3v2_gov->sim_temp;/*judgement base on SIM temp */
-	}
-#endif
+
 	else {
 		temp = -1;
 		pr_info("%s: canot get ap,sim,k3v2 temp \n\r", __func__);
 	}
+#endif
 	return temp;
 }
 
@@ -292,41 +354,28 @@ static int k3v2_process_cpu_temp(struct thermal_dev *temp_sensor, int temp)
 			k3v2_ondie_sensor = temp_sensor;
 		}
 		k3v2_gov->k3v2_temp = temp;
-	} else {
+	}else {
 		pr_err("Get AP OR SIM OR K3V2 CPU temperature failed!\n\r");
 		return -1;
 	}
 	return 0;
 }
-static int get_firmware_thermal_temp(void)
-{
-    char product_flag[15];
-	bool ret =0;
-	int temp = 0;
-    if ( get_hw_config_int("thermal_temp/hot_temp", &temp, NULL))
-		k3v2_gov->comfort_threshold_hot = temp;
-	else
-	    pr_info("[brand] %s,comfort_threshold_hot_get error\n\r", __func__);
-	if (get_hw_config_int("thermal_temp/cold_temp", &temp, NULL))
-		k3v2_gov->comfort_threshold_cold = temp;
-	else
-	    pr_info("[brand] %s,comfort_threshold_cold_get error\n\r", __func__);
-	ret = get_hw_config_string("thermal_temp/sensor_type",product_flag,15,NULL);
-	if(ret)
-	{
-		if(strstr(product_flag,"apsensor"))
-		{
-			printk("sensor is near ap\r\n");
-			return APSENSOR;
-		}else{
-		    printk("sensor is near sim card\r\n");
-			return SIMSENSOR;
+
+static int get_product_thermal(void){ 
+		char product_flag[15];
+		bool ret =0;
+		ret = get_hw_config_string("product_thermal_type/product_name",product_flag,15,NULL);
+		if (ret){
+			if(strstr(product_flag,"D2")){
+				printk("product is D2\r\n");		
+				return D2;
+			}else{
+				printk("product is not D2\r\n");		
+				return UNKNOWN;
+			}
 		}
-	}else{
-	   printk("sensor_type is error!\r\n"); 
-	   return UNKONWN;
-	}		
-}
+	} 
+
 static struct thermal_dev_ops k3v2_gov_ops = {
 	.process_temp = k3v2_process_cpu_temp,
 };
@@ -480,14 +529,19 @@ static int __init k3v2_die_governor_init(void)
 	ap_sensor = NULL;
 	sim_sensor = NULL;
 	k3v2_ondie_sensor = NULL;
+//	nct203_sensor = NULL;
+	k3v2_gov->hot_temp = 0;
+	k3v2_gov->cold_temp = 0;
 	k3v2_gov->hot_temp_num = 0;
 	k3v2_gov->cold_temp_num = 0;
 	k3v2_gov->exceed_temperature_time = 0;
 	k3v2_gov->k3v2_freq_is_lock = false;
 	g_temp_bypass = 0;
-	k3v2_gov->comfort_threshold_hot = 0;
-	k3v2_gov->comfort_threshold_cold = 0;
-	thermal_sensor_type = get_firmware_thermal_temp();
+	k3v2_gov->temp_level_hot_flag = 0;
+	k3v2_gov->temp_level_cold_flag = 0;
+	k3v2_gov->cpu_frq_state = 0;
+	k3v2_gov->gpu_frq_status = 0;
+	k3v2_gov->thermal_product_type = get_product_thermal();
 	k3v2_temperature_pm_qos_add();
 	/* Init delayed work to average on-die temperature */
 	INIT_DELAYED_WORK(&k3v2_gov->average_cpu_sensor_work,

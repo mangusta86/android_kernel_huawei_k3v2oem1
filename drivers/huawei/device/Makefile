@@ -15,6 +15,7 @@ endif
 
 obj-$(CONFIG_HUAWEI_TOUCH_INPUT_INFO)	+= touch_info.o
 obj-y   += touchkey/
-obj-$(CONFIG_HUAWEI_KERNEL_FELICA_DEVICES) += felica/
+#obj-$(CONFIG_HUAWEI_KERNEL_FELICA_DEVICES) += felica/
 obj-y   += irda/
 
+obj-$(CONFIG_LOG_TO_EXCEPTION) += log_exception.o

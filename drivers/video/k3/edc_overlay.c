@@ -26,6 +26,11 @@
 #include "ldi_reg.h"
 #include "mipi_reg.h"
 #include "sbl_reg.h"
+#include "mipi_dsi.h"
+
+#if defined(CONFIG_PARTIAL_UPDATES)
+static DEFINE_SPINLOCK(lcd_region_slock);
+#endif
 
 /*--------------------VERTICLE--------------------*/
 /* enlarge */
@@ -895,6 +900,54 @@ void edc_overlay_compose_pre_unset(struct fb_info *info, int ndx)
     }
 }
 
+static void edc_overlay_compose_pipe_reg_unset(struct fb_info *info, int pipe_id)
+{
+    struct edc_overlay_pipe *pipe = NULL;
+    u32 edc_base = 0;
+
+    BUG_ON(info == NULL);
+
+    pipe = edc_overlay_ndx2pipe(info, pipe_id);
+    if (pipe == NULL) {
+        k3fb_loge("id=%d not able to get pipe!", pipe_id);
+        return;
+    }
+    edc_base = pipe->edc_base;
+    pipe->set_EDC_CHL_ADDR(edc_base, 0x0);
+    pipe->set_EDC_CHR_ADDR(edc_base, 0x0);
+    pipe->set_EDC_CH_XY(edc_base, 0x0, 0x0);
+    pipe->set_EDC_CH_SIZE(edc_base, 0x0, 0x0);
+    pipe->set_EDC_CH_STRIDE(edc_base, 0x0);
+    pipe->set_EDC_CH_CTL_pix_fmt(edc_base, 0x0);
+    pipe->set_EDC_CH_CTL_bgr(edc_base, 0x0);
+    pipe->set_EDC_CH_CTL_colork_en(edc_base, 0x0);
+
+    pipe->set_EDC_CH_CTL_ch_en(edc_base, 0x0);
+
+    if (pipe->pipe_type == OVERLAY_TYPE_CHCAP_ALL) {
+        set_EDC_CH1_CTL_rot(edc_base, 0);
+        //notice: only reset the enable reg of scaler when fs
+        set_EDC_CH1_SCL_HSP_hsc_en(edc_base, K3_DISABLE);
+        set_EDC_CH1_SCL_VSP_vsc_en(edc_base, K3_DISABLE);
+    }
+
+    edc_overlay_compose_ch_csc_unset(pipe, edc_base);
+    if (pipe_id == OVERLAY_PIPE_EDC0_CURSOR) {
+        set_EDC_CRS_CTL_alp_blend_en(edc_base, 0x0);
+        set_EDC_CRS_CTL_alp_src(edc_base, 0x0);
+        set_EDC_CRS_GLB_ALP_VAL(edc_base, 0x0, 0x0);
+        set_EDC_CRS_CTL_under_alp_sel(edc_base, 0x0);
+        set_EDC_CRS_CTL_alp_sel(edc_base, 0x0);
+    } else {
+        set_EDC_CH12_OVLY_alp_blend_en(edc_base, 0x0);
+        set_EDC_CH12_OVLY_alp_src(edc_base, 0x0);
+        set_EDC_CH12_GLB_ALP_VAL(edc_base, 0x0, 0x0);
+        set_EDC_CH12_OVLY_pix_alp_src(edc_base, 0x0);
+        set_EDC_CH12_OVLY_ch1_alp_sel(edc_base, 0x0);
+        set_EDC_CH12_OVLY_ch2_alp_sel(edc_base, 0x0);
+    }
+}
+
 static int edc_overlay_compose_pipe_unset(struct fb_info *info)
 {
     struct edc_overlay_pipe *pipe = NULL;
@@ -912,39 +965,7 @@ static int edc_overlay_compose_pipe_unset(struct fb_info *info)
         if (pipe->req_info.need_unset) {
             pipe->req_info.need_unset = 0;
             /* memset(&pipe->req_info, 0, sizeof(struct overlay_info)); */
-            pipe->set_EDC_CHL_ADDR(edc_base, 0x0);
-            pipe->set_EDC_CHR_ADDR(edc_base, 0x0);
-            pipe->set_EDC_CH_XY(edc_base, 0x0, 0x0);
-            pipe->set_EDC_CH_SIZE(edc_base, 0x0, 0x0);
-            pipe->set_EDC_CH_STRIDE(edc_base, 0x0);
-            pipe->set_EDC_CH_CTL_pix_fmt(edc_base, 0x0);
-            pipe->set_EDC_CH_CTL_bgr(edc_base, 0x0);
-            pipe->set_EDC_CH_CTL_colork_en(edc_base, 0x0);
-
-            pipe->set_EDC_CH_CTL_ch_en(edc_base, 0x0);
-
-            if (pipe->pipe_type == OVERLAY_TYPE_CHCAP_ALL) {
-                set_EDC_CH1_CTL_rot(edc_base, 0);
-                //notice: only reset the enable reg of scaler when fs
-                set_EDC_CH1_SCL_HSP_hsc_en(edc_base, K3_DISABLE);
-                set_EDC_CH1_SCL_VSP_vsc_en(edc_base, K3_DISABLE);
-            }
-
-            edc_overlay_compose_ch_csc_unset(pipe, edc_base);
-            if (ch_id == OVERLAY_PIPE_EDC0_CURSOR) {
-                set_EDC_CRS_CTL_alp_blend_en(edc_base, 0x0);
-                set_EDC_CRS_CTL_alp_src(edc_base, 0x0);
-                set_EDC_CRS_GLB_ALP_VAL(edc_base, 0x0, 0x0);
-                set_EDC_CRS_CTL_under_alp_sel(edc_base, 0x0);
-                set_EDC_CRS_CTL_alp_sel(edc_base, 0x0);
-            } else {
-                set_EDC_CH12_OVLY_alp_blend_en(edc_base, 0x0);
-                set_EDC_CH12_OVLY_alp_src(edc_base, 0x0);
-                set_EDC_CH12_GLB_ALP_VAL(edc_base, 0x0, 0x0);
-                set_EDC_CH12_OVLY_pix_alp_src(edc_base, 0x0);
-                set_EDC_CH12_OVLY_ch1_alp_sel(edc_base, 0x0);
-                set_EDC_CH12_OVLY_ch2_alp_sel(edc_base, 0x0);
-            }
+            edc_overlay_compose_pipe_reg_unset(info, ch_id);
         }
     }
 
@@ -1141,6 +1162,33 @@ static int edc_overlay_compose_ch_chg_enable(struct k3_fb_data_type *k3fd)
 }
 #endif //EDC_CH_CHG_SUPPORT
 
+
+#if defined(CONFIG_PARTIAL_UPDATES)
+static int edc_ovc_partial_updates_disable_ch(struct fb_info *info, struct overlay_data *req)
+{
+    struct edc_overlay_pipe *pipe = NULL;
+    struct k3_fb_data_type *k3fd = NULL;
+    u32 edc_base = 0;
+
+    BUG_ON(info == NULL || info->par == NULL || req == NULL);
+    k3fd = (struct k3_fb_data_type *)info->par;
+    pipe = edc_overlay_ndx2pipe(info, req->id);
+    if (pipe == NULL) {
+        k3fb_loge("id=%d not able to get pipe!", req->id);
+        return -ENODEV;
+    }
+
+    edc_base = pipe->edc_base;
+    edc_overlay_compose_pipe_reg_unset(info, req->id);
+    k3_fb_gralloc_overlay_save_display_addr(k3fd, req->id, 0x0);
+
+    if (!pipe->req_info.cfg_disable) {
+        set_EDC_DISP_CTL_cfg_ok(edc_base, EDC_CFG_OK_YES);
+    }
+    return 0;
+}
+#endif
+
 int edc_overlay_compose_play(struct fb_info *info, struct overlay_data *req)
 {
     struct edc_overlay_pipe *pipe = NULL;
@@ -1216,6 +1264,15 @@ int edc_overlay_compose_play(struct fb_info *info, struct overlay_data *req)
     }
     //set to edc0
     pipe = edc0_pipe;
+
+#if defined(CONFIG_PARTIAL_UPDATES)
+    //check for partial updates
+    if (pipe->req_info.updt_ch_disable) {
+        //printk("ovc ch(%d) disable.\n", req->id);
+        return edc_ovc_partial_updates_disable_ch(info, req);
+    }
+    //printk("ovc ch(%d) enable.\n", req->id);
+#endif
 
     /* stride 64byte odd align */
     if (!is64BytesOddAlign(FB_64BYTES_ODD_ALIGN_NONE, req->src.stride)) {
@@ -1754,6 +1811,151 @@ int edc_overlay_play(struct fb_info *info, struct overlay_data *req)
 	return 0;
 }
 
+#if defined(CONFIG_PARTIAL_UPDATES)
+void wait_mipi_idle(u32 edc_base)
+{
+	bool is_timeout = true;
+	int delay_count = 0;
+	u32 tmp = 0;
+
+	/* check payload write empty */
+	while (1) {
+		tmp = inp32(edc_base + MIPIDSI_CMD_PKT_STATUS_OFFSET);
+		if (((tmp & 0x00000005) == 0x00000005) || delay_count > 100) {
+			is_timeout = (delay_count > 100) ? true : false;
+			delay_count = 0;
+			break;
+		} else {
+			udelay(1);
+			++delay_count;
+		}
+	}
+
+        delay_count = 0;
+
+	while (1) {
+		tmp = inp32(edc_base + MIPIDSI_PHY_STATUS_OFFSET);
+		if (((tmp & 0xA90) == 0xA90) || delay_count > 100) {
+			is_timeout = (delay_count > 100) ? true : false;
+			delay_count = 0;
+			break;
+		} else {
+			udelay(1);
+			++delay_count;
+		}
+	}
+}
+
+
+bool edc_fb_check_region(struct k3_fb_data_type *k3fd)
+{
+    struct k3_fb_panel_data *pdata = NULL;
+
+    pdata = (struct k3_fb_panel_data *)k3fd->pdev->dev.platform_data;
+
+    if(pdata == NULL) return false;
+
+    if (!k3fd->sbl_enable &&  pdata->set_display_region) {
+        return true;
+    }else{
+        return false;
+    }
+}
+
+
+/*call in interrupt*/
+void edc_fb_set_display_region(struct k3_fb_data_type *k3fd)
+{
+    spin_lock(&lcd_region_slock);
+    if(k3fd->dirty_update) {
+        //mipi_dsi_set_timing_EXT(k3fd, k3fd->xoffset, k3fd->yoffset, k3fd->xwidth, k3fd->yheight);
+        struct k3_fb_panel_data *pdata = NULL;
+
+        wait_mipi_idle(k3fd->edc_base);
+
+	set_LDI_DSP_SIZE_hsize(k3fd->edc_base, k3fd->xwidth);
+	set_LDI_DSP_SIZE_vsize(k3fd->edc_base, k3fd->yheight);
+	set_EDC_DISP_SIZE(k3fd->edc_base, k3fd->xwidth, k3fd->yheight);
+
+        pdata = (struct k3_fb_panel_data *)k3fd->pdev->dev.platform_data;
+        if (pdata && pdata->set_display_region) {
+            pdata->set_display_region(k3fd->pdev, k3fd->xoffset, k3fd->yoffset, k3fd->xwidth, k3fd->yheight);
+        }
+
+        k3fd->dirty_update = false;
+        //printk("!!!LCD Region:  {%d, %d, %d, %d} \n", k3fd->xoffset, k3fd->yoffset, k3fd->xwidth, k3fd->yheight);
+    }
+    spin_unlock(&lcd_region_slock);
+}
+
+
+//#define ALIGN_DOWN(a, size)   (a & (~(size-1)) )
+//#define ALIGN_UP(a, size)        ((a+size-1) & (~ (size-1)))
+
+void edc_fb_update_dirty(struct fb_var_screeninfo *var, struct fb_info *info, bool is_overlay)
+{
+    int xoffset = 0, yoffset = 0, width = 0, height = 0;
+    int xwidth = 0, yheight = 0;
+    struct k3_fb_data_type *k3fd = NULL;
+    bool region_support = false;
+
+    k3fd = (struct k3_fb_data_type *)info->par;
+
+    region_support =  edc_fb_check_region(k3fd);
+
+    if (var->reserved[0] == 0x54445055) {
+        xoffset = var->reserved[1] & 0xffff;
+        yoffset = (var->reserved[1] >> 16) & 0xffff;
+        width = (var->reserved[2] & 0xffff) - xoffset;
+        height =   ((var->reserved[2] >> 16) & 0xffff) - yoffset;
+        //printk("!!!Dirty Update:  {%d, %d, %d, %d},  is_overlay:%d\t region_support=%d \n", xoffset, yoffset, width, height, is_overlay, region_support);
+
+        if(!region_support) {
+            xoffset = 0;
+            yoffset = 0;
+            width   = k3fd->panel_info.xres;
+            height  = k3fd->panel_info.yres;
+            //k3fb_logw("***Dirty Overlay:  {%d, %d, %d, %d},  is_overlay:%d\t region_support=%d\n", xoffset, yoffset, width, height, is_overlay, region_support);
+        }
+
+        xwidth = width;
+        yheight = height;
+
+        if (!is_overlay) {
+            yheight = ALIGN_UP((yheight+(yoffset&0x1)), 2); ;
+            yoffset  = ALIGN_DOWN(yoffset, 2);
+            if (var->bits_per_pixel == 16) {
+                xwidth = ALIGN_UP((xwidth+(xoffset&0x7)), 8);
+                xoffset = ALIGN_DOWN(xoffset, 8);
+            } else if (var->bits_per_pixel == 32) {
+                xwidth = ALIGN_UP((xwidth+(xoffset&0x3)), 4);
+                xoffset = ALIGN_DOWN(xoffset, 4);
+            }
+        }
+    } else {
+        xoffset = 0;
+        yoffset = 0;
+        xwidth   = k3fd->panel_info.xres;
+        yheight  = k3fd->panel_info.yres;
+    }
+
+    if((k3fd->xoffset != xoffset)
+        || (k3fd->yoffset != yoffset)
+        || (k3fd->xwidth != xwidth)
+        || (k3fd->yheight != yheight)
+        ) {
+        k3fd->xoffset = xoffset;
+        k3fd->yoffset = yoffset;
+        k3fd->xwidth = xwidth;
+        k3fd->yheight = yheight;
+        k3fd->dirty_update = true;
+    } else {
+        k3fd->dirty_update = false;
+    }
+    //printk("!!!Dirty New:  {%d, %d, %d, %d},   \tupdate=%d \n", xoffset, yoffset, xwidth, yheight, k3fd->dirty_update);
+}
+#endif
+
 int edc_fb_pan_display(struct fb_var_screeninfo *var, struct fb_info *info, int id)
 {
 	struct edc_overlay_pipe *pipe = NULL;
@@ -1764,6 +1966,7 @@ int edc_fb_pan_display(struct fb_var_screeninfo *var, struct fb_info *info, int 
 	u32 pre_type;
 	u32 pre_count;
 #endif
+	unsigned long flags;
 
 	BUG_ON(var == NULL || info == NULL || info->par == NULL);
 	k3fd = (struct k3_fb_data_type *)info->par;
@@ -1782,6 +1985,8 @@ int edc_fb_pan_display(struct fb_var_screeninfo *var, struct fb_info *info, int 
 	}
 
 	edc_base = pipe->edc_base;
+
+#if !defined(CONFIG_PARTIAL_UPDATES)
 	display_addr = info->fix.smem_start + info->fix.line_length * var->yoffset
 		+ var->xoffset * (var->bits_per_pixel >> 3);
 
@@ -1789,6 +1994,7 @@ int edc_fb_pan_display(struct fb_var_screeninfo *var, struct fb_info *info, int 
 		k3fb_logw("buf addr NOT 16 bytes aligned, %x!\n", display_addr);
 		return -EINVAL;
 	}
+#endif
 
 	/* stride 64byte odd align */
 	if (!is64BytesOddAlign(FB_64BYTES_ODD_ALIGN_NONE, info->fix.line_length)) {
@@ -1814,10 +2020,30 @@ int edc_fb_pan_display(struct fb_var_screeninfo *var, struct fb_info *info, int 
 	if (k3fd->panel_info.s3d_frm != EDC_FRM_FMT_2D) {
 		pipe->set_EDC_CHR_ADDR(edc_base, display_addr);
 	}
+
+#if defined(CONFIG_PARTIAL_UPDATES)
+        spin_lock_irqsave(&lcd_region_slock, flags);
+
+        edc_fb_update_dirty(var, info,  false);
+
+	display_addr = info->fix.smem_start + info->fix.line_length * var->yoffset
+	        +info->fix.line_length * k3fd->yoffset + k3fd->xoffset * (var->bits_per_pixel >> 3);
+
+	if (display_addr & 0x0F) {
+		k3fb_logw("buf addr NOT 16 bytes aligned, %x!\n", display_addr);
+		spin_unlock_irqrestore(&lcd_region_slock, flags);
+		return -EINVAL;
+	}
+#endif
+
 	pipe->set_EDC_CHL_ADDR(edc_base, display_addr);
 	pipe->set_EDC_CH_STRIDE(edc_base, info->fix.line_length);
 	pipe->set_EDC_CH_XY(edc_base, 0, 0);
+#if defined(CONFIG_PARTIAL_UPDATES)
+	pipe->set_EDC_CH_SIZE(edc_base, k3fd->xwidth, k3fd->yheight);
+#else
 	pipe->set_EDC_CH_SIZE(edc_base, k3fd->panel_info.xres, k3fd->panel_info.yres);
+#endif
 	pipe->set_EDC_CH_CTL_pix_fmt(edc_base, k3fd->fb_imgType);
 	pipe->set_EDC_CH_CTL_colork_en(edc_base, pipe->edc_ch_info.cap.ckey_enable);
 	if (pipe->edc_ch_info.cap.ckey_enable) {
@@ -1826,6 +2052,11 @@ int edc_fb_pan_display(struct fb_var_screeninfo *var, struct fb_info *info, int 
 	}
 	pipe->set_EDC_CH_CTL_ch_en(edc_base, K3_ENABLE);
 	set_EDC_DISP_CTL_cfg_ok(edc_base, EDC_CFG_OK_YES);
+
+#if defined(CONFIG_PARTIAL_UPDATES)
+	spin_unlock_irqrestore(&lcd_region_slock, flags);
+#endif
+
 	up(&k3fd->sem);
 
 	return 0;
@@ -1846,6 +2077,10 @@ int edc_fb_suspend(struct fb_info *info)
 		k3fb_loge("id=%d not able to get pipe!\n", k3fd->graphic_ch);
 		return -ENODEV;
 	}
+
+#if defined(CONFIG_PARTIAL_UPDATES)
+	k3fd->dirty_update = false;
+#endif
 
 	edc_base = pipe->edc_base;
 

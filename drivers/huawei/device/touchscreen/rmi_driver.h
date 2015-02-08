@@ -28,6 +28,8 @@
 #include <linux/ctype.h>
 /* Sysfs related macros */
 
+#define GLOVE_SWITCH_ADDR 0x0400                /*the addr of reg which open(close) the glove function*/
+
 /* You must define FUNCTION_DATA and FNUM to use these functions. */
 #define RMI4_SYSFS_DEBUG defined(CONFIG_RMI4_DEBUG) || defined(CONFIG_ANDROID))
 
@@ -53,7 +55,7 @@ static ssize_t tricat(rmi_fn_,FNUM,_##propname##_store)(\
 					struct device_attribute *attr,\
 					const char *buf, size_t count);\
 \
-DEVICE_ATTR(propname, RMI_WO_ATTR,\
+DEVICE_ATTR(propname, RMI_RO_ATTR_1,\
 		rmi_show_error,\
 		tricat(rmi_fn_, FNUM, _##propname##_store));
 

@@ -84,7 +84,7 @@
 #define	BSP_NORMAL_MODE						(0x00)
 #define DISABLE_ACCESS_TIME                 (2000)
 /* this number is equal to -20 degree*/
-#define BATTERY_TEMPERATURE_COLD  -20 
+#define BATTERY_TEMPERATURE_COLD  -20
 /* added for Firmware upgrade end */
 
 #define	BAT_VOL_3500						(3500)

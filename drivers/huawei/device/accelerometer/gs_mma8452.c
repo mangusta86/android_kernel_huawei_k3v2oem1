@@ -403,7 +403,7 @@ static ssize_t mma8452_get_polling_rate(struct device *dev,
     mutex_lock(&mma->lock);
     val = mma->pdata.poll_interval;
     mutex_unlock(&mma->lock);
-    return sprintf(buf, "%d\n", val);
+    return snprintf(buf, PAGE_SIZE, "%d\n", val);
 
     return 0;
 }
@@ -471,7 +471,7 @@ static ssize_t mma8452_get_range(struct device *dev,
     mutex_lock(&mma->lock);
     val = mma->pdata.g_range ;
     mutex_unlock(&mma->lock);
-    return sprintf(buf, "%d\n", val);
+    return snprintf(buf, PAGE_SIZE, "%d\n", val);
 }
 
 static ssize_t mma8452_set_range(struct device *dev,
@@ -718,7 +718,7 @@ static int  mma8452_probe(struct i2c_client *client ,
 	err =  i2c_smbus_write_byte_data(client, MMA8452_CTRL_REG3, 0x2);
 	if (err < 0) {
 		dev_err(&client->dev, "%s: failed to selects the polarity of the interrupt signal\n", __func__);
-		goto err_out;
+		goto err_init;
 	}
     mutex_init(&mma->lock);
     mma->client=client;

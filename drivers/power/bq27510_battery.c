@@ -57,6 +57,8 @@ typedef unsigned int uint32;
 #define MAGIC_NUMBER 0x12345678
 #define GAS_GAUGE_FIRMWARE_NAME  32
 #define FIRMWARE_UPDATE_RETRY_TIME 3
+#define RESET_RETRY_TIME 3
+#define RESET_SUCCESS_CHECK_TIME  20
 
 #define ERR_READ_CONFIG_NAME_ERROR -1
 #define ERR_FIRMWARE_READ_ERROR    -2
@@ -64,6 +66,7 @@ typedef unsigned int uint32;
 #define ERR_FIRMWARE_LENTH_ERROR   -4
 #define ERR_MEMORY_REQUIRE_ERROR   -5
 #define ERR_DATA_READ_CMP_ERROR    -6
+#define ERR_FIRMWARE_RESET_ERROR   -7
 
 struct firmware_header_entry
 {
@@ -508,6 +511,37 @@ bool bq27510_get_gasgauge_param_temperature(unsigned int* param_5,unsigned int* 
     return ret1 && ret2;
 }
 
+bool bq27510_get_batt_lineloss_resistance(unsigned int* design_resistance)
+{
+    bool ret = 0;
+    ret = get_hw_config_int("charger/line_loss_resistance", design_resistance, NULL);
+    return ret;
+}
+
+static int bq27510_get_fw_version(struct i2c_client *client)
+{
+    s32 fw_vision = BQ27510_U3_FW_VISION;
+
+    mutex_lock(&bq27510_battery_mutex);
+    i2c_smbus_write_word_data(client,BQ27510_REG_CTRL,BQ27510_FW_VISION);
+    mdelay(2);
+    fw_vision  = i2c_smbus_read_word_data(client,BQ27510_REG_CTRL);
+    mdelay(2);
+    mutex_unlock(&bq27510_battery_mutex);
+
+    if(fw_vision < 0){
+        BQ27510_ERR("i2c error in reading fw_vision!");
+        fw_vision = BQ27510_U3_FW_VISION;
+    }
+
+    if(fw_vision == 0){
+        BQ27510_ERR("err gauge fw_vision!");
+        fw_vision = BQ27510_U3_FW_VISION;
+    }
+
+    return fw_vision;
+}
+
 /*
  * Return the battery temperature in Celcius degrees
  * Or < 0 if something fails.
@@ -602,7 +636,12 @@ int bq27510_battery_capacity(struct bq27510_device_info *di)
     if(!bq27510_is_accessible())
         return gauge_context.capacity;
 
-    data = bq27510_i2c_read_word(di,BQ27510_REG_SOC);
+    if(BQ27510_G3_FW_VISION == bq27510_get_fw_version(di->client)){
+        data = bq27510_i2c_read_word(di,BQ27510_G3_REG_SOC);
+    } else {
+        data = bq27510_i2c_read_word(di,BQ27510_U3_REG_SOC);
+    }
+
     if((data < 0)||(data > 100)) {
         BQ27510_ERR("i2c error in reading capacity!");
         data = gauge_context.capacity;
@@ -890,6 +929,7 @@ static ssize_t bq27510_check_firmware_version(struct device_driver *driver, char
     }
     return sprintf(buf,"%d",error);
 }
+
 
 static ssize_t bq27510_check_qmax(struct device_driver *driver, char *buf)
 {
@@ -1281,6 +1321,11 @@ bq27510_firmware_program_begin:
 static int bq27510_firmware_download(struct i2c_client *client, const unsigned char *pgm_data, unsigned int len)
 {
     int iRet;
+    int reset_count = 0;
+    int flag = 0;
+    int i = 0;
+
+    struct bq27510_device_info* di = g_battery_measure_by_bq27510_device;
 
      gauge_context.state = BQ27510_UPDATE_FIRMWARE;
 
@@ -1305,16 +1350,40 @@ static int bq27510_firmware_download(struct i2c_client *client, const unsigned c
 
    gauge_context.locked_timeout_jiffies =  jiffies + msecs_to_jiffies(5000);
    gauge_context.state = BQ27510_LOCK_MODE;
-   if (0 != bq27510_i2c_word_write(client,BQ27510_REG_CTRL,0x0041))/* reset cmd*/
-        printk(KERN_ERR "[%s,%d] write reset failed\n",__FUNCTION__,__LINE__);
-   else
-        printk(KERN_ERR "[%s,%d] bq27510 download reset\n",__FUNCTION__,__LINE__);
+
+   do {
+       if (0 != bq27510_i2c_word_write(client,BQ27510_REG_CTRL,0x0041))/* reset cmd*/
+           printk(KERN_ERR "[%s,%d] write reset failed\n",__FUNCTION__,__LINE__);
+       else
+           printk(KERN_ERR "[%s,%d] write reset success\n",__FUNCTION__,__LINE__);
+
+       /*check if reset success or not.*/
+       msleep(100);
+       flag = bq27510_i2c_read_word(di,BQ27510_REG_FLAGS);
+       if(flag&BQ27510_OCV_GD){
+           reset_count++;
+           printk(KERN_ERR "[%s,%d] reset gauge device,count: %d\n",__FUNCTION__,__LINE__,reset_count);
+           continue;
+       }
+
+       msleep(2000);
+
+       for(i=0;i<RESET_SUCCESS_CHECK_TIME;i++){
+           flag = bq27510_i2c_read_word(di,BQ27510_REG_FLAGS);
+           if(flag&BQ27510_OCV_GD)
+               break;
+           msleep(100);
+       }
+
+       if(flag&BQ27510_OCV_GD)
+           break;
+
+       reset_count++;
+       printk(KERN_ERR "[%s,%d] reset gauge device,count: %d\n",__FUNCTION__,__LINE__,reset_count);
+    } while(reset_count != RESET_RETRY_TIME);
 
     return iRet;
 }
-
-
-
 
 #define ID_LEN   12
 int get_gas_version_id(char * id, char * name)
@@ -1732,8 +1801,9 @@ static ssize_t bq27510_show_voltage(struct device *dev,
                             struct device_attribute *attr, char *buf)
 {
     int val = 0;
-    int lineloss = 260;
+    int lineloss_resistance = 260;
     int curr = 0;
+
     struct bq27510_device_info *di = dev_get_drvdata(dev);
 
     if (NULL == buf) {
@@ -1742,10 +1812,12 @@ static ssize_t bq27510_show_voltage(struct device *dev,
     }
     val = bq27510_battery_voltage(di);
     val *=1000;
-    if(get_boot_into_recovery_flag()){
+    if(get_boot_into_recovery_flag() && runmode_is_factory()){
+        if (!bq27510_get_batt_lineloss_resistance(&lineloss_resistance))
+            printk(KERN_ERR "[%s,%d] lineloss resistance required in hw_configs.xml\n",__FUNCTION__,__LINE__);
         curr = (int)(bq27510_battery_current(di));
-        val = (val-(curr*lineloss));
-        dev_info(di->dev, "compensate voltage is %d\n",(curr*lineloss));
+        val = (val-(curr*lineloss_resistance));
+        dev_info(di->dev, "compensate voltage is %d\n",(curr*lineloss_resistance));
     }
     return sprintf(buf, "%d\n", val);
 }
@@ -1938,6 +2010,21 @@ static ssize_t bq27510x_show_input_capacity(struct device *dev,
     return sprintf(buf, "%lu\n", val);
 }
 
+static ssize_t bq27510x_show_fw_vision(struct device *dev,
+              struct device_attribute *attr,char *buf)
+{
+    int fw_vision = 0;
+    struct bq27510_device_info *di = dev_get_drvdata(dev);
+
+    fw_vision = bq27510_get_fw_version(di->client);
+
+    if(fw_vision < 0) {
+        return sprintf(buf,"Fail to read");
+    }
+
+    return sprintf(buf, "0x%-5.4x\n", fw_vision);
+}
+
 static DEVICE_ATTR(voltage, S_IWUSR | S_IRUGO,
                   bq27510_show_voltage,
                   NULL);
@@ -1965,6 +2052,9 @@ static DEVICE_ATTR(hand_chg_capacity_flag, S_IWUSR | S_IRUGO,
 static DEVICE_ATTR(input_capacity, S_IWUSR | S_IRUGO,
                   bq27510x_show_input_capacity,
                   bq27510_set_input_capacity);
+static DEVICE_ATTR(fw_vision, S_IWUSR | S_IRUGO,
+                  bq27510x_show_fw_vision,
+                  NULL);
 
 static struct attribute *bq27150_attributes[] = {
     &dev_attr_voltage.attr,
@@ -1976,6 +2066,7 @@ static struct attribute *bq27150_attributes[] = {
     &dev_attr_firmware_version.attr,
     &dev_attr_hand_chg_capacity_flag.attr,
     &dev_attr_input_capacity.attr,
+    &dev_attr_fw_vision.attr,
     NULL,
 };
 

@@ -39,11 +39,11 @@
 #include <linux/power/bq27510_battery.h>
 #include <linux/power/bq2419x_charger.h>
 #include <linux/power/bq_bci_battery.h>
-#else
+#endif
 #include <linux/power/k3_bq24161.h>
 #include <linux/power/k3_bq27510.h>
 #include <linux/power/k3_battery_monitor.h>
-#endif
+//#endif
 #include <linux/mhl/mhl.h>
 
 #include <linux/hkadc/hiadc_hal.h>
@@ -95,22 +95,19 @@
 #include <linux/interrupt.h>
 #endif
 #include <mach/ak6921af.h>
-#define	GPIO_BT_EN				(GPIO_21_1)
-#define	GPIO_BT_RST				(GPIO_21_0)
+#define	GPIO_BT_EN					(GPIO_21_1)
+#define	GPIO_BT_RST					(GPIO_21_0)
 #define	GPIO_HOST_WAKEUP			(GPIO_20_6)
 #define	GPIO_DEV_WAKEUP				(GPIO_20_7)
-#define	GPIO_BT_EN					(GPIO_21_1)		
+//#define	GPIO_BT_EN					(GPIO_21_1)	
 #include <linux/skbuff.h>
-#define	REGULATOR_DEV_BLUETOOTH_NAME	"bt-io"    
-#define GPIO_HIGH 1
-#define GPIO_LOW  0
-/* for framebuffer */
+//#include <linux/ti_wilink_st.h>
+#define	REGULATOR_DEV_BLUETOOTH_NAME	"bt-io"
 
+/* for framebuffer */
 #define TOUCH_INT_PIN  GPIO_19_5  /*GPIO_157*/
 #define TOUCH_RESET_PIN GPIO_19_4
-#define ENABLE_GPIO GPIO_7_5 /*GPIO_61*/
 #define SYNA_NAME "rmi_i2c"
-
 #ifdef CONFIG_LCD_TOSHIBA_MDW70
 #define PLATFORM_DEVICE_LCD_NAME "mipi_toshiba_MDW70_V001"
 #elif  defined(CONFIG_LCD_PANASONIC_VVX10F002A00)
@@ -131,17 +128,30 @@
 #define PLATFORM_DEVICE_LCD_NAME "mipi_toshiba_MDY90"
 #elif defined(CONFIG_LCD_K3_FAKE)
 #define PLATFORM_DEVICE_LCD_NAME "lcd_k3_fake_fb"
+#elif defined(CONFIG_LCD_CMI_OTM1282B_CMD)
+#define PLATFORM_DEVICE_LCD_NAME "mipi_cmi_OTM1282B"
 #else
 #error "PLATFORM_DEVICE_LCD_NAME not defined"
 #endif
 
-/* EternityProject: Broadcom (A)GPS defines */
-#define GPIO_GPS_BCM_EN		(GPIO_18_7)
-#define GPIO_GPS_BCM_RET	(GPIO_19_0)
-#define GPIO_GPS_BCM_EN_NAME	"gpio_gps_bcm_enable"
-#define GPIO_GPS_BCM_RET_NAME	"gpio_gps_bcm_rest"
-#define GPIO_GPS_BCM_REFCLK	(GPIO_19_1)		/* GPIO_153 */
-#define GPIO_GPS_BCM_REFCLK_NAME "gpio_gps_bcm_refclk"
+/* Begin: Added by d59977 for BCM GPS */
+#define GPIO_GPS_BCM_EN    (GPIO_18_7)
+#define GPIO_GPS_BCM_RET   (GPIO_19_0)
+/* End: Added by d59977 for BCM GPS */
+
+/* Begin: Added by d59977 for BCM GPS */
+#define GPIO_GPS_BCM_EN_NAME    "gpio_gps_bcm_enable"
+#define GPIO_GPS_BCM_RET_NAME   "gpio_gps_bcm_rest"
+/* End: Added by d59977 for BCM GPS */
+
+#define GPIO_LOW		0
+#define GPIO_HIGH		1
+
+/* Begin: Added for agps e911 */
+#define GPIO_GPS_BCM_REFCLK (GPIO_19_1)     /*GPIO_153*/
+#define GPIO_GPS_BCM_REFCLK_NAME   "gpio_gps_bcm_refclk"
+/* End: Added for agps e911 */
+
 
 static struct resource k3_adc_resources = {
 	.start	= REG_BASE_PMUSPI,
@@ -385,68 +395,40 @@ static struct platform_device k3_lcd_device = {
 	},
 };
 
-#if 0
 //usb switch C9800 default configuration
 //other project need to be configured in board id xml
-#define USB_SWITCH_CTRL_GPIO1	174		// SEL0 for C9800
-#define USB_SWITCH_CTRL_GPIO2	42		// SEL1 for C9800
-#define USB_SWITCH_CTRL_GPIO3	52		// OE for C9800
-#define USB_SWITCH_CTRL_GPIO4	53		// SW for C9800
-#define USB_MODEM_LOADSWITCH1	9
-#define USB_MODEM_LOADSWITCH2	8
+#define USB_SWITCH_CTRL_GPIO1	52		// SEL0 for C9800
+#define USB_SWITCH_CTRL_GPIO2	53		// SEL1 for C9800
+//#define USB_MODEM_LOADSWITCH1	99
 #define USB_SWITCH_INTERRUPT1_GPIO   99
-#define USB_SWITCH_INTERRUPT2_GPIO   27
-
+/*
+* usw_en_gpio  52        usw_ctrl_gpio  53
+*   0                   0               USB OFF
+*   0                   1               USB TO AP
+*   1                   0               SB TO MODEM
+*   1                   1               USB TO MHL
+*/
 //C9800 deafult configuration
 //other project need to be configured in board id xml
 static struct usb_switch_platform_data usw_plat_data = {
 		.name           = "usbsw",
 		.enable			= true,
-		.modem1_supported = true,
-		.modem_loadswitch1 = USB_MODEM_LOADSWITCH1,
+		.modem1_supported = false,
+//		.modem_loadswitch1 = USB_MODEM_LOADSWITCH1,
 		.modem_int_gpio1   = USB_SWITCH_INTERRUPT1_GPIO,
-		.modem2_supported = true,
-		.modem_loadswitch2 = USB_MODEM_LOADSWITCH2,
-		.modem_int_gpio2   = USB_SWITCH_INTERRUPT2_GPIO,
-		.mhl_supported	= true,
+		.modem2_supported = false,
+		.mhl_supported	= false,
 		.control_gpio1	= USB_SWITCH_CTRL_GPIO1,
 		.control_gpio2	= USB_SWITCH_CTRL_GPIO2,
-		.control_gpio3	= USB_SWITCH_CTRL_GPIO3,
-		.control_gpio4	= USB_SWITCH_CTRL_GPIO4,
 		.control_gpio1_boot_ap_value = GPIO_LOW,
 		.control_gpio2_boot_ap_value = GPIO_LOW,
-		.control_gpio3_boot_ap_value = GPIO_HIGH,
-		.control_gpio4_boot_ap_value = GPIO_HIGH,
 		.control_gpio1_off_value = GPIO_HIGH,
 		.control_gpio2_off_value = GPIO_HIGH,
-		.control_gpio3_off_value = GPIO_HIGH,
-		.control_gpio4_off_value = GPIO_HIGH,
 		.control_gpio1_modem1_value = GPIO_HIGH,
 		.control_gpio2_modem1_value = GPIO_LOW,
-		.control_gpio3_modem1_value = GPIO_LOW,
-		.control_gpio4_modem1_value = GPIO_LOW,
-		.control_gpio1_modem2_value = GPIO_HIGH,
-		.control_gpio2_modem2_value = GPIO_LOW,
-		.control_gpio3_modem2_value = GPIO_LOW,
-		.control_gpio4_modem2_value = GPIO_HIGH,
 		.control_gpio1_mhl_value = GPIO_LOW,
 		.control_gpio2_mhl_value = GPIO_HIGH,
-		.control_gpio3_mhl_value = GPIO_HIGH,
-		.control_gpio4_mhl_value = GPIO_HIGH,
 		.irq_flags      = IRQ_TYPE_EDGE_RISING,
-};
-#endif
-
-#define USB_SWITCH_CONTROL_GPIO		53
-#define USB_SWITCH_EN_GPIO		52
-#define USB_SWITCH_INTERRUPT_GPIO	99
-
-static struct usb_switch_platform_data usw_plat_data = {
-	.name		= "usbsw",
-	.usw_ctrl_gpio	= USB_SWITCH_CONTROL_GPIO,
-	.usw_en_gpio	= USB_SWITCH_EN_GPIO,
-	.usw_int_gpio	= USB_SWITCH_INTERRUPT_GPIO,
-	.irq_flags	= IRQ_TYPE_EDGE_RISING,
 };
 
 static struct platform_device usb_switch_device = {
@@ -472,6 +454,14 @@ static struct resource k3_gps_bcm_resources[] = {
 	.end   = GPIO_GPS_BCM_RET,
 	.flags = IORESOURCE_IO,
 	},
+	/* Begin: Added for agps e911 */
+	[2] = {
+	.name  = GPIO_GPS_BCM_REFCLK_NAME,
+	.start = GPIO_GPS_BCM_REFCLK,
+	.end   = GPIO_GPS_BCM_REFCLK,
+	.flags = IORESOURCE_IO,
+	},
+	/* end: Added for agps e911 */
 };
 
 static struct platform_device k3_gps_bcm_device = {
@@ -486,7 +476,7 @@ static struct platform_device k3_gps_bcm_device = {
 /* End: Added by d59977 for BCM GPS */
 
 
-
+//#if 0
 static struct resource bluepower_resources[] = {
 	{
 		.name	= "bt_gpio_enable",
@@ -535,7 +525,136 @@ static struct platform_device bcm_bluesleep_device = {
 	.num_resources	= ARRAY_SIZE(bluesleep_resources),
 	.resource	= bluesleep_resources,
 };
+#if 0
+static struct resource bluepower_resources[] = {
+	{
+		.name	= "bt_gpio_enable",
+		.start	= GPIO_BT_EN,
+		.end	= GPIO_BT_EN,
+		.flags	= IORESOURCE_IO,
+	},
+};
 
+static unsigned long retry_suspend;
+static int plat_wlink_kim_suspend(struct platform_device *pdev, pm_message_t
+        state)
+{
+    return 0;
+}
+
+static int plat_wlink_kim_resume(struct platform_device *pdev)
+{
+    return 0;
+}
+
+static struct wake_lock st_wk_lock;
+/* Call the uart disable of serial driver */
+static int plat_chip_asleep(void)
+{
+	int err = 0;
+	wake_unlock(&st_wk_lock);
+	return err;
+}
+
+/* Call the uart enable of serial driver */
+static int plat_chip_awake(void)
+{
+	int err = 0;
+	wake_lock(&st_wk_lock);
+	return err;
+}
+
+static int plat_chip_disable(void)
+{
+	int err = 0;
+	wake_unlock(&st_wk_lock);
+	return err;
+}
+
+/* Call the uart enable of serial driver */
+static int plat_chip_enable(void)
+{
+	int err = 0;
+	wake_lock(&st_wk_lock);
+	return err;
+}
+
+//static int plat_kim_chip_enable(struct kim_data_s *kim_data)
+//{
+//	printk(KERN_INFO"%s\n", __func__);
+//	/* Configure BT nShutdown to HIGH state */
+//	gpio_set_value(kim_data->nshutdown, GPIO_LOW);
+//	mdelay(5);      /* FIXME: a proper toggle */
+//	gpio_set_value(kim_data->nshutdown, GPIO_HIGH);
+//	printk(KERN_INFO"%s, gpio-%ld high\n", __func__, kim_data->nshutdown);
+//	mdelay(1000);
+//	return 0;
+//}
+//
+//static int plat_kim_chip_disable(struct kim_data_s *kim_data)
+//{
+//	printk(KERN_INFO"%s\n", __func__);
+//	/* By default configure BT nShutdown to LOW state */
+//	gpio_set_value(kim_data->nshutdown, GPIO_LOW);
+//	mdelay(1);
+//	gpio_set_value(kim_data->nshutdown, GPIO_HIGH);
+//	mdelay(1);
+//	gpio_set_value(kim_data->nshutdown, GPIO_LOW);
+//
+//	return 0;
+//}
+#define WILINK_UART_DEV_NAME "/dev/ttyAMA4"
+#define	GPIO_HOST_WAKEUP			(GPIO_20_2)   
+
+extern struct ti_st_plat_data wilink_pdata;
+//#if 0
+/*wl18xx BT, FM, GPS connectivity chip*/
+struct ti_st_plat_data wilink_pdata = {
+	.nshutdown_gpio = GPIO_BT_EN,
+	.dev_name = WILINK_UART_DEV_NAME,
+	.flow_cntrl = 1,
+//	.baud_rate = 115200,
+//	.baud_rate = 921600,
+	.baud_rate = 3000000,
+	.suspend = plat_wlink_kim_suspend,
+  	.resume = plat_wlink_kim_resume,
+  	.chip_asleep = plat_chip_asleep,
+	.chip_awake  = plat_chip_awake,
+	.chip_enable = plat_chip_enable,
+	.chip_disable = plat_chip_disable,
+};
+
+
+static struct platform_device wl18xx_device = {
+	.name = "kim",
+	.id = -1,
+	.dev.platform_data = &wilink_pdata,
+	.num_resources	= ARRAY_SIZE(bluepower_resources),
+	.resource	= bluepower_resources,
+};
+
+
+static struct platform_device btwilink_device = {
+	.name = "btwilink",
+	.id = -1,
+};
+static struct resource st_host_wake_resources[] = {
+	{
+		.name	= "host_wake",
+		.start	= GPIO_HOST_WAKEUP,
+		.end	= GPIO_HOST_WAKEUP,
+		.flags	= IORESOURCE_IRQ |IORESOURCE_IRQ_HIGHEDGE ,
+	},
+
+};
+
+static struct platform_device st_host_wake_device = {
+	.name =	"st_host_wake",
+	.id		= -1,
+	.num_resources	= ARRAY_SIZE(st_host_wake_resources),
+	.resource	= st_host_wake_resources,
+};
+#endif
 /*  camera resources */
 static struct resource hisik3_camera_resources[] = {
 	{
@@ -779,9 +898,9 @@ static ssize_t synaptics_virtual_keys_show(struct kobject *kobj,
 			       struct kobj_attribute *attr, char *buf)
 {
 	return sprintf(buf,
-		__stringify(EV_KEY) ":" __stringify(KEY_BACK)   ":125:1380:160:90"
-		":" __stringify(EV_KEY) ":" __stringify(KEY_HOMEPAGE)   ":360:1380:160:90"
-		":" __stringify(EV_KEY) ":" __stringify(KEY_MENU) ":598:1380:160:90"
+		__stringify(EV_KEY) ":" __stringify(KEY_BACK)   ":120:1380:160:150"
+		":" __stringify(EV_KEY) ":" __stringify(KEY_HOMEPAGE)   ":365:1380:160:150"
+		":" __stringify(EV_KEY) ":" __stringify(KEY_MENU) ":605:1380:160:150"
 		"\n");
 }
 
@@ -816,6 +935,152 @@ static void __init synaptics_virtual_keys_init(void)
 }
 /* TouchScreen end*/
 
+/* Atmel mXT224E Touchscreen start*/
+static struct atmel_i2c_platform_data atmel_tp_platform_data = {
+	.version = 0x10,
+	.source = 0,
+	.abs_x_min = 0,
+	.abs_x_max = 719,
+	.abs_y_min = 0,
+	.abs_y_max = 1279,
+	.abs_pressure_min = 0,
+	/*.abs_pressure_max = 15,*/
+	.abs_pressure_max = 255,
+	.abs_width_min = 0,
+	.abs_width_max = 255,
+	/*.abs_area_min = 0,*/
+	/*.abs_area_max = 255,*/
+	.gpio_irq = GPIO_19_5,
+	.gpio_reset = GPIO_19_4,
+	.power = NULL,
+	.config_T6 = {
+		0, 0, 0, 0, 0,
+		0
+	},
+	.config_T7 = {
+		32, 12, 25
+	},
+	.config_T8 = {
+		24, 0, 1, 10, 0,
+		0, 5, 60, 10, 192
+	},
+	.config_T9 = {
+		139, 0, 0, 19, 11,
+		0, 32, 66, 2, 3,
+		0, 5, 2, 47, 10,
+		15, 22, 10, 106, 5,/*XRANGE = 1386*/
+		207, 2, 0, 0, 2,/* YRANGE = 719*/
+		2, 161, 40, 183, 64,
+		30, 20, 0, 0, 1
+	},
+	.config_T15 = {
+		0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0,
+		0
+	},
+	.config_T19 = {
+		0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0,
+		0
+	},
+	.config_T23 = {
+		0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0
+	},
+	.config_T25 = {
+		0, 0, 0, 0, 0,
+		0, 0, 0, 0, 0,
+		0, 0, 0, 0
+	},
+	.config_T40 = {
+		0, 0, 0, 0, 0
+	},
+	.config_T42 = {
+		3, 40, 40, 80, 128,
+		0, 0, 0
+	},
+	.config_T46 = {
+		0, 3, 32, 32, 0,
+		0, 0, 0, 0
+	},
+	.config_T47 = {
+		0, 20, 50, 5, 2,
+		40, 40, 180, 0, 100
+	},
+	.config_T48 = {
+		1, 4, 10, 0, 0,
+		0, 0, 0, 1, 1,
+		0, 0, 0, 6, 6,
+		0, 0, 63, 6, 64,
+		10, 0, 20, 5, 0,
+		38, 0, 20, 0, 0,
+		0, 0, 0, 0, 0,
+		40, 2, 2, 2, 32,
+		10, 12, 20, 241, 251,
+		0, 0, 191, 40, 183,
+		64, 30, 15, 0
+	},
+	.object_crc = {
+		0xFD, 0x3B, 0x8D
+	},/*CRC*/
+	.cable_config = {
+		70, 30, 32, 32
+	},
+	.cable_config_T7 = {
+		32, 16, 25
+	},
+	.cable_config_T8 = {
+		24, 0, 5, 5, 0,
+		0, 5, 60, 10, 192
+	},
+	.cable_config_T9 = {
+		139, 0, 0, 19, 11,
+		0, 32, 66, 2, 3,
+		0, 5, 2, 64, 10,
+		12, 20, 10, 106, 5,/*XRANGE = 1386*/
+		207, 2, 0, 0, 0,/* YRANGE = 719*/
+		0, 161, 40, 183, 64,
+		30, 20, 0, 0, 0
+	},
+	.cable_config_T46 = {
+		0, 3, 40, 40, 0,
+		0, 0, 0, 0
+	},
+
+	.cable_config_T48 = {
+		1, 128, 114, 0, 0,
+		0, 0, 0, 1, 7,
+		0, 0, 0, 6, 6,
+		0, 0, 63, 6, 64,
+		10, 0, 20, 5, 0,
+		38, 0, 20, 0, 0,
+		0, 0, 0, 0, 0,
+		40, 2, 2, 2, 32,
+		10, 12, 20, 241, 251,
+		0, 0, 191, 40, 183,
+		64, 30, 15, 0
+	},
+	.noise_config = {
+		70, 3, 35
+	},
+	.filter_level = {
+		0, 0, 539, 539
+	},
+	.GCAF_level = {
+		8, 16, 24, 32, 40
+	},
+	.ATCH_NOR = {
+		0, 0, 5, 66, 10,
+		192
+	},
+	.ATCH_NOR_20S = {
+		0, 0, 255, 1, 0,
+		0
+	},
+};
+/* Atmel mXT224E Touchscreen end*/
 #ifdef CONFIG_TOUCHSCREEN_RMI4_SYNAPTICS_GENERIC
 struct syna_gpio_data {
     u16 attn_gpio_number;
@@ -878,14 +1143,19 @@ static struct rmi_device_platform_data syna_platformdata ={
     .driver_name = "rmi_generic",
     .sensor_name = "RMI4",
     .attn_gpio = TOUCH_INT_PIN,
-    .enable_gpio = ENABLE_GPIO,
     .attn_polarity = 0,
     .gpio_data = &rmi4_gpiodata,
     .gpio_config = synaptics_touchpad_gpio_setup,
     .reset_delay_ms = 100,
+#ifdef CONFIG_P2_TP_TK_CMD_FEATURE 
     .axis_align = {
     .flip_x = false,
     .flip_y = false,},
+#else
+    .axis_align = {
+    .flip_x = false,
+    .flip_y = true,},
+#endif
 };
 #endif
 
@@ -910,7 +1180,7 @@ static struct tpa2028_r_platform_data tpa2028_r_pdata = {
 
 /* TPA6132 */
 static struct tpa6132_platform_data tpa6132_pdata = {
-	.gpio_tpa6132_en    = GPIO_21_0,/* 168 */
+	.gpio_tpa6132_en    = GPIO_14_6,/* 118 */
 };
 
 static struct platform_device tpa6132_device = {
@@ -978,8 +1248,8 @@ static int hi6421_batt_table[] = {
 	591, 583, 575, 567, 559, 551, 543, 535, 527, 519, /* 50 - 59 */
 	511, 504, 496 /* 60 - 62 */
 };
-
 #if 0
+
 static struct bq_bci_platform_data hi6421_bci_data = {
     .termination_currentmA = 100,
     .monitoring_interval   = 10,
@@ -1016,9 +1286,7 @@ static struct bq2419x_platform_data bq2419x_data =
     .max_cin_limit_currentmA = 1200,
     .gpio = ENABLE_BQ2419x_CHARGER,
 };
-
-#else
-
+#endif
 static struct k3_battery_monitor_platform_data hi6421_bci_data = {
 	.termination_currentmA		=CIN_LIMIT_100,
 	.monitoring_interval		= MONITOR_TIME,
@@ -1054,7 +1322,7 @@ static struct k3_bq24161_platform_data k3_bq24161_data =
 	.max_charger_voltagemV = 4200,
 	.gpio = BQ24161_GPIO_074,
 };
-#endif
+//#endif
 
 #ifdef MHL_SII9244
 static struct mhl_platform_data k3_mhl_data =
@@ -1074,14 +1342,14 @@ static struct i2c_board_info hisik3_i2c_bus1_devs[]= {
 		.platform_data = &bq2419x_data,
 		.irq = GPIO_0_5,
 	},
-#else
+#endif
 	[0]	=	{
 		.type			= "k3_bq24161_charger",
 		.addr			= I2C_ADDR_BQ24161,
 		.platform_data 	= &k3_bq24161_data,
 		.irq				= GPIO_0_5,
 	},
-#endif
+
 	[1]	=	{
 		.type			= "bq27510-battery",
 		.addr			= I2C_ADDR_BQ27510,
@@ -1129,28 +1397,64 @@ static struct i2c_board_info hisik3_i2c_bus1_devs[]= {
 #else
     /*TODO: add your device here*/
 #endif
+    /* felica cen ak6921af */
+#ifdef CONFIG_HUAWEI_FEATURE_FELICA_AK6921AF    
+	{
+		.type			= AK6921AF_NAME, 
+		.addr			= AK6921AF_I2C_ADDR,		
+	},
+#endif    
 	
 };
 
 static struct i2c_board_info hisik3_i2c1_tp_devs[]= {
+	/* Atmel mXT224E touchscreen*/
+	[0] = 	{
+		.type			= ATMEL_MXT224E_NAME,
+		.addr			= 0x4A,
+		.platform_data	= &atmel_tp_platform_data,
+	},
+	/*TODO: add your device here*/
+#ifdef CONFIG_TOUCH_INPUT_SYNAPTICS_RMI4
 	/* Synaptics Touchscreen*/
-	[0] = {
+	[1] = {
 		.type		= SYNAPTICS_RMI4_NAME,
 		.addr		= SYNAPTICS_RMI4_I2C_ADDR,
 		/* Multi-touch support*/
 		.flags 		= true,
 		.platform_data 	= &synaptics_ts_platform_data,
 	},
+#endif
 };
 
 static struct i2c_board_info hisik3_i2c2_tp_devs[]= {
+	/* Atmel mXT224E touchscreen*/
+	[0] = 	{
+		.type			= ATMEL_MXT224E_NAME,
+		.addr			= 0x4A,
+		.platform_data	= &atmel_tp_platform_data,
+	},
+	/*TODO: add your device here*/
+#ifdef CONFIG_TOUCHSCREEN_RMI4_SYNAPTICS_GENERIC
 	/*Synaptics Touchscreen*/
-	[0] = {
+	[1] = {
 		.type			= SYNA_NAME,
 		.addr			= 0x70,
 		.flags 			= true,
 		.platform_data	= &syna_platformdata,
 	},
+#else
+	#ifdef CONFIG_TOUCH_INPUT_SYNAPTICS_RMI4
+	/* Synaptics Touchscreen*/
+	[1] = {
+		.type		= SYNAPTICS_RMI4_NAME,
+		.addr		= SYNAPTICS_RMI4_I2C_ADDR,
+		/* Multi-touch support*/
+		.flags 		= true,
+		.platform_data 	= &synaptics_ts_platform_data,
+	},
+	#endif
+#endif
 };
 
 
@@ -1177,7 +1481,7 @@ static struct platform_device *k3v2oem1_public_dev[] __initdata = {
 	&hisik3_camera_device,
 	&hisik3_fake_camera_device,
 	&hisik3_device_hwmon,
-	&hisik3_keypad_device,
+	&hisik3_gpio_keypad_device,
 	&hisik3_keypad_backlight_device,
 	&k3_lcd_device, 
 	&k3_gps_bcm_device, 
@@ -1219,34 +1523,14 @@ static void k3v2_i2c_devices_init(void)
 static void __init k3v2oem1_init(void)
 {
 	unsigned int  index = 0;
-	unsigned int  board_type;
+
 
 	edb_trace(1);
 	k3v2_common_init();
-	/* 
-	 * providing two ways of realizing keypad, one is KPC, the other is GPIO.
-	 * depending on current boardid, use corresponding register device.
-	 * boardid=0 means board, choose hisik3_keypad_device which is realized by KPC.
-	 * boardid=1 means phone, choose hisi_gpiokeypad_device which is realized by GPIO.
-	 */
-	board_type = get_board_type();
-	switch (board_type) {
-	case E_BOARD_TYPE_U9510:
+
 #ifdef CONFIG_LEDS_K3_6421
 		hi6421_led_device.dev.platform_data = &hi6421_leds_phone;
 #endif
-		for( index =0; index <  ARRAY_SIZE(k3v2oem1_public_dev); index++ ) {
-			if ( (struct platform_device *)(&hisik3_keypad_device) == (struct platform_device *)(k3v2oem1_public_dev[index]) ) {
-				k3v2oem1_public_dev[index] = &hisik3_gpio_keypad_device;
-				break;
-			}
-		}
-		break;
-	case E_BOARD_TYPE_PLATFORM:
-		break;
-	default:
-		break;
-	}
 	platform_add_devices(k3v2oem1_public_dev, ARRAY_SIZE(k3v2oem1_public_dev));
 
 	k3v2_i2c_devices_init();
@@ -1256,11 +1540,6 @@ static void __init k3v2oem1_init(void)
 	config_debugfs_init();
 	uart_output_debugfs_init();
 #endif
-
-	printk(KERN_INFO "!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
-	printk(KERN_INFO "!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
-	printk(KERN_INFO "!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
-	printk(KERN_INFO "Using board-k3v2oem1.c\n");
 }
 
 static void __init k3v2_early_init(void)
@@ -1278,77 +1557,8 @@ static void __init k3v2_early_init(void)
 		else
 #endif
 		k3v2_clk_init_from_table(common_clk_init_table_cs);
-	} else if (chip_id == DI_CHIP_ID) {
-		k3v2_clk_init_from_table(common_clk_init_table_es);
-	}
+	} 
 }
-
-#if 0
-static void k3v2_mem_setup(void)
-{
-	unsigned long reserved_size;
-
-	printk(KERN_INFO "k3v2_mem_setup\n");
-
-	/*
-	   Memory reserved for Graphic/ Dcode/EnCode
-	*/
-	reserved_size = hisi_get_reserve_mem_size();
-
-	/*
-	 * Memory configuration with SPARSEMEM enabled on  (see
-	 * asm/mach/memory.h for more information).
-	 */
-	arm_add_memory(PLAT_PHYS_OFFSET, (HISI_BASE_MEMORY_SIZE - reserved_size));
-
-	return;
-}
-
-/*
- * k3v2_mem=size1@start1[,size2@start2][,...]
- * size means memory size which larger than 512M
- */
-static int __init early_k3v2_mem(char *p)
-{
-	unsigned long size;
-	phys_addr_t start;
-	char *endp = NULL;
-	char *ep = NULL;
-
-	k3v2_mem_setup();
-
-	printk(KERN_INFO "k3v2_mem = %s\n", p);
-
-	start = PLAT_PHYS_OFFSET + HISI_BASE_MEMORY_SIZE;
-	while (*p != '\0') {
-		size  = memparse(p, &endp);
-		if (*endp == '@')
-			start = memparse(endp + 1, &ep);
-
-		/* oem ec1 1G memory based */
-		if ((start == SZ_512M)) {
-			if (size < SZ_512M)
-				size = 0;
-			else
-				size -= SZ_512M;
-		}
-
-		arm_add_memory(start, size);
-
-		printk(KERN_INFO "early_k3v2_mem start 0x%x size 0x%lx\n", start, size);
-
-		if (*ep == ',')
-			p = ep + 1;
-		else
-			break;
-
-		printk(KERN_INFO "k3v2_mem = %s\n", p);
-	}
-
-	return 0;
-}
-early_param("k3v2_mem", early_k3v2_mem);
-#endif
 
 static void __init k3v2_map_io(void)
 {

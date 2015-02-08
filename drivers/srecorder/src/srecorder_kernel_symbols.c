@@ -69,7 +69,7 @@ static srec_ksym_addr_t s_unregister_oom_notifier = INVALID_KSYM_ADDR;
 /*==================================================================*/
 /*             local variables for dump crash time begin            */
 /*==================================================================*/
-#if DUMP_CRASH_TIME
+#if defined(CONFIG_DUMP_CRASH_TIME)
 #endif
 /*==================================================================*/
 /*             local variables for dump crash time end              */
@@ -79,7 +79,7 @@ static srec_ksym_addr_t s_unregister_oom_notifier = INVALID_KSYM_ADDR;
 /*==================================================================*/
 /*             local variables for dump sys info begin              */
 /*==================================================================*/
-#if DUMP_SYS_INFO
+#if defined(CONFIG_DUMP_SYS_INFO)
 static srec_ksym_addr_t s_cpu_name = INVALID_KSYM_ADDR;
 static srec_ksym_addr_t s_machine_name = INVALID_KSYM_ADDR;
 static srec_ksym_addr_t s_all_bdevs = INVALID_KSYM_ADDR;
@@ -100,7 +100,7 @@ static srec_ksym_addr_t s_swap_lock = INVALID_KSYM_ADDR;
 /*               local variables for dump dmesg begin               */
 /*==================================================================*/
 /*有关获取dmesg内核消息的静态变量*/
-#if DUMP_DMESG
+#if defined(CONFIG_DUMP_DMESG)
 static srec_ksym_addr_t s_log_buf = INVALID_KSYM_ADDR;
 static srec_ksym_addr_t s_log_buf_len = INVALID_KSYM_ADDR;
 static srec_ksym_addr_t s_log_end = INVALID_KSYM_ADDR;
@@ -113,7 +113,7 @@ static srec_ksym_addr_t s_log_end = INVALID_KSYM_ADDR;
 /*==================================================================*/
 /*           local variables for dump allcpu stack begin            */
 /*==================================================================*/
-#if DUMP_ALLCPU_STACK
+#if defined(CONFIG_DUMP_ALLCPU_STACK)
 #endif
 /*==================================================================*/
 /*            local variables for dump allcpu stack end             */
@@ -123,7 +123,7 @@ static srec_ksym_addr_t s_log_end = INVALID_KSYM_ADDR;
 /*==================================================================*/
 /*             local variables for dump modem log begin             */
 /*==================================================================*/
-#if DUMP_MODEM_LOG
+#if defined(CONFIG_DUMP_MODEM_LOG)
 static srec_ksym_addr_t s_spinlocks_initialized = INVALID_KSYM_ADDR;
 static srec_ksym_addr_t s_remote_spinlock = INVALID_KSYM_ADDR;
 static srec_ksym_addr_t s_smem_areas = INVALID_KSYM_ADDR;
@@ -133,8 +133,9 @@ static srec_ksym_addr_t s_num_smem_areas = INVALID_KSYM_ADDR;
 /*             local variables for dump modem log end               */
 /*==================================================================*/
 
-#if DUMP_ALLCPU_STACK || DUMP_ALLPS_INFO
+#if defined(CONFIG_DUMP_ALLCPU_STACK) || defined(CONFIG_DUMP_ALLPS_INFO)
 #endif
+
 
 /*==================================================================*/
 /*            local variables for doing backtrace begin             */
@@ -157,7 +158,7 @@ static srec_ksym_addr_t s_unwind_lock = INVALID_KSYM_ADDR;
 /*==================================================================*/
 /*            local variables for dump all ps info begin            */
 /*==================================================================*/
-#if DUMP_ALLPS_INFO
+#if defined(CONFIG_DUMP_ALLPS_INFO)
 #endif
 /*==================================================================*/
 /*             local variables for dump all ps info end             */
@@ -167,7 +168,7 @@ static srec_ksym_addr_t s_unwind_lock = INVALID_KSYM_ADDR;
 /*==================================================================*/
 /*        local variables for dump current ps backtrace begin       */
 /*==================================================================*/
-#if DUMP_CURRENT_PS_BACKTRACE
+#if defined(CONFIG_DUMP_CURRENT_PS_BACKTRACE)
 static srec_ksym_addr_t s_arch_vma_name = INVALID_KSYM_ADDR;
 
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(2, 6, 38))
@@ -188,7 +189,7 @@ static srec_ksym_addr_t s_vfsmount_lock = INVALID_KSYM_ADDR;
 /*==================================================================*/
 /*             local variables for dump slab info begin             */
 /*==================================================================*/
-#if DUMP_SLAB_INFO
+#if defined(CONFIG_DUMP_SLAB_INFO)
 #ifdef CONFIG_SLAB
 static srec_ksym_addr_t s_cache_chain = INVALID_KSYM_ADDR;
 static srec_ksym_addr_t s_cache_chain_mutex = INVALID_KSYM_ADDR;
@@ -221,7 +222,7 @@ static syschk_sym_addr s_kernel_symbols_table[] =
     /*==================================================================*/
     /*             local variables for dump crash time begin            */
     /*==================================================================*/
-#if DUMP_CRASH_TIME
+#if defined(CONFIG_DUMP_CRASH_TIME)
 #endif
     /*==================================================================*/
     /*             local variables for dump crash time end              */
@@ -231,7 +232,7 @@ static syschk_sym_addr s_kernel_symbols_table[] =
     /*==================================================================*/
     /*             local variables for dump sys info begin              */
     /*==================================================================*/
-#if DUMP_SYS_INFO
+#if defined(CONFIG_DUMP_SYS_INFO)
     {"cpu_name", &s_cpu_name}, 
     {"machine_name", &s_machine_name}, 
     {"all_bdevs", &s_all_bdevs}, 
@@ -251,12 +252,7 @@ static syschk_sym_addr s_kernel_symbols_table[] =
     /*==================================================================*/
     /*               local variables for dump dmesg begin               */
     /*==================================================================*/
-#if DUMP_DMESG
-#ifdef CONFIG_KALLSYMS_ALL
-    {"log_buf", &s_log_buf}, 
-    {"log_buf_len", &s_log_buf_len}, 
-    {"log_end", &s_log_end}, 
-#endif
+#if defined(CONFIG_DUMP_DMESG)
 #endif
     /*==================================================================*/
     /*               local variables for dump dmesg end                 */
@@ -266,7 +262,7 @@ static syschk_sym_addr s_kernel_symbols_table[] =
     /*==================================================================*/
     /*           local variables for dump allcpu stack begin            */
     /*==================================================================*/
-#if DUMP_ALLCPU_STACK
+#if defined(CONFIG_DUMP_ALLCPU_STACK)
     /*如下变量用于获取系统信息*/
 #endif
     /*==================================================================*/
@@ -277,7 +273,7 @@ static syschk_sym_addr s_kernel_symbols_table[] =
     /*==================================================================*/
     /*             local variables for dump modem log begin             */
     /*==================================================================*/
-#if DUMP_MODEM_LOG
+#if defined(CONFIG_DUMP_MODEM_LOG)
     {"spinlocks_initialized", &s_spinlocks_initialized}, 
     {"remote_spinlock", &s_remote_spinlock}, 
     {"smem_areas", &s_smem_areas}, 
@@ -287,7 +283,7 @@ static syschk_sym_addr s_kernel_symbols_table[] =
     /*             local variables for dump modem log end               */
     /*==================================================================*/
     
-#if DUMP_ALLCPU_STACK || DUMP_ALLPS_INFO
+#if defined(CONFIG_DUMP_ALLCPU_STACK) || defined(CONFIG_DUMP_ALLPS_INFO)
     /*如下变量用于获取所有进程信息*/
 #endif
 
@@ -314,7 +310,7 @@ static syschk_sym_addr s_kernel_symbols_table[] =
     /*==================================================================*/
     /*            local variables for dump all ps info begin            */
     /*==================================================================*/
-#if DUMP_ALLPS_INFO
+#if defined(CONFIG_DUMP_ALLPS_INFO)
 #endif
     /*==================================================================*/
     /*             local variables for dump all ps info end             */
@@ -324,7 +320,7 @@ static syschk_sym_addr s_kernel_symbols_table[] =
     /*==================================================================*/
     /*        local variables for dump current ps backtrace begin       */
     /*==================================================================*/
-#if DUMP_CURRENT_PS_BACKTRACE
+#if defined(CONFIG_DUMP_CURRENT_PS_BACKTRACE)
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 36))
     {"vfsmount_lock_lock", &s_vfsmount_lock_lock}, 
 #else
@@ -346,7 +342,7 @@ static syschk_sym_addr s_kernel_symbols_table[] =
     /*==================================================================*/
     /*             local variables for dump slab info begin             */
     /*==================================================================*/
-#if DUMP_SLAB_INFO
+#if defined(CONFIG_DUMP_SLAB_INFO)
 #ifdef CONFIG_SLAB
     {"cache_chain", &s_cache_chain}, 
     {"cache_chain_mutex", &s_cache_chain_mutex}, 
@@ -363,7 +359,7 @@ static syschk_sym_addr s_kernel_symbols_table[] =
 
 /*----global variables-----------------------------------------------------------------*/
 
-#if DUMP_SYS_INFO && !(defined(CONFIG_DEBUG_KERNEL) && defined(CONFIG_KALLSYMS_ALL))
+#if defined(CONFIG_DUMP_SYS_INFO) && !(defined(CONFIG_DEBUG_KERNEL) && defined(CONFIG_KALLSYMS_ALL))
 extern unsigned long get_cpu_name(void);
 extern unsigned long get_machine_name(void);
 extern unsigned long get_all_bdevs(void);
@@ -373,7 +369,7 @@ extern unsigned long get_swap_lock(void);
 extern unsigned long get_swap_info(void);
 #endif
 
-#if DUMP_SLAB_INFO && !(defined(CONFIG_DEBUG_KERNEL) && defined(CONFIG_KALLSYMS_ALL))
+#if defined(CONFIG_DUMP_SLAB_INFO) && !(defined(CONFIG_DEBUG_KERNEL) && defined(CONFIG_KALLSYMS_ALL))
 #ifdef CONFIG_SLAB
 extern unsigned long get_cache_chain(void);
 extern unsigned long get_cache_chain_mutex(void);
@@ -388,14 +384,14 @@ extern unsigned long get_slub_lock(void);
 
 static int srecorder_get_other_symbols(void);
 
-#if !USE_KERNEL_SYMBOL_KALLSYMS_LOOKUP_NAME
+#ifndef CONFIG_KALLSYMS
 static int srecorder_get_symbol_kallsyms_lookup_name(const char *line, int len);
 #endif
 
 
 /*----function definitions--------------------------------------------------------------*/
 
-#if DUMP_SYS_INFO
+#if defined(CONFIG_DUMP_SYS_INFO)
 /**
     @function: srec_ksym_addr_t srecorder_get_cpu_name(void)
     @brief: 获取变量cpu_name的地址
@@ -490,7 +486,7 @@ srec_ksym_addr_t srecorder_get_bdev_lock(void)
 srec_ksym_addr_t srecorder_get_nr_swapfiles(void)
 {
 #if !(defined(CONFIG_DEBUG_KERNEL) && defined(CONFIG_KALLSYMS_ALL))
-    s_bdev_lock = get_nr_swapfiles();
+    s_nr_swapfiles = get_nr_swapfiles();
 #endif
 
     return s_nr_swapfiles;
@@ -510,7 +506,7 @@ srec_ksym_addr_t srecorder_get_nr_swapfiles(void)
 srec_ksym_addr_t srecorder_get_swap_info(void)
 {
 #if !(defined(CONFIG_DEBUG_KERNEL) && defined(CONFIG_KALLSYMS_ALL))
-    s_bdev_lock = get_swap_info();
+    s_swap_info = get_swap_info();
 #endif
 
     return s_swap_info;
@@ -530,7 +526,7 @@ srec_ksym_addr_t srecorder_get_swap_info(void)
 srec_ksym_addr_t srecorder_get_swap_lock(void)
 {
 #if !(defined(CONFIG_DEBUG_KERNEL) && defined(CONFIG_KALLSYMS_ALL))
-    s_bdev_lock = get_swap_lock();
+    s_swap_lock = get_swap_lock();
 #endif
 
     return s_swap_lock;
@@ -539,7 +535,7 @@ srec_ksym_addr_t srecorder_get_swap_lock(void)
 #endif
 
 
-#if DUMP_MODEM_LOG
+#if defined(CONFIG_DUMP_MODEM_LOG)
 /**
     @function: srec_ksym_addr_t srecorder_get_spinlocks_initialized(void)
     @brief: 获取变量spinlocks_initialized的地址
@@ -605,7 +601,7 @@ srec_ksym_addr_t srecorder_get_num_smem_areas(void)
 #endif
 
 
-#if DUMP_CURRENT_PS_BACKTRACE
+#if defined(CONFIG_DUMP_CURRENT_PS_BACKTRACE)
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 36))
 /**
     @function: srec_ksym_addr_t srecorder_get_vfsmount_lock_lock(void)
@@ -745,15 +741,15 @@ srec_ksym_addr_t srecorder_get_unwind_lock(void)
 #endif
 
 
-#if DUMP_ALLPS_INFO
+#if defined(CONFIG_DUMP_ALLPS_INFO)
 #endif
 
 
-#if DUMP_ALLCPU_STACK || DUMP_ALLPS_INFO
+#if defined(CONFIG_DUMP_ALLCPU_STACK) || defined(CONFIG_DUMP_ALLPS_INFO)
 #endif
 
 
-#if DUMP_ALLCPU_STACK
+#if defined(CONFIG_DUMP_ALLCPU_STACK)
 #endif
 
 
@@ -873,7 +869,7 @@ srec_ksym_addr_t srecorder_get_unregister_oom_notifier(void)
 #endif
 
 
-#if DUMP_DMESG
+#if defined(CONFIG_DUMP_DMESG)
 /**
     @function: srec_ksym_addr_t srecorder_get_log_buf(void)
     @brief: 得到内核ring buffer的起始地址
@@ -938,7 +934,7 @@ srec_ksym_addr_t srecorder_get_log_end(void)
 #endif
 
 
-#if DUMP_SLAB_INFO
+#if defined(CONFIG_DUMP_SLAB_INFO)
 #ifdef CONFIG_SLAB
 /**
     @function: srec_ksym_addr_t srecorder_get_cache_chain(void)
@@ -1056,7 +1052,7 @@ static int srecorder_get_other_symbols(void)
 }
 
 
-#if !USE_KERNEL_SYMBOL_KALLSYMS_LOOKUP_NAME
+#ifndef CONFIG_KALLSYMS
 /**
     @function: static int srecorder_get_symbol_kallsyms_lookup_name(const char *line, int len)
     @brief: 给s_kernel_symbols_table表中的内核符号找到对应的地址
@@ -1153,7 +1149,7 @@ int srecorder_init_kernel_symbols(srecorder_module_init_params_t *pinit_params)
 {
     int ret;
     
-#if !USE_KERNEL_SYMBOL_KALLSYMS_LOOKUP_NAME
+#ifndef CONFIG_KALLSYMS
     int linelen = 0;
     int readlen = 0;
     int i = 0;

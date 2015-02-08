@@ -33,7 +33,7 @@
 #include "../include/srecorder_memory.h"
 
 
-#if DUMP_DMESG
+#if defined(CONFIG_DUMP_DMESG)
 
 /*----local macroes------------------------------------------------------------------*/
 
@@ -123,13 +123,13 @@ int srecorder_get_dmesg(srecorder_reserved_mem_info_t *pmem_info)
         return -1;
     }
 
-    if (srecorder_get_bit(DMESG))
+    if (srecorder_log_has_been_dumped(DMESG_BIT2))
     {
         SRECORDER_PRINTK("dmesg has been dumped successfully!\n");
         return 0;
     }
     
-    if (0 != srecorder_write_info_header(pmem_info, DMESG, &pinfo_header))
+    if (0 != srecorder_write_info_header(pmem_info, DMESG_BIT2, &pinfo_header))
     {
         return -1;
     }
@@ -149,7 +149,7 @@ int srecorder_get_dmesg(srecorder_reserved_mem_info_t *pmem_info)
     * will overwrite the start of what we dump. 
     */
     log_end = (*(srec_ksym_addr_t *)srecorder_get_log_end()) & LOG_BUF_MASK(log_buf_len);
-    bytes_to_read = MIN((pmem_info->bytes_left - 1), MIN(log_buf_len, DMESG_MAX_LENGTH));
+    bytes_to_read = MIN((pmem_info->bytes_left - 1), MIN(log_buf_len, log_buf_len));
 
     if (log_end >= bytes_to_read)
     {
@@ -190,7 +190,7 @@ int srecorder_get_dmesg(srecorder_reserved_mem_info_t *pmem_info)
 */
 int srecorder_init_dmesg(srecorder_module_init_params_t *pinit_params)
 {
-    srecorder_clear_bit(DMESG);
+    srecorder_clear_log_dumped_bit(DMESG_BIT2);
     
     return 0;
 }
@@ -208,7 +208,7 @@ int srecorder_init_dmesg(srecorder_module_init_params_t *pinit_params)
 */
 void srecorder_exit_dmesg(void)
 {
-    srecorder_set_bit(DMESG);
+    srecorder_set_log_dumped_bit(DMESG_BIT2);
 }
 #else
 int srecorder_get_dmesg(srecorder_reserved_mem_info_t *pmem_info)

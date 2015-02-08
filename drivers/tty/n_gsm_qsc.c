@@ -65,7 +65,7 @@ static int debug = 0;
 module_param(debug, int, 0600);
 
 /******************** Special for 6085 modem Begin ********************/
-#define MAX_CHANNEL    9
+#define MAX_CHANNEL    11
 #define MUX_ADAPTION    1
 
 #undef  N_GSM0710

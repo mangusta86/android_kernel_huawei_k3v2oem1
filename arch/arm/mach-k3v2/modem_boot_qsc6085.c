@@ -170,6 +170,7 @@ static ssize_t modem_boot_set(struct device *dev,
                  const char *buf, size_t count)
 {
     int state;
+    unsigned long flags;
 
     dev_info(dev, "Power PHY set to %s\n", buf);
 
@@ -191,6 +192,12 @@ static ssize_t modem_boot_set(struct device *dev,
     } else if (state == POWER_SET_DEBUGOFF) {
         modem_boot_change_state(state);
         modem_boot_power_off();
+    } else if (state == POWER_SET_RESET) {
+        dev_info(dev, "set modem reset.\n");
+        spin_lock_irqsave(&modem_device->lock, flags);
+        modem_device->modem_state = MODEM_STATE_RESET;
+        spin_unlock_irqrestore(&modem_device->lock, flags);
+        schedule_work(&modem_device->work);
     } else {
         dev_err(dev, "Power PHY error state. %s\n", buf);
     }

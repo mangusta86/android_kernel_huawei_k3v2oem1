@@ -261,6 +261,9 @@ struct k3_fb_panel_data {
 	int (*set_frc)(struct platform_device *pdev, int target_fps);
 	int (*set_cabc)(struct platform_device *pdev, int value);
 	int (*check_esd) (struct platform_device *pdev);
+#if defined(CONFIG_PARTIAL_UPDATES)
+	int (*set_display_region)(struct platform_device *pdev, int x, int y, int width, int height);
+#endif
 	struct platform_device *next;
 };
 

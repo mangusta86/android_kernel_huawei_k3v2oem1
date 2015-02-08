@@ -1,22 +1,23 @@
 /****************************************************************************
-*  
-*    Copyright (C) 2002 - 2009 by Vivante Corp.
-*  
+*
+*    Copyright (C) 2005 - 2013 by Vivante Corp.
+*
 *    This program is free software; you can redistribute it and/or modify
-*    it under the terms of the GNU General Public Lisence as published by 
-*    the Free Software Foundation; either version 2 of the license, or 
+*    it under the terms of the GNU General Public License as published by
+*    the Free Software Foundation; either version 2 of the license, or
 *    (at your option) any later version.
-*  
+*
 *    This program is distributed in the hope that it will be useful,
-*    but WITHOUT ANY WARRANTY; without even the implied warranty of 
-*    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the 
-*    GNU General Public Lisence for more details.
-*  
+*    but WITHOUT ANY WARRANTY; without even the implied warranty of
+*    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+*    GNU General Public License for more details.
+*
 *    You should have received a copy of the GNU General Public License
 *    along with this program; if not write to the Free Software
 *    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
-*  
+*
 *****************************************************************************/
+
 
 #include <stdarg.h>
 
@@ -26,54 +27,54 @@
  #define MAX_LINE_SIZE 768  	     /* Max bytes for a line of debug info */
 
 
- typedef struct _gcsDEBUGFS_Node gcsDEBUGFS_Node;
+ typedef struct _gcsDebugFileSystemNode gcsDebugFileSystemNode ;
 
 
 /*******************************************************************************
  **
  **                             System Related
- **		  
+ **
  *******************************************************************************/
 
-gctINT gckDEBUGFS_IsEnabled(void);
+gctINT    gckDebugFileSystemIsEnabled(void);
 
-gctINT gckDEBUGFS_Initialize(void);
+gctINT   gckDebugFileSystemInitialize(void);
 
-gctINT gckDEBUGFS_Terminate(void);
+gctINT   gckDebugFileSystemTerminate(void);
 
 
 /*******************************************************************************
  **
  **                             Node Related
- **		  
+ **
  *******************************************************************************/
 
-gctINT gckDEBUGFS_CreateNode(
+gctINT gckDebugFileSystemCreateNode(
  			IN gctINT SizeInKB,
                         IN gctCONST_STRING  ParentName ,
                         IN gctCONST_STRING  NodeName,
-                        OUT gcsDEBUGFS_Node  **Node
+                        OUT gcsDebugFileSystemNode  **Node
                         );
 
 
-void gckDEBUGFS_FreeNode(
-			IN gcsDEBUGFS_Node  * Node
+void gckDebugFileSystemFreeNode(
+			IN gcsDebugFileSystemNode  * Node
 			);
 
 
 
-void gckDEBUGFS_SetCurrentNode(
-			IN gcsDEBUGFS_Node  * Node
+void gckDebugFileSystemSetCurrentNode(
+			IN gcsDebugFileSystemNode  * Node
 			);
 
 
 
-void gckDEBUGFS_GetCurrentNode(
-			OUT gcsDEBUGFS_Node  ** Node
+void gckDebugFileSystemGetCurrentNode(
+			OUT gcsDebugFileSystemNode  ** Node
 			);
 
 
-void gckDEBUGFS_Print(
+void gckDebugFileSystemPrint(
     			IN gctCONST_STRING  Message,
     			...
    			 );

@@ -53,6 +53,9 @@ extern unsigned long hisi_reserved_vpp_phymem;
 #elif defined(CONFIG_LCD_K3_FAKE)
 #define LCD_XRES	(720)
 #define LCD_YRES	(1280)
+#elif defined(CONFIG_LCD_CMI_OTM1282B_CMD)
+#define LCD_XRES	(720)
+#define LCD_YRES	(1280)
 #else
 #error "LCD_XRES and LCD_YRES not defined"
 #endif

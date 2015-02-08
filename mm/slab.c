@@ -121,7 +121,8 @@
 #include	<asm/tlbflush.h>
 #include	<asm/page.h>
 
-#ifdef CONFIG_SRECORDER
+#ifdef CONFIG_DUMP_SLAB_INFO
+#include <linux/module.h>
 #include <linux/srecorder.h>
 #endif
 
@@ -681,16 +682,16 @@ static inline void init_lock_keys(void)
 static DEFINE_MUTEX(cache_chain_mutex);
 static struct list_head cache_chain;
 
-#if defined(CONFIG_SRECORDER) && DUMP_SLAB_INFO
+#ifdef CONFIG_DUMP_SLAB_INFO
 unsigned long get_cache_chain_mutex(void)
 {
-    return &cache_chain_mutex;
+    return (unsigned long)&cache_chain_mutex;
 }
 EXPORT_SYMBOL(get_cache_chain_mutex);
 
 unsigned long get_cache_chain(void)
 {
-    return &cache_chain;
+    return (unsigned long)&cache_chain;
 }
 EXPORT_SYMBOL(get_cache_chain);
 #endif
@@ -3236,10 +3237,12 @@ static void *alternate_node_alloc(struct kmem_cache *cachep, gfp_t flags)
 	if (in_interrupt() || (flags & __GFP_THISNODE))
 		return NULL;
 	nid_alloc = nid_here = numa_mem_id();
+	get_mems_allowed();
 	if (cpuset_do_slab_mem_spread() && (cachep->flags & SLAB_MEM_SPREAD))
 		nid_alloc = cpuset_slab_spread_node();
 	else if (current->mempolicy)
 		nid_alloc = slab_node(current->mempolicy);
+	put_mems_allowed();
 	if (nid_alloc != nid_here)
 		return ____cache_alloc_node(cachep, flags, nid_alloc);
 	return NULL;
@@ -3262,16 +3265,13 @@ static void *fallback_alloc(struct kmem_cache *cache, gfp_t flags)
 	enum zone_type high_zoneidx = gfp_zone(flags);
 	void *obj = NULL;
 	int nid;
-	unsigned int cpuset_mems_cookie;
 
 	if (flags & __GFP_THISNODE)
 		return NULL;
 
-	local_flags = flags & (GFP_CONSTRAINT_MASK|GFP_RECLAIM_MASK);
-
-retry_cpuset:
-	cpuset_mems_cookie = get_mems_allowed();
+	get_mems_allowed();
 	zonelist = node_zonelist(slab_node(current->mempolicy), flags);
+	local_flags = flags & (GFP_CONSTRAINT_MASK|GFP_RECLAIM_MASK);
 
 retry:
 	/*
@@ -3325,9 +3325,7 @@ retry:
 			}
 		}
 	}
-
-	if (unlikely(!put_mems_allowed(cpuset_mems_cookie) && !obj))
-		goto retry_cpuset;
+	put_mems_allowed();
 	return obj;
 }
 

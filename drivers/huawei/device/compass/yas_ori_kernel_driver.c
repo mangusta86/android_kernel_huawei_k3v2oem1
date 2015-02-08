@@ -294,16 +294,16 @@ suspend(void)
 	/* implement suspend of the sensor */
 	YLOGD(("%s: suspend\n", YAMAHA_SENSOR_NAME));
 
-	if (strcmp(YAMAHA_SENSOR_NAME, "gyroscope") == 0)
-		; /* suspend gyroscope */
-	else if (strcmp(YAMAHA_SENSOR_NAME, "light") == 0)
-		; /* suspend light */
-	else if (strcmp(YAMAHA_SENSOR_NAME, "pressure") == 0)
-		; /* suspend pressure */
-	else if (strcmp(YAMAHA_SENSOR_NAME, "temperature") == 0)
-		; /* suspend temperature */
-	else if (strcmp(YAMAHA_SENSOR_NAME, "proximity") == 0)
-		; /* suspend proximity */
+	//if (strcmp(YAMAHA_SENSOR_NAME, "gyroscope") == 0)
+	//	; /* suspend gyroscope */
+	//else if (strcmp(YAMAHA_SENSOR_NAME, "light") == 0)
+	//	; /* suspend light */
+	//else if (strcmp(YAMAHA_SENSOR_NAME, "pressure") == 0)
+	//	; /* suspend pressure */
+	//else if (strcmp(YAMAHA_SENSOR_NAME, "temperature") == 0)
+	//	; /* suspend temperature *//	
+	//else if (strcmp(YAMAHA_SENSOR_NAME, "proximity") == 0)
+	//	; /* suspend proximity */
 
 	return 0;
 }
@@ -314,16 +314,16 @@ resume(void)
 	/* implement resume of the sensor */
 	YLOGD(("%s: resume\n", YAMAHA_SENSOR_NAME));
 
-	if (strcmp(YAMAHA_SENSOR_NAME, "gyroscope") == 0)
-		; /* resume gyroscope */
-	else if (strcmp(YAMAHA_SENSOR_NAME, "light") == 0)
-		; /* resume light */
-	else if (strcmp(YAMAHA_SENSOR_NAME, "pressure") == 0)
-		; /* resume pressure */
-	else if (strcmp(YAMAHA_SENSOR_NAME, "temperature") == 0)
-		; /* resume temperature */
-	else if (strcmp(YAMAHA_SENSOR_NAME, "proximity") == 0)
-		; /* resume proximity */
+	//if (strcmp(YAMAHA_SENSOR_NAME, "gyroscope") == 0)
+	//	; /* resume gyroscope */
+	//else if (strcmp(YAMAHA_SENSOR_NAME, "light") == 0)
+	//	; /* resume light */
+	//else if (strcmp(YAMAHA_SENSOR_NAME, "pressure") == 0)
+	//	; /* resume pressure */
+	//else if (strcmp(YAMAHA_SENSOR_NAME, "temperature") == 0)
+	//	; /* resume temperature */
+	//else if (strcmp(YAMAHA_SENSOR_NAME, "proximity") == 0)
+	//	; /* resume proximity */ 
 
 #if DEBUG
 	{
@@ -351,7 +351,7 @@ sensor_delay_show(struct device *dev,
 
 	mutex_unlock(&data->mutex);
 
-	return sprintf(buf, "%d\n", delay);
+	return snprintf(buf, PAGE_SIZE, "%d\n", delay);
 }
 
 static ssize_t
@@ -406,7 +406,7 @@ sensor_enable_show(struct device *dev,
 
 	mutex_unlock(&data->mutex);
 
-	return sprintf(buf, "%d\n", enabled);
+	return snprintf(buf, PAGE_SIZE, "%d\n", enabled);
 }
 
 static ssize_t
@@ -529,7 +529,7 @@ sensor_data_show(struct device *dev, struct device_attribute *attr, char *buf)
 
 
 #if SENSOR_TYPE <= 4 || 9 <= SENSOR_TYPE
-	return sprintf(buf, "%d %d %d\n", x, y, z);
+	return snprintf(buf, PAGE_SIZE, "%d %d %d\n", x, y, z);
 #else
 	return sprintf(buf, "%d\n", x);
 #endif
@@ -544,7 +544,7 @@ sensor_status_show(struct device *dev,
 	int status;
 	status = input_abs_get_val(input_data, ABS_STATUS);
 
-	return sprintf(buf, "%d\n", status);
+	return snprintf(buf, PAGE_SIZE, "%d\n", status);
 }
 
 static DEVICE_ATTR(delay, S_IRUGO|S_IWUSR|S_IWGRP,

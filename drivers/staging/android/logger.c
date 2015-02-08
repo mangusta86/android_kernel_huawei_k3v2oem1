@@ -38,6 +38,7 @@
 #endif
 
 #include <linux/mtd/nve_interface.h>
+#include <linux/srecorder.h>
 
 typedef enum android_LogPriority {
 	ANDROID_LOG_UNKNOWN = 0,
@@ -62,7 +63,6 @@ static int minor_of_events = 0;
 static int minor_of_main = 0;
 static int minor_of_power = 0;
 static int logctl_nv = 0;
-#define RETRY_COUNT 3
 
 #ifndef CONFIG_K3_LOG
 /*
@@ -450,23 +450,24 @@ ssize_t logger_aio_write(struct kiocb *iocb, const struct iovec *iov,
 	struct logger_entry header;
 	struct timespec now;
 	ssize_t ret = 0;
-        static int retry = 0;
+        static int count = 0;
+        static int read_lognv_err = 0;
 
         char priority = 0;
         char tag[MAX_TAG_LEN] = {0};
         get_log_entry(iov, nr_segs, &priority, tag, sizeof(tag));
         tag[sizeof(tag) - 1] = 0;
 
-        if(retry < RETRY_COUNT)
+        if(count == 0)
         {
+              count++;
               logctl_nv = read_logctl_state_from_nv();
               printk("%s, logctl_nv=%d\n", __FUNCTION__, logctl_nv);
-              if(logctl_nv >= 0)
+              if(logctl_nv == -1 && read_lognv_err == 0)
               {
-                   retry = RETRY_COUNT;
-              }
-              else
-                   retry++;
+                    read_lognv_err++;
+                    count--;
+               }
         }
 
         /* if log device is events or main which its priority is more than ANDROID_LOG_INFO, we also pass it */
@@ -478,7 +479,7 @@ ssize_t logger_aio_write(struct kiocb *iocb, const struct iovec *iov,
         }
         else
         {
-            return -1;
+            return 0;
         }
 
 	now = current_kernel_time();
@@ -697,6 +698,25 @@ static const struct file_operations logger_fops = {
  * must be a power of two, greater than LOGGER_ENTRY_MAX_LEN, and less than
  * LONG_MAX minus LOGGER_ENTRY_MAX_LEN.
  */
+#ifndef CONFIG_ARCH_K3V2
+#define DEFINE_LOGGER_DEVICE(VAR, NAME, SIZE) \
+static unsigned char _buf_ ## VAR[SIZE] __attribute__((__section__(".data"))) = {0}; \
+static struct logger_log VAR = { \
+	.buffer = _buf_ ## VAR, \
+	.misc = { \
+		.minor = MISC_DYNAMIC_MINOR, \
+		.name = NAME, \
+		.fops = &logger_fops, \
+		.parent = NULL, \
+	}, \
+	.wq = __WAIT_QUEUE_HEAD_INITIALIZER(VAR .wq), \
+	.readers = LIST_HEAD_INIT(VAR .readers), \
+	.mutex = __MUTEX_INITIALIZER(VAR .mutex), \
+	.w_off = 0, \
+	.head = 0, \
+	.size = SIZE, \
+};
+#else
 #define DEFINE_LOGGER_DEVICE(VAR, NAME, SIZE) \
 static unsigned char _buf_ ## VAR[SIZE]; \
 static struct logger_log VAR = { \
@@ -714,6 +734,7 @@ static struct logger_log VAR = { \
 	.head = 0, \
 	.size = SIZE, \
 };
+#endif
 
 #ifdef CONFIG_K3_LOG
 DEFINE_LOGGER_DEVICE(log_main, LOGGER_LOG_MAIN, MAIN_LOG_BUF_LEN)
@@ -736,6 +757,59 @@ DEFINE_LOGGER_DEVICE(log_radio, LOGGER_LOG_RADIO, 256*1024)
 DEFINE_LOGGER_DEVICE(log_system, LOGGER_LOG_SYSTEM, 256*1024)
 DEFINE_LOGGER_DEVICE(log_exception, LOGGER_LOG_EXCEPTION, 16*1024)
 DEFINE_LOGGER_DEVICE(log_power, LOGGER_LOG_POWER, 256*1024)
+#endif
+
+
+#ifdef CONFIG_DUMP_LOGCAT
+/**
+    @function: bool get_logcat_buf_info(logcat_buf_info *plogcat_buf_info)
+    @brief: get logcat's buffers and their length
+
+    @param: plogcat_buf_info 
+    
+    @return: true - successfully, false - failed
+
+    @note: 
+*/
+bool get_logcat_buf_info(logcat_buf_info *plogcat_buf_info)
+{
+    if (unlikely(NULL == plogcat_buf_info))
+    {
+        return false;
+    }
+	
+#ifndef CONFIG_ARCH_K3V2
+    plogcat_buf_info[LOGCAT_MAIN].log_buf = __pa(log_main.buffer);
+    plogcat_buf_info[LOGCAT_MAIN].log_buf_len = (unsigned long)log_main.size;
+    plogcat_buf_info[LOGCAT_SYSTEM].log_buf = __pa(log_system.buffer);
+    plogcat_buf_info[LOGCAT_SYSTEM].log_buf_len = (unsigned long)log_system.size;
+    plogcat_buf_info[LOGCAT_EVENTS].log_buf = __pa(log_events.buffer);
+    plogcat_buf_info[LOGCAT_EVENTS].log_buf_len = (unsigned long)log_events.size;
+    plogcat_buf_info[LOGCAT_RADIO].log_buf = __pa(log_radio.buffer);
+    plogcat_buf_info[LOGCAT_RADIO].log_buf_len = (unsigned long)log_radio.size;
+#else
+#ifdef CONFIG_K3_LOG
+    plogcat_buf_info[LOGCAT_MAIN].log_buf = (unsigned long)K3_MAIN_LOG_BASE;
+    plogcat_buf_info[LOGCAT_MAIN].log_buf_len = (unsigned long)MAIN_LOG_BUF_LEN;
+    plogcat_buf_info[LOGCAT_SYSTEM].log_buf = (unsigned long)K3_SYSTEM_LOG_BASE;
+    plogcat_buf_info[LOGCAT_SYSTEM].log_buf_len = (unsigned long)SYSTEM_LOG_BUF_LEN;
+    plogcat_buf_info[LOGCAT_EVENTS].log_buf = (unsigned long)K3_EVENTS_LOG_BASE;
+    plogcat_buf_info[LOGCAT_EVENTS].log_buf_len = (unsigned long)EVENTS_LOG_BUF_LEN;
+    plogcat_buf_info[LOGCAT_RADIO].log_buf = (unsigned long)K3_RADIO_LOG_BASE;
+    plogcat_buf_info[LOGCAT_RADIO].log_buf_len = (unsigned long)RADIO_LOG_BUF_LEN;
+#else
+    plogcat_buf_info[LOGCAT_MAIN].log_buf = 0x0;
+    plogcat_buf_info[LOGCAT_MAIN].log_buf_len = 0x0;
+    plogcat_buf_info[LOGCAT_SYSTEM].log_buf = 0x0;
+    plogcat_buf_info[LOGCAT_SYSTEM].log_buf_len = 0x0;
+    plogcat_buf_info[LOGCAT_EVENTS].log_buf = 0x0;
+    plogcat_buf_info[LOGCAT_EVENTS].log_buf_len = 0x0;
+    plogcat_buf_info[LOGCAT_RADIO].log_buf = 0x0;
+    plogcat_buf_info[LOGCAT_RADIO].log_buf_len = 0x0;
+#endif
+#endif
+    return true;
+}
 #endif
 
 static struct logger_log *get_log_from_minor(int minor)

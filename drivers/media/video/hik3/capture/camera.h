@@ -161,6 +161,7 @@
 
 #define V4L2_CID_SET_SCENE_TYPE                 (V4L2_CID_PRIVACY + 130)
 
+#define V4L2_CID_ALGORITHM_ISO					(V4L2_CID_PRIVACY + 131)
 #define MAX_BRACKET_COUNT	3
 /* FIXME: now we only support 1 area focus and metering */
 #define MAX_METERING_RECT		1

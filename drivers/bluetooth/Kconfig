@@ -1,11 +1,4 @@
 
-#########################################################################
-# Modification history
-#
-# Modify history      Author      Date         Reason
-#########################################################################
-
-
 menu "Bluetooth device drivers"
 	depends on BT
 

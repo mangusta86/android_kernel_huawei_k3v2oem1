@@ -132,36 +132,7 @@ int enable_ldo_power_for_device(struct device *dev)
 
 	TS_DEBUG_ATMEL("k3ts, %s: get touchscreen_type = 0x%x\n", __func__, touchscreen_type);
 
-	switch (touchscreen_type) {
-	case E_TOUCHSCREEN_TYPE_PHONE:
-		/*LDO13 is enable. We do nothing just return.*/
 		return ret;
-	case E_TOUCHSCREEN_TYPE_PLATFORM:
-		/*LDO6*/
-		LDO = regulator_get(dev, "tsanalog-Platform-vcc");
-		break;
-	default:
-		break;
-	}
-
-	if (IS_ERR(LDO)) {
-		dev_err(dev, "k3ts, %s: turn_on_LDO for dev(%s) touchscreen_type(0x%x) error\n", __func__, dev_name(dev), touchscreen_type);
-		LDO = NULL;
-		return -ENODEV;
-	}
-	voltage = regulator_get_voltage(LDO);
-	if (voltage != LDO_POWR_VOLTAGE) {
-		dev_err(dev, "k3ts, %s: LDO set voltage 2.7v\n", __func__);
-		ret = regulator_set_voltage(LDO, LDO_POWR_VOLTAGE, LDO_POWR_VOLTAGE);
-		if (ret) {
-			dev_err(dev, "k3ts, %s: failed to set LDO\n", __func__);
-		}
-	}
-
-	ret = regulator_enable(LDO);
-	TS_DEBUG_ATMEL("k3ts, %s: LDO__power = %d\n ", __func__, ret);
-
-	return ret;
 }
 
 int i2c_atmel_read(struct i2c_client *client, uint16_t address, uint8_t *data, uint8_t length)

@@ -116,7 +116,18 @@
 
 #define HI542_MAX_ANALOG_GAIN 8
 
+#define HI542_ISO		(\
+					(1 << CAMERA_ISO_AUTO) | \
+					(1 << CAMERA_ISO_100) | \
+					(1 << CAMERA_ISO_200) | \
+					(1 << CAMERA_ISO_400)  \
+				)
+
+#define HI542_APERTURE_FACTOR   280 //F2.8
+#define HI542_EQUIVALENT_FOCUS  33  //33mm
+
 static camera_capability hi542_cap[] = {
+	{V4L2_CID_ISO, HI542_ISO},
 	{V4L2_CID_FOCAL_LENGTH, 353},//3.53mm
 };
 
@@ -1337,9 +1348,10 @@ static int hi542_get_vflip(void)
 static int hi542_update_flip(u16 width, u16 height)
 {
 	u8 new_flip = ((hi542_sensor.vflip << 1) | hi542_sensor.hflip);
+	u8 old_flip = hi542_sensor.old_flip;
 	print_debug("Enter %s  ", __func__);
-	if (hi542_sensor.old_flip != new_flip) {
-		k3_ispio_update_flip((hi542_sensor.old_flip ^ new_flip) & 0x03, width, height, HI542_PIXEL_ORDER_CHANGED);
+	if (old_flip != new_flip) {
+		k3_ispio_update_flip((old_flip ^ new_flip) & 0x03, width, height, (old_flip ^ new_flip) & 0x03);
 
 		hi542_sensor.old_flip = new_flip;
 		hi542_write_reg(HI542_FLIP, hi542_sensor.vflip ? 0x02 : 0x00, ~0x02);
@@ -1529,12 +1541,8 @@ void hi542_set_gain(u32 gain)
 		digital_l = 0x80;
 	}
 
-	if (analog_gain > 0x80) {
-		analog_gain = 0x00;
-	}else {
-		analog_gain *= 1000;
-		analog_gain = 256 * 1000 / ((analog_gain  >> 4) & 0xffff) - 32;
-	}
+	analog_gain *= 1000;
+	analog_gain = 256 * 1000 / ((analog_gain  >> 4) & 0xffff) - 32;
 
 	hi542_write_reg(HI542_GAIN_REG, analog_gain & 0xff, 0x00);
 	hi542_write_reg(HI542_DIGTAL_GAIN_H, digital_h & 0xff, 0x00);
@@ -1547,7 +1555,10 @@ void hi542_set_gain(u32 gain)
 
 u32 hi542_get_exposure( void )
 {
-	u8 regh,regm1,regm2,regl;
+	u8 regh=0;
+	u8 regm1=0;
+	u8 regm2=0;
+	u8 regl=0;
 	u32 expo_time;
 
 	hi542_read_reg(0x0111, &regh);
@@ -1808,6 +1819,7 @@ static int hi542_init(void)
 	//k3_ispio_power_init("cameravcm-vcc", LDO_VOLTAGE_28V, LDO_VOLTAGE_28V);	/*AF 2.85V*/
 	k3_ispio_power_init("sec-cameralog-vcc", LDO_VOLTAGE_28V, LDO_VOLTAGE_28V);	/*analog 2.85V*/
 
+	hi542_sensor.old_flip = 0;
 	return 0;
 }
 
@@ -2007,6 +2019,17 @@ int hi542_check_video_fps()
 {
 	return VIDEO_FPS_CHANGE;
 }
+
+static int hi542_get_sensor_aperture()
+{
+	return HI542_APERTURE_FACTOR;
+}
+
+static int hi542_get_equivalent_focus()
+{
+	return HI542_EQUIVALENT_FOCUS;
+}
+
 /*
  **************************************************************************
  * FunctionName: hi542_set_default;
@@ -2055,7 +2078,7 @@ static void hi542_set_default(void)
 	hi542_sensor.get_vflip = hi542_get_vflip;
 	hi542_sensor.update_flip = hi542_update_flip;
 
-	strcpy(hi542_sensor.info.name, "hi542_sunny");
+	strncpy(hi542_sensor.info.name, "hi542_sunny", sizeof(hi542_sensor.info.name));
 	hi542_sensor.interface_type = MIPI2;
 	hi542_sensor.mipi_lane_count = CSI_LINES_2;
 	hi542_sensor.mipi_index = CSI_INDEX_1;
@@ -2105,7 +2128,8 @@ static void hi542_set_default(void)
 	hi542_sensor.sensor_rgb_type = SENSOR_BGGR;
 	hi542_sensor.sensor_gain_to_iso = NULL;
 	hi542_sensor.sensor_iso_to_gain = NULL;
-
+	hi542_sensor.get_sensor_aperture = hi542_get_sensor_aperture;
+	hi542_sensor.get_equivalent_focus = hi542_get_equivalent_focus;
 	hi542_sensor.set_effect = NULL;
 
 	hi542_sensor.isp_location = CAMERA_USE_K3ISP;

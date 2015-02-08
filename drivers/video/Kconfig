@@ -2478,6 +2478,13 @@ config LCD_JDI_OTM1282B
 	  JDI 720p LCD support on K3 platform. If you are using U9700,
 	  please choose it.
 
+config LCD_CMI_OTM1282B_CMD
+	tristate "CMI_OTM1282B 720p LCD support on K3 platform"
+	depends on FB_K3_CLCD
+	help
+	  CMI 720p LCD support on K3 platform. If you are using Mate,
+	  please choose it.
+
 config P2_TP_TK_CMD_FEATURE
 	tristate "P2 TP TK support"
         depends on FB_K3_CLCD
@@ -2558,6 +2565,14 @@ config OVERLAY_COMPOSE
 	default n
     help
 	    overlay compose
+
+#OverlayCompose:
+config PARTIAL_UPDATES
+    tristate "partial updates support on K3 platform"
+	default n
+    help
+	    partial updates
+
 # < chendong 00110364 2012-11-30 add for camera pmem cache begin
 config PMEM_CACHED
     tristate "set pmem cached mannually on K3 platform"

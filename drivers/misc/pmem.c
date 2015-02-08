@@ -92,8 +92,8 @@ struct pmem_bits {
 
 struct pmem_bits_k3 {
 	struct {
-		short page_index;
-		unsigned short pages_needed;
+		int page_index;
+		unsigned int pages_needed;
 	} *chunk;
 	int32_t num_chunks;
 	

@@ -74,12 +74,12 @@
 
 #define S5K4E1GA_MIN_CAP_FRAMERATE   10
 #define S5K4E1GA_FLASH_TRIGGER_GAIN 0x60
-#define S5K4E1GA_SHARPNESS_PREVIEW  0x28
-#define S5K4E1GA_SHARPNESS_CAPTURE  0x18
+#define S5K4E1GA_SHARPNESS_PREVIEW  0x3f
+#define S5K4E1GA_SHARPNESS_CAPTURE  0x3f
 
 /* camera sensor denoise parameters */
-#define S5K4E1GA_ISP_YDENOISE_COFF_1X		0x04
-#define S5K4E1GA_ISP_YDENOISE_COFF_2X		0x08
+#define S5K4E1GA_ISP_YDENOISE_COFF_1X		0x02
+#define S5K4E1GA_ISP_YDENOISE_COFF_2X		0x04
 #define S5K4E1GA_ISP_YDENOISE_COFF_4X		0x08
 #define S5K4E1GA_ISP_YDENOISE_COFF_8X		0x08
 #define S5K4E1GA_ISP_YDENOISE_COFF_16X		0x08
@@ -116,8 +116,18 @@
 #define S5K4E1GA_FOXCONN_VTS_REG_H		0x0340
 #define S5K4E1GA_FOXCONN_VTS_REG_L		0x0341
 
+#define  S5K4E1GA_FOXCONN_ISO		(\
+					(1 << CAMERA_ISO_AUTO) | \
+					(1 << CAMERA_ISO_100) | \
+					(1 << CAMERA_ISO_200) | \
+					(1 << CAMERA_ISO_400)  \
+				)
+
+#define S5K4E1GA_APERTURE_FACTOR    280 //F2.8
+#define S5K4E1GA_EQUIVALENT_FOCUS   33  //33mm
 
 static camera_capability s5k4e1ga_foxconn_cap[] = {
+	{V4L2_CID_ISO, S5K4E1GA_FOXCONN_ISO},
 	{V4L2_CID_FOCAL_LENGTH, 345},//3.45mm
 };
 
@@ -247,14 +257,14 @@ const struct isp_reg_t isp_init_regs_s5k4e1ga_foxconn[] = {
 	{0x65608, 0x06},
 	{0x65609, 0x20},
 	{0x6560c, 0x0f}, //high gain , min value
-	{0x6560d, 0x1f}, //low gain sharpness, 20120814 0x20->0x30
+	{0x6560d, 0x3f}, //low gain sharpness, 20120814 0x20->0x30
 	{0x6560e, 0x10}, //MinSharpenTp
 	{0x6560f, 0x60}, //MaxSharpenTp
 	{0x65610, 0x10}, //MinSharpenTm
 	{0x65611, 0x60}, //MaxSharpenTm
 	{0x65613, 0x18}, //SharpenAlpha
 	{0x65615, 0x08}, //HFreq_thre
-	{0x65617, 0x06}, //HFreq_coef
+	{0x65617, 0x00}, //HFreq_coef
 
 /* auto uv saturation */
 	{0x1c4e8, 0x01}, //Enable
@@ -700,21 +710,21 @@ const struct isp_reg_t isp_init_regs_s5k4e1ga_foxconn[] = {
 
         {0x1d9c8, 0x7d},//B gain for A High light
         {0x1d9c9, 0x80},//B gain for A
-        {0x1d9ca, 0x82},//B gain for A
-        {0x1d9cb, 0x86},//B gain for A low light  //0x7d
+        {0x1d9ca, 0x80},//B gain for A
+        {0x1d9cb, 0x80},//B gain for A low light  //0x7d
 
-        {0x1d9cc, 0x7c},//R gain for A High light
+        {0x1d9cc, 0x7d},//R gain for A High light
         {0x1d9cd, 0x80},//R gain for A
         {0x1d9ce, 0x80},//R gain for A
-        {0x1d9cf, 0x85},//R gain for A low light  //0x7c
+        {0x1d9cf, 0x80},//R gain for A low light  //0x7c
 
         {0x1d9d0, 0x81},//B gain for cwf High light
-        {0x1d9d1, 0x7C},//B gain for cwf
+        {0x1d9d1, 0x7C},//B gain for cwf          //灯箱1与2插值
         {0x1d9d2, 0x85},//B gain for cwf
         {0x1d9d3, 0x85},//B gain for cwf low light  //0x83
 
         {0x1d9d4, 0x85},//R gain for cwf High light
-        {0x1d9d5, 0x88},//R gain for cwf
+        {0x1d9d5, 0x88},//R gain for cwf       //灯箱1与2插值
         {0x1d9d6, 0x85},//R gain for cwf
         {0x1d9d7, 0x85},//R gain for cwf low light   //0x85
 
@@ -746,14 +756,14 @@ const struct isp_reg_t isp_init_regs_s5k4e1ga_foxconn[] = {
 	{0x1c1c3, 0x20},
 
 	{0x66206, 0x10}, //center(cwf) window threshold D0
-	{0x66207, 0xf }, //A threshold, range DX  0x15
-	{0x66208, 0x12 }, //day threshold, range DY 0xd
+	{0x66207, 0x11}, //A threshold, range DX  0x15
+	{0x66208, 0x12}, //day threshold, range DY 0xd
 	{0x66209, 0x75}, //CWF X
 	{0x6620a, 0x57}, //CWF Y
-	{0x6620b, 0xbc}, //K_A_X2Y, a slop
+	{0x6620b, 0xc0}, //K_A_X2Y, a slop
 	{0x6620c, 0x95}, //K_D65_Y2X, d slop
 	{0x6620d, 0x42}, //D65 Limit
-	{0x6620e, 0x39}, //A Limit
+	{0x6620e, 0x34}, //A Limit
 	{0x6620f, 0x6a}, //D65 split
 	{0x66210, 0x50}, //A split
 	{0x66201, 0x52},
@@ -767,71 +777,71 @@ const struct isp_reg_t isp_init_regs_s5k4e1ga_foxconn[] = {
 	{0x1c1d1, 0x20},
 
 	{0x1c254, 0x01},//D  b_gain/r_gain*256 4300K
-	{0x1c255, 0x46},
+	{0x1c255, 0xD0},
 	{0x1c256, 0x01},//D-cwf 4150
-	{0x1c257, 0x5a},
-	{0x1c258, 0x01},//cwf-a 3100k
-	{0x1c259, 0xc0},
+	{0x1c257, 0xF0},
+	{0x1c258, 0x02},//cwf-a 3100k
+	{0x1c259, 0x00},
 	{0x1c25a, 0x02},//a 2750k
-	{0x1c25b, 0x40},
+	{0x1c25b, 0x20},
 
 /* Color matrix */
-	{0x1c1d8, 0x01},//c
-	{0x1c1d9, 0xC0},
-	{0x1c1da, 0xFF},
-	{0x1c1db, 0x5C},
-	{0x1c1dc, 0xFF},
-	{0x1c1dd, 0xE4},
-	{0x1c1de, 0xFF},
-	{0x1c1df, 0x6B},
-	{0x1c1e0, 0x02},
-	{0x1c1e1, 0x1A},
-	{0x1c1e2, 0xFF},
-	{0x1c1e3, 0x7B},
-	{0x1c1e4, 0xFF},
-	{0x1c1e5, 0x5A},
-	{0x1c1e6, 0xFF},
-	{0x1c1e7, 0x51},
-	{0x1c1e8, 0x02},
-	{0x1c1e9, 0x55},
+	{0x1c1d8, 0x02},//c
+	{0x1c1d9, 0x1e},
+	{0x1c1da, 0xfe},
+	{0x1c1db, 0xe2},
+	{0x1c1dc, 0xff},
+	{0x1c1dd, 0xff},
+	{0x1c1de, 0x00},
+	{0x1c1df, 0x61},
+	{0x1c1e0, 0x00},
+	{0x1c1e1, 0xdc},
+	{0x1c1e2, 0xff},
+	{0x1c1e3, 0xc2},
+	{0x1c1e4, 0x00},
+	{0x1c1e5, 0x22},
+	{0x1c1e6, 0xFe},
+	{0x1c1e7, 0x17},
+	{0x1c1e8, 0x01},
+	{0x1c1e9, 0xc5},
 
-	{0x1c1fc, 0xFF},//d
-	{0x1c1fd, 0xB0},
+	{0x1c1fc, 0xff},//d
+	{0x1c1fd, 0x3c},
 	{0x1c1fe, 0x00},
-	{0x1c1ff, 0x50},
+	{0x1c1ff, 0xa7},
 	{0x1c200, 0x00},
-	{0x1c201, 0x00},
-	{0x1c202, 0xFF},
-	{0x1c203, 0xF0},
+	{0x1c201, 0x1b},
+	{0x1c202, 0xff},
+	{0x1c203, 0x90},
 	{0x1c204, 0x00},
-	{0x1c205, 0x00},
+	{0x1c205, 0x51},
 	{0x1c206, 0x00},
-	{0x1c207, 0x10},
-	{0x1c208, 0x00},
-	{0x1c209, 0x30},
-	{0x1c20a, 0x00},
-	{0x1c20b, 0x40},
-	{0x1c20c, 0xFF},
-	{0x1c20d, 0x90},
+	{0x1c207, 0x1d},
+	{0x1c208, 0xff},
+	{0x1c209, 0x70},
+	{0x1c20a, 0x01},
+	{0x1c20b, 0x03},
+	{0x1c20c, 0xff},
+	{0x1c20d, 0x8c},
 
 	{0x1c220, 0x00},//a
-	{0x1c221, 0xC0},
-	{0x1c222, 0xFF},
-	{0x1c223, 0x26},
-	{0x1c224, 0x00},
-	{0x1c225, 0x1A},
-	{0x1c226, 0x00},
-	{0x1c227, 0x50},
-	{0x1c228, 0xFF},
-	{0x1c229, 0xC0},
-	{0x1c22a, 0xFF},
-	{0x1c22b, 0xF0},
-	{0x1c22c, 0x00},
-	{0x1c22d, 0x30},
+	{0x1c221, 0x95},
+	{0x1c222, 0xff},
+	{0x1c223, 0xad},
+	{0x1c224, 0xff},
+	{0x1c225, 0xbd},
+	{0x1c226, 0xff},
+	{0x1c227, 0xc9},
+	{0x1c228, 0x00},
+	{0x1c229, 0x6e},
+	{0x1c22a, 0xff},
+	{0x1c22b, 0xc7},
+	{0x1c22c, 0xfe},
+	{0x1c22d, 0xfb},
 	{0x1c22e, 0x00},
-	{0x1c22f, 0x30},
-	{0x1c230, 0xFF},
-	{0x1c231, 0xA0},
+	{0x1c22f, 0xf8},
+	{0x1c230, 0x00},
+	{0x1c231, 0x0b},
 
 	/* dpc */
 	{0x65409, 0x08},
@@ -1349,9 +1359,10 @@ static int s5k4e1ga_foxconn_get_vflip(void)
 static int s5k4e1ga_foxconn_update_flip(u16 width, u16 height)
 {
 	u8 new_flip = ((s5k4e1ga_foxconn_sensor.vflip << 1) | s5k4e1ga_foxconn_sensor.hflip);
+	u8 old_flip = s5k4e1ga_foxconn_sensor.old_flip;
 	print_debug("Enter %s  ", __func__);
-	if (s5k4e1ga_foxconn_sensor.old_flip != new_flip) {
-		k3_ispio_update_flip((s5k4e1ga_foxconn_sensor.old_flip ^ new_flip) & 0x03, width, height, PIXEL_ORDER_CHANGED);
+	if (old_flip != new_flip) {
+		k3_ispio_update_flip((old_flip ^ new_flip) & 0x03, width, height, (old_flip ^ new_flip) & 0x03);
 
 		s5k4e1ga_foxconn_sensor.old_flip = new_flip;
 		s5k4e1ga_foxconn_write_reg(S5K4E1GA_FOXCONN_FLIP, s5k4e1ga_foxconn_sensor.vflip ? 0x02 : 0x00, ~0x02);
@@ -1589,6 +1600,7 @@ static int s5k4e1ga_foxconn_init(void)
 	//k3_ispio_power_init("cameravcm-vcc", LDO_VOLTAGE_28V, LDO_VOLTAGE_28V);	/*AF 2.85V*/
 	k3_ispio_power_init("sec-cameralog-vcc", LDO_VOLTAGE_28V, LDO_VOLTAGE_28V);	/*analog 2.85V*/
 
+	s5k4e1ga_foxconn_sensor.old_flip = 0;
 	return 0;
 }
 
@@ -1825,6 +1837,17 @@ int s5k4e1ga_check_video_fps()
 {
 	return VIDEO_FPS_CHANGE;
 }
+
+static int s5k4e1ga_get_sensor_aperture()
+{
+	return S5K4E1GA_APERTURE_FACTOR;
+}
+
+static int s5k4e1ga_get_equivalent_focus()
+{
+	return S5K4E1GA_EQUIVALENT_FOCUS;
+}
+
 /*
  **************************************************************************
  * FunctionName: s5k4e1ga_foxconn_set_default;
@@ -1870,7 +1893,7 @@ static void s5k4e1ga_foxconn_set_default(void)
 	s5k4e1ga_foxconn_sensor.get_vflip = s5k4e1ga_foxconn_get_vflip;
 	s5k4e1ga_foxconn_sensor.update_flip = s5k4e1ga_foxconn_update_flip;
 
-	strcpy(s5k4e1ga_foxconn_sensor.info.name,"s5k4e1ga_foxconn");
+	strncpy(s5k4e1ga_foxconn_sensor.info.name,"s5k4e1ga_foxconn",sizeof(s5k4e1ga_foxconn_sensor.info.name));
 	s5k4e1ga_foxconn_sensor.interface_type = MIPI2;
 	s5k4e1ga_foxconn_sensor.mipi_lane_count = CSI_LINES_2;
 	s5k4e1ga_foxconn_sensor.mipi_index = CSI_INDEX_1;
@@ -1920,8 +1943,8 @@ static void s5k4e1ga_foxconn_set_default(void)
 	s5k4e1ga_foxconn_sensor.sensor_gain_to_iso = NULL;
 	s5k4e1ga_foxconn_sensor.sensor_iso_to_gain = NULL;
 
-	s5k4e1ga_foxconn_sensor.get_sensor_aperture = NULL;
-	s5k4e1ga_foxconn_sensor.get_equivalent_focus = NULL;
+	s5k4e1ga_foxconn_sensor.get_sensor_aperture = s5k4e1ga_get_sensor_aperture;
+	s5k4e1ga_foxconn_sensor.get_equivalent_focus = s5k4e1ga_get_equivalent_focus;
 
 	s5k4e1ga_foxconn_sensor.isp_location = CAMERA_USE_K3ISP;
 	s5k4e1ga_foxconn_sensor.sensor_tune_ops = NULL;

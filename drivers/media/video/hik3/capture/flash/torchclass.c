@@ -1,11 +1,11 @@
 /*
- * Torchclass driver 
+ * Torchclass driver
  *
  *  Author: 	Zhoujie (zhou.jie1981@163.com)
  *  Date:  	2013/01/16
  *  Version:	1.0
- *  History:	2013/01/16      Frist add driver for Torchclass,this is virtual device to manage torch 
- *  
+ *  History:	2013/01/16      Frist add driver for Torchclass,this is virtual device to manage torch
+ *
  * ----------------------------------------------------------------------------
  *
  * This program is free software; you can redistribute it and/or modify

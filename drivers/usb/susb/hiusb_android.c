@@ -435,7 +435,7 @@ static int setup_dvc_and_phy(void)
 	case E_USBPHY_TUNE_PLATFORM:
 		reg_value |= 0x23;
 		break;
-	case E_USBPHY_TUNE_U9510:
+	case E_USBPHY_TUNE_U9508:
 		/* USB PHY config for phone */
 		reg_value |= 0x03;
 		reg_value |= (0x0A << 2);
@@ -802,11 +802,15 @@ static void k3v2_otg_interrupt_work(struct work_struct *work)
 			clearup_dvc_and_phy();
 			hiusb_info_p->hiusb_status = HIUSB_OFF;
 			dwc_hcd_drop_wake_lock(otg_dev->hcd);
-#if defined(MHL_SII9244)||defined(MHL_SII8240)
-                    /* reset the mhl */
-                    SiiMhlReset();
-                    SiiCBusIDSwitcherOpen();
-#endif
+
+            #if defined(MHL_SII9244)
+            /* reset the mhl */
+            SiiMhlReset();
+            SiiCBusIDSwitcherOpen();
+            #elif defined(MHL_SII8240)
+            CBUS_ID_Opened_AfterPlugedout();
+            #endif
+
 			hiusblog("hiusb_status: HOST -> OFF\n");
             atomic_notifier_call_chain(
                     &hiusb_info_p->charger_type_notifier_head,

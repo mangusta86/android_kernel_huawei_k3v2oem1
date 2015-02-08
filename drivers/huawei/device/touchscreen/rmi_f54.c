@@ -21,11 +21,30 @@
 #include <linux/slab.h>
 #include <linux/version.h>
 #include <linux/delay.h>
+#include <hsad/config_interface.h>
 
 #define FUNCTION_DATA rmi_fn_54_data
 #define FNUM 54
 
 #include "rmi_driver.h"
+#include "TP_Cap_limit.h"
+
+/* Touch MMI test begin >*/
+#define RX_NUMBER 89  //f01 control_base_addr + 57
+#define TX_NUMBER 90  //f01 control_base_addr + 58
+#define RX_NUMBER_WATER 88  //f01 control_base_addr + 56
+#define TX_NUMBER_WATER 89  //f01 control_base_addr + 57
+static struct completion mmi_comp;
+static struct completion mmi_sync;
+
+#define F54_BUF_LEN 50
+static char buf_f54test_result[F54_BUF_LEN] = {0};//store mmi test result
+static char mmi_buf[600] = {0};
+static int mmidata_size = 0;
+static u8 tx = 0;
+static u8 rx = 0;
+
+/* Touch MMI test end >*/
 
 /* Set this to 1 for raw hex dump of returned data. */
 #define RAW_HEX 0
@@ -586,6 +605,13 @@ enum f54_report_types {
 	F54_FULL_RAW_CAP_RX_COUPLING_COMP = 20
 };
 
+struct rmi_fn_54_statics_data {
+	short RawimageAverage;
+	short RawimageMaxNum;
+	short RawimageMinNum;
+	short RawimageNULL;
+};
+
 /* data specific to fn $54 that needs to be kept around */
 struct rmi_fn_54_data {
 	union f54_ad_query query;
@@ -605,6 +631,12 @@ struct rmi_fn_54_data {
 #endif
 	struct rmi_function_container *fc;
 	struct work_struct work;
+
+	struct rmi_fn_54_statics_data raw_statics_data;
+	struct rmi_fn_54_statics_data delta_statics_data;
+
+	u16 rmi_f54_rx_number;
+	u16 rmi_f54_tx_number;
 };
 
 /* sysfs functions */
@@ -821,6 +853,7 @@ static struct attribute *attrs_reg_17__19[] = {
 	attrify(disable),
 	attrify(burst_count),
 	attrify(stretch_duration),
+	NULL
 };
 
 static struct attribute *attrs_reg_20[] = {
@@ -921,6 +954,747 @@ static struct attribute_group attrs_ctrl_regs[] = {
 bool attrs_ctrl_regs_exist[ARRAY_SIZE(attrs_ctrl_regs)];
 
 /* !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!! */
+
+/*Touch MMI test begin*/
+static ssize_t rmi_f54_mmi_test_store(struct device *dev,
+				   struct device_attribute *attr,
+				   const char *buf, size_t count);
+
+static ssize_t rmi_f54_mmi_test_show(struct device *dev,
+                   struct device_attribute *attr,char *buf);
+
+static void set_report_size(struct rmi_fn_54_data *data);
+
+static int f54_rawimage_report(struct rmi_fn_54_data *rawimage_data);
+
+static int f54_txtotx_short_report (void);
+static int f54_txtoground_short_report(void);
+static int f54_RxtoRxshort_report (struct rmi_fn_54_data *data,size_t count);
+static int f54_highresistance_report(void);
+static int f54_maxmincapacitance_report(void);
+
+static void mmi_rawcapacitance_test(struct device *dev,size_t count);
+static void mmi_deltacapacitance_test(struct device *dev,size_t count);
+static void mmi_rxtorxshort_test(struct device *dev,size_t count);
+static void mmi_txtotxshort_test(struct device *dev,size_t count);
+static void mmi_txtogroundshort_test(struct device *dev,size_t count);
+static void mmi_highresistance_test(struct device *dev,size_t count);
+static void mmi_maxmin_test(struct device *dev,size_t count);
+static int write_to_f54_register(struct rmi_function_container *fc,unsigned char report_type,size_t count);
+
+
+/*create file node*/
+static struct device_attribute f54_mmi_test_att = {
+	.attr = {
+		.name = "mmi_test",
+		.mode = RMI_RO_ATTR_1,
+	},
+	.store = rmi_f54_mmi_test_store,
+
+};
+static struct device_attribute f54_mmi_test_data_att = {
+	.attr = {
+		.name = "mmi_test_result",
+		.mode = RMI_RO_ATTR,
+	},
+	.show = rmi_f54_mmi_test_show,
+};
+
+static int mmi_add_static_data(struct rmi_fn_54_data *data)
+{
+	int i;
+	if (NULL == data) {
+		return -EINVAL;
+	}
+
+	i = strlen(buf_f54test_result);
+        if(i >= F54_BUF_LEN) {
+		return -EINVAL;
+        }
+        snprintf((buf_f54test_result+i), PAGE_SIZE, "[%4d,%4d,%4d]",
+                data->raw_statics_data.RawimageAverage,
+                data->raw_statics_data.RawimageMaxNum,
+                data->raw_statics_data.RawimageMinNum);
+
+	i = strlen(buf_f54test_result);
+        if(i >= F54_BUF_LEN) {
+		return -EINVAL;
+        }
+        snprintf((buf_f54test_result+i), PAGE_SIZE, "[%4d,%4d,%4d]",
+                data->delta_statics_data.RawimageAverage,
+                data->delta_statics_data.RawimageMaxNum,
+                data->delta_statics_data.RawimageMinNum);
+
+        return 0;
+}
+
+static ssize_t rmi_f54_mmi_test_store(struct device *dev,struct device_attribute *attr, 
+	const char *buf, size_t count)
+{
+	unsigned long val;
+	int result = 0;
+	struct rmi_device *rmi_dev;
+	struct rmi_driver_data *driver_data;
+	struct rmi_function_container *fc;
+	struct rmi_function_container *f01_fc;
+	unsigned char command;
+
+	fc = to_rmi_function_container(dev);
+	rmi_dev = fc->rmi_dev;
+	driver_data = rmi_get_driverdata(rmi_dev);
+	f01_fc =driver_data->f01_container;
+	memset(buf_f54test_result,0,sizeof(buf_f54test_result));
+
+	struct rmi_fn_54_data *data = fc->data;
+	data->status = IDLE;
+	
+	result = strict_strtoul(buf,10,&val);
+	if (result)
+		return result;
+
+	result = rmi_read_block(fc->rmi_dev, fc->fd.data_base_addr,&command, 1);
+	if (result < 0)		/*i2c communication failed, mmi result is all failed*/
+		memcpy(buf_f54test_result,"0F-1F-2F",(strlen("0F-1F-2F")+1));
+	else
+	/*I2C communication successfully, go on test*/
+	{
+		memcpy(buf_f54test_result,"0P-",(strlen("0P-")+1));
+		mmi_rawcapacitance_test(dev,count);
+		/*report type == 3*/
+
+		INIT_COMPLETION(mmi_sync);
+		wait_for_completion(&mmi_sync);
+		mmi_deltacapacitance_test(dev,count);
+		/*report type == 2*/
+
+                mmi_add_static_data(data);
+#if 0
+		INIT_COMPLETION(mmi_sync);
+		wait_for_completion(&mmi_sync);
+		mmi_maxmin_test(dev,count);
+		/*report type == 13 */
+
+		INIT_COMPLETION(mmi_sync);
+		wait_for_completion(&mmi_sync);
+		mmi_highresistance_test(dev,count);
+		/*report type == 4*/
+
+
+		INIT_COMPLETION(mmi_sync);
+		wait_for_completion(&mmi_sync);
+		mmi_rxtorxshort_test(dev,count);
+		/*report type == 7*/
+
+		INIT_COMPLETION(mmi_sync);
+		wait_for_completion(&mmi_sync);
+		mmi_txtogroundshort_test(dev,count);
+
+		INIT_COMPLETION(mmi_sync);
+		wait_for_completion(&mmi_sync);
+		mmi_txtotxshort_test(dev,count);
+#endif
+	}
+	command = 1;
+	result = rmi_write_block(fc->rmi_dev, f01_fc->fd.command_base_addr,&command, 1);
+	if (result < 0)
+	{
+		printk("failed to write command to f01 reset! \n");
+		return result;
+	}
+
+	pr_info("TP MMI test result: %s\n",buf_f54test_result);
+	return count;
+};
+
+
+static int f54_deltarawimage_report (struct rmi_fn_54_data *deltaimage_data)
+{
+	short Rawimage;
+	int i,j;
+	long int DeltaRawimageSum = 0;
+	short DeltaRawimageAverage = 0;
+	short DeltaRawimageMaxNum,DeltaRawimageMinNum;
+	short result = 0;
+	int k = 0;
+	int *delt_cap_uplimit = NULL;
+	int *delt_cap_lowlimit = NULL;
+	
+	pr_info("%s,enter\n", __func__);
+
+	delt_cap_uplimit = delt_cap_incell3250_uplimit;
+	if (NULL == delt_cap_uplimit) {
+	    pr_info("There is no data in delt_cap_incell3250_uplimit\n");
+	    return 0;
+	}
+
+	delt_cap_lowlimit = delt_cap_incell3250_lowlimit;
+	if (NULL == delt_cap_lowlimit) {
+	    pr_info("There is no data in delt_cap_incell3250_lowlimit\n");
+	    return 0;
+	}
+	INIT_COMPLETION(mmi_comp);
+	wait_for_completion(&mmi_comp);
+
+	DeltaRawimageMaxNum = (mmi_buf[0]) | (mmi_buf[1] << 8);
+	DeltaRawimageMinNum = (mmi_buf[0]) | (mmi_buf[1] << 8);
+	for ( i = 0; i < mmidata_size; i+=2)
+	{
+		Rawimage = (mmi_buf[i]) | (mmi_buf[i+1] << 8);
+		DeltaRawimageSum += Rawimage;
+		if(DeltaRawimageMaxNum < Rawimage)
+			DeltaRawimageMaxNum = Rawimage;
+		if(DeltaRawimageMinNum > Rawimage)
+			DeltaRawimageMinNum = Rawimage;
+	}
+	DeltaRawimageAverage = DeltaRawimageSum/(mmidata_size/2);
+	deltaimage_data->delta_statics_data.RawimageAverage = DeltaRawimageAverage;
+	deltaimage_data->delta_statics_data.RawimageMaxNum = DeltaRawimageMaxNum;
+	deltaimage_data->delta_statics_data.RawimageMinNum = DeltaRawimageMinNum;
+
+	j = 0;
+	printk("\n");
+	printk("%s:enter\n",__func__);
+	for ( i = 0; i < mmidata_size; i+=2)
+	{
+		Rawimage = (mmi_buf[i]) | (mmi_buf[i+1] << 8);
+		if (j == rx) {
+			printk("\n");
+			j = 0;
+		}
+		printk("%5d",Rawimage);
+		j++;
+		if ((Rawimage > delt_cap_lowlimit[k]) && (Rawimage < delt_cap_uplimit[k])) {
+			result++;
+		}
+		k++;
+	}
+	if (result == (mmidata_size/2)) {
+		return 1;
+	} else {
+		return 0;
+	}
+
+}
+
+/*it is used to show the test result */
+static ssize_t rmi_f54_mmi_test_show(struct device * dev,struct device_attribute * attr,char * buf)
+{
+	int len = strlen(buf_f54test_result);
+	memcpy (buf,buf_f54test_result,len+1);
+	strncat(buf,"\0",sizeof(buf_f54test_result)-strlen(buf_f54test_result));
+	return len;
+};
+
+static void mmi_deltacapacitance_test(struct device *dev,size_t count)
+{
+	struct rmi_function_container *fc;
+	struct rmi_fn_54_data *deltaimage_data;
+	unsigned char command;
+	int result = 0;
+
+	fc = to_rmi_function_container(dev);
+	deltaimage_data = fc->data;
+	deltaimage_data->report_type = F54_16BIT_IMAGE;
+	command = (unsigned char) F54_16BIT_IMAGE;
+
+	write_to_f54_register(fc,command,count);
+	result = f54_deltarawimage_report(deltaimage_data);
+	if(1 == result) {
+		strncat(buf_f54test_result,"-2P",sizeof(buf_f54test_result)-strlen(buf_f54test_result));
+	}else {
+		strncat(buf_f54test_result,"-2F",sizeof(buf_f54test_result)-strlen(buf_f54test_result));
+	}
+}
+static void mmi_rawcapacitance_test(struct device *dev,size_t count)
+{
+	struct rmi_function_container *fc;
+	struct rmi_fn_54_data *rawimage_data;
+	unsigned char command;
+	int result = 0;
+
+	fc = to_rmi_function_container(dev);
+	rawimage_data = fc->data;
+	rawimage_data->report_type = F54_RAW_16BIT_IMAGE;
+	command = (unsigned char) F54_RAW_16BIT_IMAGE;
+
+	write_to_f54_register(fc,command,count);
+	result = f54_rawimage_report(rawimage_data);
+	if (1 == result)
+		strncat(buf_f54test_result,"1P",sizeof(buf_f54test_result)-strlen(buf_f54test_result));
+	else
+		strncat(buf_f54test_result,"1F",sizeof(buf_f54test_result)-strlen(buf_f54test_result));
+
+}
+
+static void mmi_txtotxshort_test(struct device * dev,size_t count)
+{
+	struct rmi_function_container *fc;
+	struct rmi_fn_54_data *txtotx_data;
+	unsigned char command;
+	int result;
+
+	fc = to_rmi_function_container(dev);
+	txtotx_data = fc->data;
+	txtotx_data->report_type = F54_TX_TO_TX_SHORT;
+	command = (unsigned char) F54_TX_TO_TX_SHORT;
+
+	write_to_f54_register(fc,command,count);
+
+	result = f54_txtotx_short_report();
+
+	if (1 == result)
+		strncat(buf_f54test_result,"2P-",sizeof(buf_f54test_result)-strlen(buf_f54test_result));
+	else
+		strncat(buf_f54test_result,"2F-",sizeof(buf_f54test_result)-strlen(buf_f54test_result));
+
+}
+
+static void mmi_txtogroundshort_test(struct device * dev,size_t count)
+{
+    struct rmi_function_container *fc;
+	struct rmi_fn_54_data *txtoground_data;
+	unsigned char command;
+	int result;
+
+	fc = to_rmi_function_container(dev);
+	txtoground_data = fc->data;
+	txtoground_data->report_type = F54_TX_TO_GROUND;
+	command = (unsigned char) F54_TX_TO_GROUND;
+
+	write_to_f54_register(fc,command,count);
+	result = f54_txtoground_short_report();
+
+	if (1 == result)
+		strncat(buf_f54test_result,"3P-",sizeof(buf_f54test_result)-strlen(buf_f54test_result));
+	else
+		strncat(buf_f54test_result,"3F-",sizeof(buf_f54test_result)-strlen(buf_f54test_result));
+}
+
+static void mmi_rxtorxshort_test(struct device * dev,size_t count)
+{
+    struct rmi_function_container *fc;
+	struct rmi_fn_54_data *rawimage_data;
+	unsigned char command;
+	int result;
+
+	fc = to_rmi_function_container(dev);
+	rawimage_data = fc->data;
+	rawimage_data->report_type = F54_RX_TO_RX1;
+	command = (unsigned char) F54_RX_TO_RX1;
+
+	if (rawimage_data->status != BUSY)
+	{
+	    result = rmi_write_block(fc->rmi_dev, fc->fd.data_base_addr,&command, 1); //report_type
+	    mutex_unlock(&rawimage_data->status_mutex);
+	    if (result < 0)
+	    {
+		    dev_err(&fc->dev, "%s : Could not write report type to"
+			    " 0x%x\n", __func__, fc->fd.data_base_addr);
+		    return ;
+	    }
+	}
+#if 0
+	command = 4;
+	mutex_lock(&rawimage_data->status_mutex);
+	result = rmi_write_block(fc->rmi_dev, fc->fd.query_base_addr + 9,&command, 1);
+	mutex_unlock(&rawimage_data->status_mutex);
+	if (result < 0)
+		return ;
+#endif
+/*forbid SignalClarity to test rxtorx short signal*/
+	command = 1;
+	mutex_lock(&rawimage_data->status_mutex);
+	result = rmi_write_block(fc->rmi_dev,0x015E,&command, 1);
+	mutex_unlock(&rawimage_data->status_mutex);
+	if (result < 0)
+		return ;
+/*for operation above*/
+	command = 4;
+	mutex_lock(&rawimage_data->status_mutex);
+	result = rmi_write_block(fc->rmi_dev, fc->fd.command_base_addr,&command, 1);
+	mutex_unlock(&rawimage_data->status_mutex);
+	if (result < 0)
+		return ;
+
+	do {
+		mdelay(100); //wait 100ms
+		result = rmi_read_block(fc->rmi_dev,fc->fd.command_base_addr,&command, 1);
+	} while (command != 0x00);
+
+	command = 2;//chongxin qu yi yixa jizhun
+	mutex_lock(&rawimage_data->status_mutex);
+	result = rmi_write_block(fc->rmi_dev, fc->fd.command_base_addr,&command, 1);
+	mutex_unlock(&rawimage_data->status_mutex);
+	if (result < 0)
+		return ;
+
+	do {
+		mdelay(100); //wait 100ms
+		result = rmi_read_block(fc->rmi_dev,fc->fd.command_base_addr,&command, 1);
+	} while (command != 0x00);
+
+	command = (unsigned char) F54_RX_TO_RX1;
+	write_to_f54_register(fc,command,count);
+
+	result = f54_RxtoRxshort_report(rawimage_data,count);
+
+	if (1 == result)
+		strncat(buf_f54test_result,"4P-",sizeof(buf_f54test_result)-strlen(buf_f54test_result));
+	else
+		strncat(buf_f54test_result,"4F-",sizeof(buf_f54test_result)-strlen(buf_f54test_result));
+
+}
+
+static void mmi_maxmin_test(struct device * dev,size_t count)
+{
+    struct rmi_function_container *fc;
+	struct rmi_fn_54_data *maxmin_data;
+	unsigned char command;
+	int result;
+
+	fc = to_rmi_function_container(dev);
+	maxmin_data = fc->data;
+	maxmin_data->report_type = F54_FULL_RAW_CAP_MIN_MAX;
+	command = (unsigned char) F54_FULL_RAW_CAP_MIN_MAX;
+	write_to_f54_register(fc,command,count);
+	result = f54_maxmincapacitance_report();
+
+	if (1 == result)
+		strncat(buf_f54test_result,"5P-",sizeof(buf_f54test_result)-strlen(buf_f54test_result));
+	else
+		strncat(buf_f54test_result,"5F-",sizeof(buf_f54test_result)-strlen(buf_f54test_result));
+}
+
+static void mmi_highresistance_test(struct device * dev,size_t count)
+{
+	struct rmi_function_container *fc;
+	struct rmi_fn_54_data *highresistance_data;
+	unsigned char command;
+	int result;
+	fc = to_rmi_function_container(dev);
+	highresistance_data = fc->data;
+	highresistance_data->report_type = F54_HIGH_RESISTANCE;
+	command = (unsigned char) F54_HIGH_RESISTANCE;
+	/*write report_type = 4 to F54_data_base*/
+	write_to_f54_register(fc,command,count);
+
+	result = f54_highresistance_report();
+
+	if (1 == result)
+		strncat(buf_f54test_result,"6P-",sizeof(buf_f54test_result)-strlen(buf_f54test_result));
+	else
+		strncat(buf_f54test_result,"6F-",sizeof(buf_f54test_result)-strlen(buf_f54test_result));
+
+}
+
+
+static int write_to_f54_register(struct rmi_function_container *fc,unsigned char report_type,size_t count)
+{
+	struct rmi_fn_54_data *data = fc->data;
+	struct rmi_driver *driver;
+	unsigned char command;
+	int result;
+	command = report_type;
+
+	driver = fc->rmi_dev->driver;
+	if (F54_RX_TO_RX1 != command)
+	{
+	    mutex_lock(&data->status_mutex);
+	    if (data->status != BUSY)
+	    {
+		result = rmi_write_block(fc->rmi_dev, fc->fd.data_base_addr,&command, 1);
+		mutex_unlock(&data->status_mutex);
+		if (result < 0)
+		{
+		        dev_err(&fc->dev, "%s : Could not write report type to"
+			        " 0x%x\n", __func__, fc->fd.data_base_addr);
+		        return result;
+		}
+	    }
+	}
+	command = (unsigned char)GET_REPORT;
+	/*set get_report to 1*/
+	mutex_lock(&data->status_mutex);
+	if (data->status != IDLE)
+	{
+		if (data->status != BUSY)
+		{
+		    dev_err(&fc->dev, "F54 status is in an abnormal state: %d \n",
+						data->status);
+		}
+		mutex_unlock(&data->status_mutex);
+		return count;
+	}
+
+	mdelay(2);
+
+	if (driver->store_irq_mask)
+		driver->store_irq_mask(fc->rmi_dev,fc->irq_mask);
+	else
+		dev_err(&fc->dev, "No way to store interupts!\n");
+	data->status = BUSY;
+	result = rmi_write_block(fc->rmi_dev, fc->fd.command_base_addr,&command, 1);
+	mutex_unlock(&data->status_mutex);
+
+#if F54_WATCHDOG
+/* start watchdog timer */
+	hrtimer_start(&data->watchdog, ktime_set(0, 700000000),HRTIMER_MODE_REL);
+#endif
+	return result;
+}
+
+/* when the report type is  3 or 9, we call this function to  to find open
+* transmitter electrodes, open receiver electrodes, transmitter-to-ground
+* shorts, receiver-to-ground shorts, and transmitter-to-receiver shorts. */
+static int f54_rawimage_report (struct rmi_fn_54_data *rawimage_data)
+{
+	short Rawimage;
+	short Result = 0;
+
+	int i,k,j;
+	long int RawimageSum = 0;
+	short RawimageAverage = 0;
+	short RawimageMaxNum,RawimageMinNum;
+	u16 ic_name;
+	int moudle_id;
+	u16 *raw_cap_uplimit = NULL;
+	u16 *raw_cap_lowlimit = NULL;
+	printk("%s:enter\n",__func__);
+	raw_cap_uplimit = raw_cap_incell3250_uplimit;
+	if (NULL == raw_cap_uplimit)
+	{
+		printk("there is no data in table raw_cap_incell3250_uplimit\n");
+		return 0;
+	}
+	raw_cap_lowlimit = raw_cap_incell3250_lowlimit;
+	if(NULL == raw_cap_lowlimit)
+	{
+		printk("there is no data in table raw_cap_incell3250_lowlimit\n");
+		return 0;
+	}
+
+	INIT_COMPLETION(mmi_comp);
+	wait_for_completion(&mmi_comp);
+
+	RawimageMaxNum = (mmi_buf[0]) | (mmi_buf[1] << 8);
+	RawimageMinNum = (mmi_buf[0]) | (mmi_buf[1] << 8);
+	for ( i = 0; i < mmidata_size; i+=2)
+	{
+		Rawimage = (mmi_buf[i]) | (mmi_buf[i+1] << 8);
+		RawimageSum += Rawimage;
+		if(RawimageMaxNum < Rawimage)
+			RawimageMaxNum = Rawimage;
+		if(RawimageMinNum > Rawimage)
+			RawimageMinNum = Rawimage;
+	}
+	RawimageAverage = RawimageSum/(mmidata_size/2);
+	rawimage_data->raw_statics_data.RawimageAverage = RawimageAverage;
+	rawimage_data->raw_statics_data.RawimageMaxNum = RawimageMaxNum;
+	rawimage_data->raw_statics_data.RawimageMinNum = RawimageMinNum;
+
+	k = 0;
+	j = 0;
+
+	for ( i = 0; i < mmidata_size; i+=2)
+	{
+		Rawimage = (mmi_buf[i]) | (mmi_buf[i+1] << 8);
+		if (j == rx) {
+			printk("\n");
+			j = 0;
+		}
+		printk("%5d",Rawimage);
+		j++;
+		if ((Rawimage > raw_cap_lowlimit[k])&& (Rawimage < raw_cap_uplimit[k]))
+		{
+			Result++;
+		}
+		k++;
+	}
+	if (Result == (mmidata_size/2))
+		return 1;
+	else
+		return 0;
+}
+
+/* when the report type is 7 ,this function is used to find RX to Rx short.*/
+static int f54_RxtoRxshort_report(struct rmi_fn_54_data *data,size_t count)
+{
+	unsigned char command;
+	int Result=0;
+	int DiagonalUpperLimit = 1100;
+	int DiagonalLowerLimit = 900;
+	int OthersUpperLimit = 250;
+	int i,j,k;
+	short ImageArray;
+
+	INIT_COMPLETION(mmi_comp);
+	wait_for_completion(&mmi_comp);
+	k = 0;
+	for (i = 0; i < tx; i++)
+	{
+		for (j = 0; j < rx; j++)
+		{
+			ImageArray = mmi_buf[k]|(mmi_buf[k+1] << 8);
+			k = k + 2;
+			printk("%5d", ImageArray);
+			if (i == j)
+			{
+				if((ImageArray <= DiagonalUpperLimit) && (ImageArray >= DiagonalLowerLimit))
+					Result++;
+			}
+			else
+			{
+				if(ImageArray <= OthersUpperLimit)
+					Result++;
+			}
+		}
+		printk("\n");
+	 }
+
+	data->report_type = F54_RX_TO_RX2;
+	command = (unsigned char)F54_RX_TO_RX2;
+
+	write_to_f54_register(data->fc,command,count);
+
+	INIT_COMPLETION(mmi_comp);
+	wait_for_completion(&mmi_comp);
+	k = 0;
+	for (i = 0; i < (rx-tx); i++)
+	{
+		for (j = 0; j < rx; j++)
+		{
+			ImageArray = mmi_buf[k]|(mmi_buf[k+1] << 8);
+			k = k + 2;
+			printk("%5d", ImageArray);
+			if ((i + tx) == j)
+			{
+				if((ImageArray <= DiagonalUpperLimit) && (ImageArray >= DiagonalLowerLimit))
+					Result++;
+			} else {
+					if(ImageArray <= OthersUpperLimit)
+					        Result++;
+			}
+
+		}
+		printk("\n");
+	}
+
+	if(Result == (rx * rx))
+		return 1;
+	else
+		return 0;
+}
+
+/* when the report type is 5, we call this function to
+*  catche Tx-to-Tx shorts and Tx-to-Vdd shorts.
+*  If the bits of the report_data is '0', no short existed. */
+static int f54_txtotx_short_report (void)
+{
+	char Txstatus;
+	int result = 0;
+	int i,j,k;
+	k = 0;
+	INIT_COMPLETION(mmi_comp);
+	wait_for_completion(&mmi_comp);
+	for (i = 0;i < mmidata_size;i++)
+	{
+
+		printk("value in txtotxshort, value[%d] = %d\n",i,mmi_buf[i]);
+	    for (j = 0;j < 8;j++)
+	    {
+	        if (tx == k)
+			break;
+		Txstatus = (mmi_buf[i] & (1 << j)) >> j;
+		if (0 == Txstatus)
+			result++;
+		k++;
+	    }
+	}
+	if (tx == result)
+		return 1;
+	else
+		return 0;
+}
+
+/* when the report type is 16, this function used to catche Tx-to-ground shorts,
+*  If the bits of the report_data is '1', no short existed. */
+static int f54_txtoground_short_report (void)
+{
+	char Txstatus;
+	int result = 0;
+	int i,j;
+
+	INIT_COMPLETION(mmi_comp);
+	wait_for_completion(&mmi_comp);
+
+	for (i = 0;i < mmidata_size;i++)
+	{
+		printk("value in txtoground, value[%d] = %d\n",i,mmi_buf[i]);
+		for (j = 0;j < 8;j++)
+		{
+			Txstatus = (mmi_buf[i] & (1 << j)) >> j;
+			/*check each bit is '1' or '0', all bits is '1', no short existed*/
+			if (1 == Txstatus)
+				result++;
+		}
+	}
+	if ((tx) == result)
+		return 1;
+	else
+		return 0;
+
+}
+static int f54_maxmincapacitance_report(void)
+{
+    short maxcapacitance = 5500;
+	short mincapacitance = 300;
+	short value[2] = {0};
+	int i,k;
+	k = 0;
+	INIT_COMPLETION(mmi_comp);
+	wait_for_completion(&mmi_comp);
+	for (i = 0; i < mmidata_size/2; i++)
+	{
+	    value[i] = (mmi_buf[k])|(mmi_buf[k+1] << 8);
+		printk("value in maxmincapactance, value[%d] = %d\n",i,value[i]);
+		k=k+2;
+	}
+
+	if ((value[0] < maxcapacitance)&& (value[1] > mincapacitance))
+		return 1;
+	else
+		return 0;
+}
+/* when the report type is 4, this function used to catch broken Tx/Rx channels */
+static int f54_highresistance_report (void)
+{
+	short ReceiverMax = 450;
+	short TransmiterMax = 450;
+	short ReceiverMin = -1000;
+	short PixelMin = -1500;
+	short PixelMax = 20;
+	short value[3] = {0};
+	int i,k;
+	k = 0;
+	INIT_COMPLETION(mmi_comp);
+	wait_for_completion(&mmi_comp);
+	for (i = 0; i < mmidata_size/2; i++)
+	{
+	    value[i] = (mmi_buf[k])|(mmi_buf[k+1] << 8);
+		k=k+2;
+		printk("value in highresistance, value[%d] = %d\n",i,value[i]);
+	}
+
+	if (((value[0] < ReceiverMax)&& (value[0] > ReceiverMin))
+		&& ((value[1] < TransmiterMax)&& (value[1] > ReceiverMin))
+		&& ((value[2] > PixelMin)&& (value[2] < PixelMax)))
+	    return 1;
+	else
+		return 0;
+}
+
+/*Touch MMI test end*/
+
 #if F54_WATCHDOG
 static enum hrtimer_restart clear_status(struct hrtimer *timer);
 
@@ -941,8 +1715,14 @@ static int rmi_f54_init(struct rmi_function_container *fc)
 {
 	int retval = 0;
 	struct rmi_fn_54_data *f54;
+	int fw_type;
 
 	dev_info(&fc->dev, "Intializing F54.");
+
+	/*Touch MMI Test begin */
+	init_completion(&mmi_comp);
+	init_completion(&mmi_sync);
+	/*Touch MMI Test end*/
 
 	retval = rmi_f54_alloc_memory(fc);
 	if (retval < 0)
@@ -957,6 +1737,16 @@ static int rmi_f54_init(struct rmi_function_container *fc)
 		goto error_exit;
 	f54 = fc->data;
 	f54->status = IDLE;
+
+	fw_type = get_touchscreen_fw_type();
+	if (fw_type == E_TOUSCREEN_FW_WATER_PROOF) {
+		f54->rmi_f54_rx_number = RX_NUMBER_WATER;
+		f54->rmi_f54_tx_number = TX_NUMBER_WATER;
+	} else {
+		f54->rmi_f54_rx_number = RX_NUMBER;
+		f54->rmi_f54_tx_number = TX_NUMBER;
+	}
+
 	return retval;
 
 error_exit:
@@ -1004,7 +1794,6 @@ static int rmi_f54_reset(struct rmi_function_container *fc)
 #if F54_WATCHDOG
 	hrtimer_cancel(&data->watchdog);
 #endif
-
 	mutex_lock(&data->status_mutex);
 	if (driver->restore_irq_mask) {
 		dev_dbg(&fc->dev, "Restoring interupts!\n");
@@ -1038,6 +1827,23 @@ static int rmi_f54_create_sysfs(struct rmi_function_container *fc)
 	int retval;
 	dev_dbg(&fc->dev, "Creating sysfs files.");
 	/* Set up sysfs device attributes. */
+
+	/*Touch MMI Test begin */
+	/*Creat test and test result node*/
+	retval = sysfs_create_file(&fc->dev.kobj,&f54_mmi_test_att.attr);
+	if (retval < 0) {
+		dev_err(&fc->dev, "Failed to create sysfs file for F54 mmi test "
+					"(error = %d).\n", retval);
+		return -ENODEV;
+	}
+
+	retval = sysfs_create_file(&fc->dev.kobj,&f54_mmi_test_data_att.attr);
+	if (retval < 0) {
+		dev_err(&fc->dev, "Failed to create sysfs file for F54 mmi test data "
+					"(error = %d).\n", retval);
+		return -ENODEV;
+	}
+	/*Touch MMI Test end*/
 
 	if (sysfs_create_group(&fc->dev.kobj, &attrs_query) < 0) {
 		dev_err(&fc->dev, "Failed to create query sysfs files.");
@@ -1508,8 +2314,12 @@ static int rmi_f54_initialize(struct rmi_function_container *fc)
 
 static void set_report_size(struct rmi_fn_54_data *data)
 {
+	/*Touch MMI Test begin*/
+	#if 0
 	u8 rx = data->query.num_of_rx_electrodes;
 	u8 tx = data->query.num_of_tx_electrodes;
+	#endif
+	/*Touch MMI Test end*/
 	switch (data->report_type) {
 	case F54_8BIT_IMAGE:
 		data->report_size = rx * tx;
@@ -1529,10 +2339,21 @@ static void set_report_size(struct rmi_fn_54_data *data)
 		break;
 	case F54_TX_TO_TX_SHORT:
 	case F54_TX_OPEN:
-	case F54_TX_TO_GROUND:
+		/*Touch MMI Test begin*/
 		data->report_size =  (tx + 7) / 8;
+		break;	//edw
+		/*Touch MMI Test end*/
+	case F54_TX_TO_GROUND:
+		data->report_size =  3; //edw S2202 uses 13 tx in general... need to check with Platform (tx + 7) / 8
 		break;
 	case F54_RX_TO_RX1:
+	//edw
+		if (rx < tx)
+			data->report_size = 2 * rx * rx;
+		else
+			data->report_size = 2 * rx * tx;
+		break;
+	//edw
 	case F54_RX_OPENS1:
 		if (rx < tx)
 			data->report_size = 2 * rx * rx;
@@ -1557,6 +2378,30 @@ int rmi_f54_attention(struct rmi_function_container *fc, u8 *irq_bits)
 	char fifo[2];
 	struct rmi_fn_54_data *data = fc->data;
 	int error = 0;
+	/*Touch MMI Test begin */
+	int l;
+	struct rmi_driver_data *driver_data = rmi_get_driverdata(fc->rmi_dev);
+	struct rmi_function_container *f01_fc = driver_data->f01_container;
+    /*get tx and rx value by read register from F11_2D_CTRL77 and F11_2D_CTRL78 */
+	error = rmi_read_block(fc->rmi_dev,f01_fc->fd.control_base_addr + data->rmi_f54_rx_number,
+			&rx, 1);
+	if (error < 0)
+	{
+		dev_err(&fc->dev, "Could not read RX value "
+			"from 0x%04x\n", f01_fc->fd.control_base_addr + data->rmi_f54_rx_number);
+		goto error_exit;
+	}
+
+	error = rmi_read_block(fc->rmi_dev,f01_fc->fd.control_base_addr + data->rmi_f54_tx_number,
+			&tx, 1);
+
+	if (error < 0)
+	{
+		dev_err(&fc->dev, "Could not read TX value "
+			"from 0x%04x\n", f01_fc->fd.control_base_addr + data->rmi_f54_tx_number);
+		goto error_exit;
+	}
+	/*Touch MMI Test end >*/
 
 	set_report_size(data);
 	if (data->report_size == 0) {
@@ -1589,8 +2434,9 @@ int rmi_f54_attention(struct rmi_function_container *fc, u8 *irq_bits)
 	/* Write 0 to fifohi and fifolo. */
 	fifo[0] = 0;
 	fifo[1] = 0;
+
 	error = rmi_write_block(fc->rmi_dev, fc->fd.data_base_addr
-				+ RMI_F54_FIFO_OFFSET, fifo,	sizeof(fifo));
+				+ RMI_F54_FIFO_OFFSET, fifo, sizeof(fifo));
 	if (error < 0)
 		dev_err(&fc->dev, "Failed to write fifo to zero!\n");
 	else
@@ -1603,8 +2449,19 @@ int rmi_f54_attention(struct rmi_function_container *fc, u8 *irq_bits)
 		error = -EINVAL;
 		goto error_exit;
 	}
+
+	/*Touch MMI Test begin */
+	/*get report data, one data contains two bytes*/
+	mmidata_size = data->report_size;
+
+	for (l = 0; l < data->report_size; l += 2)
+	{
+		mmi_buf[l] = data->report_data[l];
+		mmi_buf[l+1] = data->report_data[l+1];
+	}
+
+	/* Touch MMI Test end >*/
 #if RAW_HEX
-	int l;
 	/* Debugging: Print out the file in hex. */
 	pr_info("Report data (raw hex):\n");
 	for (l = 0; l < data->report_size; l += 2) {
@@ -1666,6 +2523,9 @@ error_exit:
 	}
 	data->status = error;
 	mutex_unlock(&data->status_mutex);
+	/*Touch MMI Test begin */
+	complete(&mmi_comp);
+	/*Touch MMI Test end*/
 	return data->status;
 }
 
@@ -1678,7 +2538,7 @@ static void clear_status_worker(struct work_struct *work)
 	struct rmi_function_container *fc = data->fc;
 	struct rmi_driver *driver = fc->rmi_dev->driver;
 	char command;
-	int result;
+	int result = 0;
 
 	mutex_lock(&data->status_mutex);
 	if (data->status == BUSY) {
@@ -1705,8 +2565,61 @@ static void clear_status_worker(struct work_struct *work)
 		}
 	}
 	mutex_unlock(&data->status_mutex);
+
+	/*Touch MMI Test begin */
+	complete(&mmi_sync);
+	/*Touch MMI Test end*/
 }
 
+/*Touch MMI Test begin */
+static ssize_t rmi_fn_54_num_rx_electrodes_show(struct device *dev,
+				     struct device_attribute *attr, char *buf) {
+
+	int retval = 0;
+	u8 temp_rx;
+	struct rmi_function_container *fc;
+	struct rmi_driver_data *driver_data;
+	struct rmi_function_container *f01_fc;
+	struct rmi_fn_54_data *data;
+
+	fc = to_rmi_function_container(dev);
+	driver_data = rmi_get_driverdata(fc->rmi_dev);
+	f01_fc = driver_data->f01_container;
+
+	data = fc->data;
+	retval = rmi_read_block(fc->rmi_dev, f01_fc->fd.control_base_addr+ data->rmi_f54_rx_number,
+			&temp_rx, 1);
+	if(retval < 0)
+		dev_err(dev, "failed read, code = %d\n", retval);
+
+	return snprintf(buf, PAGE_SIZE, "%u\n", temp_rx);
+
+}
+
+static ssize_t rmi_fn_54_num_tx_electrodes_show(struct device *dev,
+				struct device_attribute *attr, char *buf) {
+
+	int retval = 0;
+	u8 temp_tx;
+	struct rmi_function_container *fc;
+	struct rmi_driver_data *driver_data;
+	struct rmi_function_container *f01_fc;
+	struct rmi_fn_54_data *data;
+
+	fc = to_rmi_function_container(dev);
+	driver_data = rmi_get_driverdata(fc->rmi_dev);
+	f01_fc = driver_data->f01_container;
+
+	data = fc->data;
+	retval = rmi_read_block(fc->rmi_dev, f01_fc->fd.control_base_addr+ data->rmi_f54_tx_number,
+			&temp_tx, 1);
+	if(retval < 0)
+		dev_err(dev, "failed read, code = %d\n", retval);
+
+	return snprintf(buf, PAGE_SIZE, "%u\n", temp_tx);
+
+}
+/*Touch MMI Test end*/
 static enum hrtimer_restart clear_status(struct hrtimer *timer)
 {
 	struct rmi_fn_54_data *data = container_of(timer,
@@ -1966,7 +2879,7 @@ static ssize_t rmi_fn_54_no_auto_cal_show(struct device *dev,
 static ssize_t rmi_fn_54_no_auto_cal_store(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count) {
-	int result;
+	int result = 0;
 	unsigned long val;
 	unsigned char data;
 	struct rmi_function_container *fc;
@@ -2013,7 +2926,7 @@ static ssize_t rmi_fn_54_fifoindex_show(struct device *dev,
 	struct rmi_fn_54_data *instance_data;
 	struct rmi_driver *driver;
 	unsigned char temp_buf[2];
-	int retval;
+	int retval = 0;
 
 	fc = to_rmi_function_container(dev);
 	instance_data = fc->data;

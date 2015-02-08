@@ -84,7 +84,11 @@ static const unsigned long s_crc32tab[256] =
 /*----local function prototypes---------------------------------------------------------*/
 
 #ifdef CONFIG_POWERCOLLAPSE
+#ifdef CONFIG_DUMP_LOGCAT
+static inline void dump_abnormal_reset_log(unsigned long dst, unsigned long src, logcat_buf_info *plogcat_buf_info);
+#else
 static inline void dump_abnormal_reset_log(unsigned long dst, unsigned long src);
+#endif
 #endif
 static inline int strcpy_valid_char(char *pdst, char *psrc, int bytes_to_write);
 static inline void copy_data(char *pdst, char *psrc, int bytes_to_copy);
@@ -93,6 +97,9 @@ static inline void write_info_header(unsigned long header_addr, srecorder_info_t
     unsigned long data_len, char *keyword);
 static unsigned long get_crc32(unsigned char const *pbuf, unsigned long data_len);
 static inline unsigned long dump_dmesg(char *pdst, char *psrc, unsigned log_end, unsigned log_buf_len);
+#ifdef CONFIG_DUMP_LOGCAT
+static inline unsigned long dump_logcat(char *pdst, logcat_buf_info *plogcat_buf_info, int count);
+#endif
 static inline void do_nothing(void)
 {
     return;
@@ -449,13 +456,71 @@ static inline unsigned long dump_dmesg(char *pdst, char *psrc, unsigned log_end,
     pstart = (char *)((unsigned long)pdst + log_header_size + keyword_len);
     data_len = strcpy_valid_char(pstart, psrc + log_end - 1, (log_buf_len - log_end));
     data_len += strcpy_valid_char(pstart + data_len, psrc, log_end);
-    write_info_header((unsigned long)pdst, DMESG, keyword_len + data_len, DMESG_KEYWORD);
-
+    write_info_header((unsigned long)pdst, DMESG_BIT2, keyword_len + data_len, DMESG_KEYWORD);
+    
     return (log_header_size + keyword_len + data_len);
 }
 
 
 #ifdef CONFIG_POWERCOLLAPSE
+#ifdef CONFIG_DUMP_LOGCAT
+/**
+    @function: static inline unsigned long dump_logcat(char *pdst, logcat_buf_info *plogcat_buf_info)
+    @brief: dump logcat to the temp buffer
+
+    @param: pdst temp buffer addr.
+    @param: plogcat_buf_info logcat buf info.
+    @param: count logcat log cat count.
+
+    @return: data length
+    
+    @note: 
+*/
+static inline unsigned long dump_logcat(char *pdst, logcat_buf_info *plogcat_buf_info, int count)
+{
+    int data_copyed = 0;
+    int i = 0;
+    int data_len = 0;
+    int keyword_len = 0;
+    int log_header_size = sizeof(srecorder_info_header_t);
+    char *pstart = NULL;
+    
+    keyword_len = str_len(LOGCAT_KEYWORD) + 1; /* 1 - length of \n */
+    pstart = (char *)((unsigned long)pdst + log_header_size + keyword_len);
+    plogcat_buf_info[LOGCAT_MAIN].desc = "\n*********** log main ***********\n";
+    plogcat_buf_info[LOGCAT_SYSTEM].desc = "\n*********** log system ***********\n";
+    plogcat_buf_info[LOGCAT_EVENTS].desc = "\n*********** log events ***********\n";
+    plogcat_buf_info[LOGCAT_RADIO].desc = "\n*********** log radio ***********\n";
+    for (i = 0; i < count; i++)
+    {
+        data_copyed = strcpy_valid_char(pstart + data_len, (char *)plogcat_buf_info[i].desc, str_len(plogcat_buf_info[i].desc));
+        data_len += data_copyed;
+        data_copyed = strcpy_valid_char(pstart + data_len, (char *)plogcat_buf_info[i].log_buf, (int)plogcat_buf_info[i].log_buf_len);
+        data_len += data_copyed;
+    }
+    
+    write_info_header((unsigned long)pdst, LOGCAT_BIT9, keyword_len + data_len, LOGCAT_KEYWORD);
+    
+    return (log_header_size + keyword_len + data_len);
+}
+#endif
+
+
+#ifdef CONFIG_DUMP_LOGCAT
+/**
+    @function: static inline void dump_abnormal_reset_log(unsigned long dst, unsigned long src, logcat_buf_info *plogcat_buf_info)
+    @brief: dump log to the temp buffer
+
+    @param: src physical start address of the SRecorder's reserved memory zone.
+    @param: dst temp buffer to store the dmesg.
+    @param: plogcat_buf_info logcat buf info.
+
+    @return: none
+    
+    @note: 
+*/
+static inline void dump_abnormal_reset_log(unsigned long dst, unsigned long src, logcat_buf_info *plogcat_buf_info)
+#else
 /**
     @function: static inline void dump_abnormal_reset_log(unsigned long dst, unsigned long src)
     @brief: dump log to the temp buffer
@@ -468,6 +533,7 @@ static inline unsigned long dump_dmesg(char *pdst, char *psrc, unsigned log_end,
     @note: 
 */
 static inline void dump_abnormal_reset_log(unsigned long dst, unsigned long src)
+#endif
 {
     psrecorder_reserved_mem_header_t pheader = (psrecorder_reserved_mem_header_t)dst;
     int mem_header_size = sizeof(srecorder_reserved_mem_header_t);
@@ -476,6 +542,9 @@ static inline void dump_abnormal_reset_log(unsigned long dst, unsigned long src)
     int keyword_len = 0;
     char *pstart = NULL;
     unsigned long log_header_start_addr = 0x0;
+#ifdef CONFIG_DUMP_LOGCAT
+    unsigned long dmesg_header_addr = 0x0;
+#endif
 
     __memcpy((void *)dst, (void *)src, mem_header_size);
 
@@ -494,13 +563,26 @@ static inline void dump_abnormal_reset_log(unsigned long dst, unsigned long src)
     pstart = (char *)(log_header_start_addr + log_header_size + keyword_len);
     data_len = strcpy_valid_char(pstart, CRASH_REASON_POWER_COLLAPSE, str_len(CRASH_REASON_POWER_COLLAPSE));
     data_len += strcpy_valid_char(pstart + data_len, CRASH_DEFAULT_TIME_POWER_COLLAPSE, str_len(CRASH_DEFAULT_TIME_POWER_COLLAPSE));
-    write_info_header(log_header_start_addr, CRASH_REASON_TIME, keyword_len + data_len, CRASH_REASON_KEYWORD);
+    write_info_header(log_header_start_addr, CRASH_REASON_TIME_BIT0, keyword_len + data_len, CRASH_REASON_KEYWORD);
     log_header_start_addr += (log_header_size + keyword_len + data_len);
     pheader->data_length += (log_header_size + keyword_len + data_len);
     
+#ifdef CONFIG_DUMP_LOGCAT
+    /* 3. dump dmesg and logcat */
+    dmesg_header_addr = log_header_start_addr;
+    data_len = dump_dmesg((char *)dmesg_header_addr, (char *)pheader->log_buf, 
+        *(unsigned *)pheader->log_end, pheader->log_buf_len);
+    pheader->data_length += data_len;
+    if (0x0 != (pheader->dump_ctrl_bits[LOGCAT_BIT9 / 32] & (((unsigned long)1 << (LOGCAT_BIT9 % 32)))))
+    {
+        data_len = dump_logcat((char *)(dmesg_header_addr + data_len), plogcat_buf_info, LOGCAT_TYPE_MAX);
+        pheader->data_length += data_len;
+    }
+#else
     /* 3.dump dmesg */
     pheader->data_length += dump_dmesg((char *)log_header_start_addr, (char *)pheader->log_buf, 
         *(unsigned *)pheader->log_end, pheader->log_buf_len);
+#endif
 
     /* 4. update the reset_flasg and magic_num of the mem info header */
     pheader->reset_flag = NORMAL_RESET;
@@ -534,26 +616,28 @@ decompress_kernel(unsigned long output_start, unsigned long free_mem_ptr_p,
                 + CONFIG_SRECORDER_TEMPBUF_ADDR_FROM_PHYS_OFFSET);
         platform_special_reserved_mem_info_t *pmem_info = (platform_special_reserved_mem_info_t *)
             (output_start - INITIAL_PAGE_TABLE_SIZE - mem_info_len); 
+        unsigned long boot_crc32 = 0x0;
 
         /* 1, check the validity of the reserved buffer */
-        if (NULL == (void *)pmem_info->srecorder_log_buf 
-            || NULL == (void *)pmem_info->srecorder_log_buf_len 
-            || pmem_info->crc32 != get_crc32((unsigned char*)pmem_info, 
-            (unsigned long)(mem_info_len - sizeof(pmem_info->crc32))))
+        boot_crc32 = get_crc32((unsigned char*)pmem_info, (unsigned long)(mem_info_len - sizeof(pmem_info->crc32)));
+        if ((NULL == (void *)pmem_info->srecorder_log_buf) || (pmem_info->crc32 != boot_crc32))
         {
             /* avoid copy invalid data */
-            ((srecorder_reserved_mem_header_t *)temp_buf)->magic_num = INVALID_SRECORDER_MAGIC_NUM;
+            ((srecorder_reserved_mem_header_t *)temp_buf)->magic_num = SRECORDER_ATAG_ZONE_DAMAGED;
+            ((srecorder_reserved_mem_header_t *)temp_buf)->reserved_mem_size = boot_crc32;
             break;
         }
 
         /* 2, check the validity of SRecorder's reserved memory header */
         pmem_header = (srecorder_reserved_mem_header_t *)pmem_info->srecorder_log_buf;
+        boot_crc32 = get_crc32((unsigned char *)pmem_header, (unsigned long)(mem_header_len 
+            - sizeof(pmem_header->crc32)  - sizeof(pmem_header->reserved)));
         __memcpy((void *)temp_buf, pmem_header, mem_header_len);
-        if (pmem_header->crc32 != get_crc32((unsigned char *)pmem_header, (unsigned long)(mem_header_len 
-            - sizeof(pmem_header->crc32)  - sizeof(pmem_header->reserved))))
+        if (pmem_header->crc32 != boot_crc32)
         {
             /* avoid copy invalid data */
-            ((srecorder_reserved_mem_header_t *)temp_buf)->magic_num = INVALID_SRECORDER_MAGIC_NUM;
+            ((srecorder_reserved_mem_header_t *)temp_buf)->magic_num = SRECORDER_RESERVED_ZONE_DAMAGED;
+            ((srecorder_reserved_mem_header_t *)temp_buf)->reserved_mem_size = boot_crc32;
             break;
         }
 
@@ -561,11 +645,16 @@ decompress_kernel(unsigned long output_start, unsigned long free_mem_ptr_p,
         if (ABNORMAL_RESET == pmem_header->reset_flag)
         {
 #ifdef CONFIG_POWERCOLLAPSE
+#ifdef CONFIG_DUMP_LOGCAT
+            dump_abnormal_reset_log(temp_buf, pmem_info->srecorder_log_buf, &(pmem_info->logcat_buf_info[0]));
+#else
             dump_abnormal_reset_log(temp_buf, pmem_info->srecorder_log_buf);
+#endif
 #endif
         }
         else if (NORMAL_RESET == pmem_header->reset_flag)
         {
+#ifndef CONFIG_SRECORDER_DUMP_LOG_TO_STORAGECARD
             __memcpy((void *)temp_buf, (void *)pmem_info->srecorder_log_buf, pmem_header->data_length + mem_header_len);
             if (SRECORDER_MAGIC_NUM != pmem_header->magic_num)
             {
@@ -577,6 +666,9 @@ decompress_kernel(unsigned long output_start, unsigned long free_mem_ptr_p,
                 (char *)pmem_header->log_buf, *(unsigned *)pmem_header->log_end, pmem_header->log_buf_len);
             pmem_header->crc32 = get_crc32((unsigned char *)pmem_header, mem_header_len 
                 - sizeof(pmem_header->crc32) - sizeof(pmem_header->reserved));
+#else
+            ((srecorder_reserved_mem_header_t *)temp_buf)->magic_num = SRECORDER_DUMP_LOG_TO_STORAGECARD;
+#endif
         }
         else
         {

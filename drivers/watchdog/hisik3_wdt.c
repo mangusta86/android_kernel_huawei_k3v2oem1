@@ -404,12 +404,12 @@ static int k3wdt_kick_threadfunc(void *data)
 {
 	while(1)
 	{
-//		printk(KERN_ERR "[%d] kick k3 dog\n",(int)data);
+		printk(KERN_ERR "[%d] kick k3 dog\n",(int)data);
 		wdt_default_config();
 
 		if (kthread_should_stop())
 		{
-//			printk(KERN_ERR "exit kick dog thread\n");
+			printk(KERN_ERR "exit kick dog thread\n");
 			break;
 		}
 		set_current_state(TASK_INTERRUPTIBLE);

@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: bcmsdh_linux.c 312788 2012-02-03 23:06:32Z $
+ * $Id: bcmsdh_linux.c 352863 2012-08-24 04:48:50Z $
  */
 
 /**

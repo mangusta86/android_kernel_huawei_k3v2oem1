@@ -42,7 +42,7 @@ extern "C" {
 
 /*----export function prototypes--------------------------------------------------------*/
 
-#if DUMP_SYS_INFO
+#if defined(CONFIG_DUMP_SYS_INFO)
 /**
     @function: srec_ksym_addr_t srecorder_get_cpu_name(void)
     @brief: 获取变量cpu_name的地址
@@ -202,7 +202,7 @@ srec_ksym_addr_t srecorder_get_unregister_jprobe(void);
 srec_ksym_addr_t srecorder_get_jprobe_return(void);
 
 
-#if DUMP_CURRENT_PS_BACKTRACE
+#if defined(CONFIG_DUMP_CURRENT_PS_BACKTRACE)
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 36))
 /**
     @function: srec_ksym_addr_t srecorder_get_vfsmount_lock_lock(void)
@@ -318,15 +318,15 @@ srec_ksym_addr_t srecorder_get_unwind_lock(void);
 #endif
 
 
-#if DUMP_ALLPS_INFO
+#if defined(CONFIG_DUMP_ALLPS_INFO)
 #endif
 
 
-#if DUMP_ALLCPU_STACK || DUMP_ALLPS_INFO
+#if defined(CONFIG_DUMP_ALLCPU_STACK) || defined(CONFIG_DUMP_ALLPS_INFO)
 #endif
 
 
-#if DUMP_ALLCPU_STACK
+#if defined(CONFIG_DUMP_ALLCPU_STACK)
 #endif
 
 
@@ -356,7 +356,7 @@ srec_ksym_addr_t srecorder_get_atomic_notifier_chain_register(void);
 srec_ksym_addr_t srecorder_get_atomic_notifier_chain_unregister(void);
 
 
-#if DUMP_DMESG
+#if defined(CONFIG_DUMP_DMESG)
 /**
     @function: srec_ksym_addr_t srecorder_get_log_buf(void)
     @brief: 得到内核ring buffer的起始地址
@@ -397,7 +397,7 @@ srec_ksym_addr_t srecorder_get_log_end(void);
 #endif
 
 
-#if DUMP_SLAB_INFO
+#if defined(CONFIG_DUMP_SLAB_INFO)
 #ifdef CONFIG_SLAB
 /**
     @function: srec_ksym_addr_t srecorder_get_cache_chain(void)
@@ -452,7 +452,7 @@ srec_ksym_addr_t srecorder_get_slub_lock(void);
 #endif
 
 
-#if DUMP_MODEM_LOG
+#if defined(CONFIG_DUMP_MODEM_LOG)
 /**
     @function: srec_ksym_addr_t srecorder_get_spinlocks_initialized(void)
     @brief: 获取变量spinlocks_initialized的地址

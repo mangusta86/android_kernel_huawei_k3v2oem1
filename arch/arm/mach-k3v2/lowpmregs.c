@@ -46,6 +46,8 @@ static struct ipps_client ipps_client;
 #define DEBG_SUSPEND_WAKELOCK	(1<<8)
 #define DEBG_SUSPEND_AUDIO		(1<<9)
 
+#define BACKUP_BATT_CHG_OFFSET  (0x52)
+
 static int g_suspended;
 static unsigned g_utimer_inms;
 static unsigned g_urtc_ins;
@@ -179,6 +181,13 @@ void pmulowpower(int isuspend)
 
 	if (1 == isuspend) {
 		for (i = 0; i < ilen; i++) {
+			/*if battery removable,do not close backup battery charging*/
+			if(get_battery_removable()){
+				if(pmuregs_lookups[i].ucoffset == BACKUP_BATT_CHG_OFFSET){
+					continue;
+				}
+			}
+
 			uregv = readl(PMUSPI_REG(pmuregs_lookups[i].ucoffset));
 			pmuregs_lookups[i].old_val = uregv;
 			uregv &= ~pmuregs_lookups[i].cmask;
@@ -196,6 +205,13 @@ void pmulowpower(int isuspend)
 
 	} else {
 		for (i = (ilen - 1); i >= 0; i--) {
+			/*if battery removable,do not close backup battery charging*/
+			if(get_battery_removable()){
+				if(pmuregs_lookups[i].ucoffset == BACKUP_BATT_CHG_OFFSET){
+					continue;
+				}
+			}
+
 			uregv = readl(PMUSPI_REG(pmuregs_lookups[i].ucoffset));
 			uregv &= ~pmuregs_lookups[i].cmask;
 			uregv |= pmuregs_lookups[i].old_val;
@@ -396,6 +412,13 @@ void pmulowpowerall(int isuspend)
 					|| (pmuregs_lookups_all[i].ucoffset == 0xCC))
 					continue;
 
+			/*if battery removable,do not close backup battery charging*/
+			if(get_battery_removable()){
+				if(pmuregs_lookups_all[i].ucoffset == BACKUP_BATT_CHG_OFFSET){
+					continue;
+				}
+			}
+
 			uregv = readl(PMUSPI_REG(pmuregs_lookups_all[i].ucoffset));
 			pmuregs_lookups_all[i].old_val = uregv;
 			uregv &= ~pmuregs_lookups_all[i].cmask;
@@ -414,6 +437,13 @@ void pmulowpowerall(int isuspend)
 					|| (pmuregs_lookups_all[i].ucoffset == 0xCB)
 					|| (pmuregs_lookups_all[i].ucoffset == 0xCC))
 					continue;
+
+			/*if battery removable,do not close backup battery charging*/
+			if(get_battery_removable()){
+				if(pmuregs_lookups_all[i].ucoffset == BACKUP_BATT_CHG_OFFSET){
+					continue;
+				}
+			}
 
 			uregv = readl(PMUSPI_REG(pmuregs_lookups_all[i].ucoffset));
 			uregv &= ~pmuregs_lookups_all[i].cmask;

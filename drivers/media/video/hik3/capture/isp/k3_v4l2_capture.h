@@ -24,7 +24,7 @@
 #include <linux/videodev2.h>
 #include <linux/semaphore.h>
 #include "cam_util.h"
-#include "camera.h"
+#include "../camera.h"
 #include "sensor_common.h"
 
 #define VIDIOC_CHECK_CAP  _IOWR('V', 200, struct v4l2_ext_controls)
@@ -113,6 +113,7 @@ int k3_isp_enum_framesizes(struct v4l2_frmsizeenum *fs);
 int k3_isp_enum_frameintervals(struct v4l2_frmivalenum *fi);
 int k3_isp_try_frameintervals(struct v4l2_frmivalenum *fi);
 int k3_isp_set_zoom(char preview_running, u32 zoom);
+int k3_isp_set_ae_lock(int lock);
 int k3_isp_get_zoom(void);
 int k3_isp_get_process_mode(void);
 int k3_isp_poweron(void);
@@ -220,6 +221,7 @@ int k3_isp_get_binning_size(binning_size *size);
 int k3_isp_get_fps(camera_fps fps);
 int k3_isp_set_fps(camera_fps fps, u8 value);
 int k3_isp_get_actual_iso(void);
+int k3_isp_get_algorithm_iso(void);
 int k3_isp_get_hdr_iso_exp(hdr_para_reserved *iso_exp);
 int k3_isp_get_awb_gain(int withShift);
 int k3_isp_get_focus_code(void);

@@ -9,6 +9,10 @@
 
 #define HI6421_REG_CLK_CTL          ( 0x4F )
 
+#define HI6421_REG_IRQ2             ( 0x02 )
+#define HI6421_HDS_PLUG_IN_BIT                  ( 1 )
+#define HI6421_HDS_PLUG_OUT_BIT                 ( 0 )
+
 #define HI6421_REG_IRQ3             ( 0x03 )
 #define     HI6421_HDS_BTN_RELEASE_BIT          ( 3 )
 #define     HI6421_HDS_BTN_PRESS_BIT            ( 2 )
@@ -454,5 +458,8 @@
 
 #define HI6421_CODEC_REG_RWLOOP2_FIRST  HI6421_REG_LINEINLPGA
 #define HI6421_CODEC_REG_RWLOOP2_LAST   HI6421_CODEC_REG_LAST
+
+#define HI6421_REG_PLL_RO_CTL           ( 0xF6 )
+#define     HI6421_PLL_VALID_VALUE_MIN          ( 0x40 )
 
 #endif

@@ -723,6 +723,11 @@ static void MhlTxDriveStates( void )
                 {
                         int reQueueRequest = 0;
                         cbus_req_t *pReq = GetNextCBusTransaction(MhlTxDriveStates);
+                        if(NULL == pReq)
+                        {
+                            CBUS_DEBUG_PRINT(("pReq get NULL from the calling of GetNextCBusTransaction\n"));
+                            return;
+                        }
                         // coordinate write burst requests and grants.
                         if (MHL_SET_INT == pReq->command)
                         {
@@ -1059,9 +1064,14 @@ PLACE_IN_CODE_SEG  HDMI_VIC_Info_t HDMI_VicInfo[]=
 
 uint32_t CalculatePixelClock(uint16_t columns, uint16_t rows, uint32_t verticalSyncFrequencyInMilliHz,uint8_t VIC)
 {
-        uint32_t pixelClockFrequency;
-        uint32_t verticalSyncPeriodInMicroSeconds, verticalActivePeriodInMicroSeconds, verticalBlankPeriodInMicroSeconds;
-        uint32_t horizontalSyncFrequencyInHundredthsOfKHz, horizontalSyncPeriodInNanoSeconds, horizontalActivePeriodInNanoSeconds,horizontalBlankPeriodInNanoSeconds;
+        uint32_t pixelClockFrequency =0;
+        uint32_t verticalSyncPeriodInMicroSeconds = 0;
+        uint32_t verticalActivePeriodInMicroSeconds;
+        uint32_t verticalBlankPeriodInMicroSeconds;
+        uint32_t horizontalSyncFrequencyInHundredthsOfKHz;
+        uint32_t horizontalSyncPeriodInNanoSeconds = 0;
+        uint32_t horizontalActivePeriodInNanoSeconds,horizontalBlankPeriodInNanoSeconds;
+
         PIXCLK_DEBUG_PRINT(("verticalSyncFrequencyInMilliHz: %lu\n",verticalSyncFrequencyInMilliHz ));
         if(verticalSyncFrequencyInMilliHz!=0)
         {
@@ -1106,11 +1116,13 @@ uint32_t CalculatePixelClock(uint16_t columns, uint16_t rows, uint32_t verticalS
         PIXCLK_DEBUG_PRINT(("verticalBlankPeriodInMicroSeconds: %lu\n",verticalBlankPeriodInMicroSeconds));
 
         horizontalSyncFrequencyInHundredthsOfKHz = rows * 100000;
-        horizontalSyncFrequencyInHundredthsOfKHz /= verticalActivePeriodInMicroSeconds;
+        if(verticalActivePeriodInMicroSeconds != 0)
+            horizontalSyncFrequencyInHundredthsOfKHz /= verticalActivePeriodInMicroSeconds;
 
         PIXCLK_DEBUG_PRINT(("horizontalSyncFrequencyInHundredthsOfKHz: %lu\n",horizontalSyncFrequencyInHundredthsOfKHz));
 
-        horizontalSyncPeriodInNanoSeconds    = 100000000 / horizontalSyncFrequencyInHundredthsOfKHz;
+        if(horizontalSyncFrequencyInHundredthsOfKHz != 0)
+            horizontalSyncPeriodInNanoSeconds    = 100000000 / horizontalSyncFrequencyInHundredthsOfKHz;
 
         PIXCLK_DEBUG_PRINT(("horizontalSyncPeriodInNanoSeconds: %lu\n",horizontalSyncPeriodInNanoSeconds));
 
@@ -1132,7 +1144,8 @@ uint32_t CalculatePixelClock(uint16_t columns, uint16_t rows, uint32_t verticalS
         horizontalBlankPeriodInNanoSeconds = horizontalSyncPeriodInNanoSeconds - horizontalActivePeriodInNanoSeconds;
         PIXCLK_DEBUG_PRINT(("horizontalBlankPeriodInNanoSeconds: %lu\n",horizontalBlankPeriodInNanoSeconds));
 
-        pixelClockFrequency = columns * (1000000000/ horizontalActivePeriodInNanoSeconds);
+        if(horizontalActivePeriodInNanoSeconds != 0)
+            pixelClockFrequency = columns * (1000000000/ horizontalActivePeriodInNanoSeconds);
 
         PIXCLK_DEBUG_PRINT(("pixelClockFrequency: %lu\n",pixelClockFrequency));
 
@@ -1613,7 +1626,8 @@ void SiiMhlTxPruneDTDList(P_18ByteDescriptor_u pDesc,uint8_t limit)
 #else
 void SiiMhlTxPruneDTDList(P_18ByteDescriptor_u pDesc,uint8_t limit)
 {
-        uint8_t i;
+        int i = 0;
+        int limit_loop = (int)limit;
         uint8_t numberThatWePruned=0;
         PEDID_Block0_t pEdidBlock0 = (PEDID_Block0_t)&edidBlockData[0];
 
@@ -1622,7 +1636,7 @@ void SiiMhlTxPruneDTDList(P_18ByteDescriptor_u pDesc,uint8_t limit)
 
         if (limit&&(0x20 > mhlTxConfig.devCapCache.aucDevCapCache[DEVCAP_OFFSET_MHL_VERSION]))
         {
-                for (i = 0 ; i < limit -1 ; ++i)
+                for (i = 0 ; i < limit_loop -1 ; ++i)
                 {
                         TX_PRUNE_PRINT(("limit4444: %d,i=%d,(pDesc->dtd.pixelClockHigh):0x%02x,(mhlTxConfig.devCapCache.aucDevCapCache[DEVCAP_OFFSET_MHL_VERSION]):0x%02x\n",
                                         (uint16_t)limit,i,(uint16_t)(pDesc->dtd.pixelClockHigh),(uint16_t)(mhlTxConfig.devCapCache.aucDevCapCache[DEVCAP_OFFSET_MHL_VERSION])));
@@ -1635,7 +1649,7 @@ void SiiMhlTxPruneDTDList(P_18ByteDescriptor_u pDesc,uint8_t limit)
                                         P_18ByteDescriptor_u pHolder=pDesc,pNextDesc = pDesc+1;
                                         uint8_t j;
                                         numberThatWePruned++;
-                                        for (j = i+1; j < limit ; ++j)
+                                        for (j = i+1; j < limit_loop ; ++j)
                                         {
                                                 TX_PRUNE_PRINT(("limit555555: %d, i=%d, j=%d\n",(uint16_t)limit,i,j));
                                                 // move the rest of the entries one by one
@@ -1649,9 +1663,9 @@ void SiiMhlTxPruneDTDList(P_18ByteDescriptor_u pDesc,uint8_t limit)
                         if ((pDesc->dtd.pixelClockHigh>0x20)&&(mhlTxConfig.devCapCache.aucDevCapCache[DEVCAP_OFFSET_MHL_VERSION] < 0x20))
                         {
                                 P_18ByteDescriptor_u pNextDesc = pDesc+1;//pHolder=pDesc,
-                                uint8_t j;
+                                int j;
                                 numberThatWePruned++;
-                                for (j = i+1; j < limit ; ++j)
+                                for (j = i+1; j < limit_loop ; ++j)
                                 {
                                         TX_PRUNE_PRINT(("limit6666666: %d,*pDesc:0x%02x\n",(uint16_t)limit,*pDesc));
                                         // move the rest of the entries one by one
@@ -2528,6 +2542,8 @@ void SiiMhlTxEnumerateHdmiVsdb(void)
                                         uint8_t lengthVIC;
                                         uint8_t index;
                                         Mhl2VideoDescriptor_t mhl2VideoDescriptor;
+
+                                        memset(&mhl2VideoDescriptor, 0, sizeof(Mhl2VideoDescriptor_t));
                                         lengthVIC =  mhlTxConfig.pByte13ThroughByte15->byte14.HDMI_VIC_LEN;
                                         mhl2VideoDescriptor.LeftRight      = 0;
                                         mhl2VideoDescriptor.TopBottom      = 0;

@@ -29,57 +29,7 @@
 /*==================================================================*/
 /*                                          define log dump switch begin                                                                          */
 /*==================================================================*/
-#ifdef CONFIG_DUMP_CRASH_TIME
-#define DUMP_CRASH_TIME (1)
-#else
-#define DUMP_CRASH_TIME 1                   /* 导出死机的时间，这是SRecorder的基础抓包能力，该值必须为1 */
-#endif
 
-#ifdef CONFIG_DUMP_DMESG
-#define DUMP_DMESG (1)
-#else
-#define DUMP_DMESG 1                             /* 导出dmesg信息获取，这是SRecorder的基础抓包能力，该值必须为1 */
-#endif
-
-#ifdef CONFIG_DUMP_CURRENT_PS_BACKTRACE
-#define DUMP_CURRENT_PS_BACKTRACE (1)
-#else
-#define DUMP_CURRENT_PS_BACKTRACE 0 /* 导出当前正在运行进程调用栈，建议打开 */
-#endif
-
-#ifdef CONFIG_DUMP_ALLCPU_STACK
-#define DUMP_ALLCPU_STACK (1)
-#else
-#define DUMP_ALLCPU_STACK 0                /* 导出所有CPU调用栈，可以关闭 */
-#endif
-
-#ifdef CONFIG_DUMP_ALLPS_INFO
-#define DUMP_ALLPS_INFO (1)
-#else
-#define DUMP_ALLPS_INFO 0                     /* 导出所有进程信息，可以关闭 */
-#endif
-
-#ifdef CONFIG_DUMP_SYS_INFO
-#define DUMP_SYS_INFO (1)
-#else
-#define DUMP_SYS_INFO 0                        /* 导出系统信息，可以关闭 */
-#endif
-
-#ifdef CONFIG_DUMP_SLAB_INFO
-#define DUMP_SLAB_INFO (1)
-#else
-#define DUMP_SLAB_INFO 0                        /* 导出slab信息，可以关闭 */
-#endif
-
-#ifdef CONFIG_DUMP_MODEM_LOG
-#define DUMP_MODEM_LOG (1)
-#else
-#ifdef CONFIG_ARCH_MSM
-#define DUMP_MODEM_LOG 1                      /* 导出modem死机堆栈和运行日志，可以关闭 */
-#else
-#define DUMP_MODEM_LOG 0
-#endif
-#endif
 /*==================================================================*/
 /*                    define log dump switch end                                                                                                  */
 /*==================================================================*/
@@ -93,6 +43,7 @@
 #define SLABINFO_KEYWORD "===============slabinfo==============="
 #define MODEM_ERR_KEYWORD "===============modem err==============="
 #define MODEM_ERR_F3_KEYWORD "===============modem err f3==============="
+#define LOGCAT_KEYWORD "===============logcat==============="
 
 #ifndef GET_MIN
 #define GET_MIN(a, b) (((a) > (b)) ? (b) : (a))
@@ -100,6 +51,9 @@
 
 #define SRECORDER_MAGIC_NUM (0x20122102)
 #define INVALID_SRECORDER_MAGIC_NUM (0xffffffff)
+#define SRECORDER_ATAG_ZONE_DAMAGED (0xdeaddead)
+#define SRECORDER_RESERVED_ZONE_DAMAGED (0xdeadbeef)
+#define SRECORDER_DUMP_LOG_TO_STORAGECARD (0x900dbeef)
 #define ABNORMAL_RESET (1)
 #define NORMAL_RESET (0)
 #define CRC32_SEED_VALUE (0xFFFFFFFF)
@@ -119,16 +73,19 @@
 /* log type */
 typedef enum
 {
-    CRASH_REASON_TIME = 0, 
-    SYS_INFO,
-    DMESG,
-    ALL_CPU_STACK,    
-    ALL_PS_INFO,    
-    CURRENT_PS_BACKTRACE,
-    SLABINFO,
-    MODEM_ERR,
-    MODEM_ERR_F3,
-    TYPE_MAX,
+    CRASH_REASON_TIME_BIT0 = 0, 
+    SYS_INFO_BIT1,
+    DMESG_BIT2,
+    ALL_CPU_STACK_BIT3,
+    ALL_PS_INFO_BIT4,
+    CURRENT_PS_BACKTRACE_BIT5,
+    SLABINFO_BIT6,
+    MODEM_ERR_BIT7,
+    MODEM_ERR_F3_BIT8,
+    LOGCAT_BIT9,
+    LOG_TYPE_COUNT,
+    LOG_TYPE_MAX = 64,
+    INVALID_LOG_TYPE = LOG_TYPE_MAX
 } srecorder_info_type_e;
 
 /* header struct for SRecorder's reserved memory */
@@ -139,22 +96,22 @@ typedef struct __srecorder_reserved_mem_header_t
     unsigned long data_length; /* log length except this header */
 
     /*===========================================================*/
-    /*       allocate 6 members for abnormal reset begin         */
+    /*       allocate 7 members for abnormal reset begin         */
     /*===========================================================*/
     unsigned long reset_flag; /* system reset_flag, 1 - abnormal reset, 0 - normal reset */
     unsigned long log_buf; /* phys addr of __log_buf */
     unsigned long log_end; /* phys addr of log_end */
     unsigned long log_buf_len; /* phys addr of log_buf_len */
     unsigned long reserved_mem_size; /* SRecorder reserved mem max length */
+    unsigned long dump_ctrl_bits[2]; /* dump control bits */
     unsigned long crc32; /* crc32 check value */
     /*===========================================================*/
-    /*       allocate 6 members for abnormal reset end           */
+    /*       allocate 7 members for abnormal reset end           */
     /*===========================================================*/
     
-    char reserved[24];
-    
+    char reserved[16];
     /*the region following this struct is assigned for the data region*/
-} srecorder_reserved_mem_header_t, *psrecorder_reserved_mem_header_t;
+}  srecorder_reserved_mem_header_t, *psrecorder_reserved_mem_header_t;
 
 /* define the header struct for log */
 typedef struct __info_header
@@ -164,6 +121,24 @@ typedef struct __info_header
     unsigned long data_len;
 } srecorder_info_header_t, *psrecorder_info_header_t;
 
+#ifdef CONFIG_DUMP_LOGCAT
+enum
+{
+    LOGCAT_MAIN = 0,
+    LOGCAT_SYSTEM,
+    LOGCAT_EVENTS,
+    LOGCAT_RADIO,
+    LOGCAT_TYPE_MAX
+};
+
+typedef struct __logcat_buf_info
+{
+    char *desc;
+    unsigned long log_buf;
+    unsigned long log_buf_len;
+} logcat_buf_info;
+#endif
+
 typedef struct
 {
     unsigned long srecorder_log_buf;
@@ -171,6 +146,9 @@ typedef struct
 #ifdef CONFIG_POWERCOLLAPSE
     unsigned long log_buf;
     unsigned long log_buf_len;
+#endif
+#ifdef CONFIG_DUMP_LOGCAT
+    logcat_buf_info logcat_buf_info[LOGCAT_TYPE_MAX];
 #endif
     unsigned long crc32;
 } platform_special_reserved_mem_info_t;
@@ -268,6 +246,21 @@ char *alloc_buf_for_srecorder(unsigned long size);
     @note: 
 */
 bool get_srecorder_log_buf(char *panic_reason, char **pbuf, unsigned long *plog_len);
+#endif
+
+
+#ifdef CONFIG_DUMP_LOGCAT
+/**
+    @function: bool get_logcat_buf_info(logcat_buf_info *plogcat_buf_info)
+    @brief: get logcat's buffers and their length
+
+    @param: plogcat_buf_info 
+    
+    @return: true - successfully, false - failed
+
+    @note: 
+*/
+bool get_logcat_buf_info(logcat_buf_info *plogcat_buf_info);
 #endif
 
 

@@ -43,6 +43,7 @@ struct modem_boot_device{
 #define POWER_SET_DEBUGON      	1    /* Only turn on the modem, for debug USE */
 #define POWER_SET_OFF       	2
 #define POWER_SET_ON       	3
+#define POWER_SET_RESET         4
 
 #define GPIO_CP_SW_INIT  0
 #define GPIO_CP_SW_RDY  ( !(GPIO_CP_SW_INIT) )

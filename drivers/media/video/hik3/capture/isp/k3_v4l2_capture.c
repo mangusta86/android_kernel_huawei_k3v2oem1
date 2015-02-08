@@ -560,7 +560,11 @@ static int k3_v4l2_ioctl_g_ctrl(struct file *file, void *fh,
 			a->value = k3_isp_get_actual_iso();
 			break;
 		}
-
+	case V4L2_CID_ALGORITHM_ISO:
+		{
+			a->value = k3_isp_get_algorithm_iso();
+			break;
+		}
 	case V4L2_CID_ACTUAL_EXPOSURE:
 		{
 			a->value = k3_isp_get_exposure_time();
@@ -828,7 +832,6 @@ static int k3_v4l2_ioctl_s_ctrl(struct file *file, void *fh,
 		/* select a sensor to be used */
 	case V4L2_CID_SET_SENSOR:
 		{
-			print_info("set sensor:%s", (v4l2_param->value==0)?"primary":"secondary");
 			if (v4l2_param->value < 0 || v4l2_param->value >= CAMERA_SENSOR_MAX) {
 				print_error("invalid camera sensor type [%d]",
 					    v4l2_param->value);
@@ -840,7 +843,6 @@ static int k3_v4l2_ioctl_s_ctrl(struct file *file, void *fh,
 		}
 	case V4L2_CID_PROCESS_RAW_2_YUV:
 		{
-			print_info("set process raw to yuv:%s", v4l2_param->value?"start":"stop");
 			if (v4l2_param->value == 1)
 				ret = k3_v4l2_start_process(&v4l2_ctl, CAMERA_IPP_MODE_RAW_2_YUV);
 			else if (v4l2_param->value == 0)
@@ -851,7 +853,6 @@ static int k3_v4l2_ioctl_s_ctrl(struct file *file, void *fh,
 		}
 	case V4L2_CID_PROCESS_HDR:
 		{
-			print_info("set process hdr:%s", v4l2_param->value?"start":"stop");
 			if (v4l2_param->value == 1)
 				ret = k3_v4l2_start_process(&v4l2_ctl, CAMERA_IPP_MODE_HDR);
 			else if (v4l2_param->value == 0)
@@ -882,7 +883,7 @@ static int k3_v4l2_ioctl_s_ctrl(struct file *file, void *fh,
 		{
 			ret = k3_isp_set_focus_range(v4l2_param->value);
 			if (ret == -1) {
-				ret = -EINVAL;			
+				ret = -EINVAL;
 			}
 			break;
 		}
@@ -891,7 +892,7 @@ static int k3_v4l2_ioctl_s_ctrl(struct file *file, void *fh,
 		{
 			ret = k3_isp_set_fps_range(v4l2_param->value);
 			if (ret == -1) {
-				ret = -EINVAL;			
+				ret = -EINVAL;
 			}
 			break;
 		}
@@ -900,7 +901,7 @@ static int k3_v4l2_ioctl_s_ctrl(struct file *file, void *fh,
 		{
 			ret = k3_isp_set_max_exposure(v4l2_param->value);
 			if (ret == -1) {
-				ret = -EINVAL;			
+				ret = -EINVAL;
 			}
 			break;
 		}
@@ -952,6 +953,7 @@ static int k3_v4l2_ioctl_s_ctrl(struct file *file, void *fh,
 	case V4L2_CID_AUTO_EXPOSURE_LOCK:
 		{
 			print_info("set AE lock, %d", v4l2_param->value);
+			k3_isp_set_ae_lock(v4l2_param->value);
 			break;
 		}
 	case V4L2_CID_AUTO_WHITE_BALANCE_LOCK:
@@ -1136,7 +1138,6 @@ static int k3_v4l2_ioctl_g_ext_ctrls(struct file *file, void *fh,
 			camera_info_t *info = (struct camera_info *)(controls[cid_idx].string);
 			camera_id = controls[cid_idx].size; /* reserved[0] in hal */
 			psensor = get_camera_sensor_from_array(camera_id);
-
 			if (psensor == NULL) {
 				print_error("fail to find sensor by id.");
 				goto out;
@@ -1193,7 +1194,7 @@ static int k3_v4l2_ioctl_g_ext_ctrls(struct file *file, void *fh,
 			}
 			copy_from_user(data_buf, controls[cid_idx].string, data_size);
 			ae_coff *ae_data = data_buf;
-			
+
 			k3_isp_get_ae_coff(ae_data);
 
 			copy_to_user(controls[cid_idx].string, data_buf, data_size);
@@ -1214,7 +1215,7 @@ static int k3_v4l2_ioctl_g_ext_ctrls(struct file *file, void *fh,
 			}
 			copy_from_user(data_buf, controls[cid_idx].string, data_size);
 			extra_coff *extra_data = data_buf;
-			
+
 			k3_isp_get_extra_coff(extra_data);
 
 			copy_to_user(controls[cid_idx].string, data_buf, data_size);
@@ -1235,13 +1236,13 @@ static int k3_v4l2_ioctl_g_ext_ctrls(struct file *file, void *fh,
 			}
 			copy_from_user(data_buf, controls[cid_idx].string, data_size);
 			awb_coff *awb_data = data_buf;
-			
+
 			k3_isp_get_awb_coff(awb_data);
 
 			copy_to_user(controls[cid_idx].string, data_buf, data_size);
 			kfree(data_buf);
 			break;
-		}	
+		}
 
 
 		case V4L2_CID_GET_AWB_CT_COFF:
@@ -1256,13 +1257,13 @@ static int k3_v4l2_ioctl_g_ext_ctrls(struct file *file, void *fh,
 			}
 			copy_from_user(data_buf, controls[cid_idx].string, data_size);
 			awb_ct_coff *awb_ct_data = data_buf;
-			
+
 			k3_isp_get_awb_ct_coff(awb_ct_data);
 
 			copy_to_user(controls[cid_idx].string, data_buf, data_size);
 			kfree(data_buf);
 			break;
-		}	
+		}
 
 
 		case V4L2_CID_GET_CCM_COFF:
@@ -1277,7 +1278,7 @@ static int k3_v4l2_ioctl_g_ext_ctrls(struct file *file, void *fh,
 			}
 			copy_from_user(data_buf, controls[cid_idx].string, data_size);
 			ccm_coff *ccm_data = data_buf;
-			
+
 			k3_isp_get_ccm_coff(ccm_data);
 
 			copy_to_user(controls[cid_idx].string, data_buf, data_size);
@@ -1572,13 +1573,13 @@ static int k3_v4l2_ioctl_s_ext_ctrls(struct file *file, void *fh,
 			copy_from_user(data_buf, controls[cid_idx].string, data_size);
 			ae_coff *ae_data = data_buf;
 
-			func_ret = k3_isp_set_ae_coff(ae_data);			
+			func_ret = k3_isp_set_ae_coff(ae_data);
 			if (func_ret != 0) {
 				ret = -EINVAL;
 			}
 			kfree(data_buf);
 			goto end;
-			break;	
+			break;
 		}
 
 
@@ -1595,13 +1596,13 @@ static int k3_v4l2_ioctl_s_ext_ctrls(struct file *file, void *fh,
 			copy_from_user(data_buf, controls[cid_idx].string, data_size);
 			awb_coff *awb_data = data_buf;
 
-			func_ret = k3_isp_set_awb_coff(awb_data);			
+			func_ret = k3_isp_set_awb_coff(awb_data);
 			if (func_ret != 0) {
 				ret = -EINVAL;
 			}
 			kfree(data_buf);
 			goto end;
-			break;	
+			break;
 		}
 
 
@@ -1618,13 +1619,13 @@ static int k3_v4l2_ioctl_s_ext_ctrls(struct file *file, void *fh,
 			copy_from_user(data_buf, controls[cid_idx].string, data_size);
 			awb_ct_coff *awb_ct_data = data_buf;
 
-			func_ret = k3_isp_set_awb_ct_coff(awb_ct_data);			
+			func_ret = k3_isp_set_awb_ct_coff(awb_ct_data);
 			if (func_ret != 0) {
 				ret = -EINVAL;
 			}
 			kfree(data_buf);
 			goto end;
-			break;	
+			break;
 		}
 
 
@@ -1641,13 +1642,13 @@ static int k3_v4l2_ioctl_s_ext_ctrls(struct file *file, void *fh,
 			copy_from_user(data_buf, controls[cid_idx].string, data_size);
 			ccm_coff *ccm_data = data_buf;
 
-			func_ret = k3_isp_set_ccm_coff(ccm_data);			
+			func_ret = k3_isp_set_ccm_coff(ccm_data);
 			if (func_ret != 0) {
 				ret = -EINVAL;
 			}
 			kfree(data_buf);
 			goto end;
-			break;	
+			break;
 		}
 
 
@@ -1664,13 +1665,13 @@ static int k3_v4l2_ioctl_s_ext_ctrls(struct file *file, void *fh,
 			copy_from_user(data_buf, controls[cid_idx].string, data_size);
 			added_coff *added_data = data_buf;
 
-			func_ret = k3_isp_set_added_coff(added_data);			
+			func_ret = k3_isp_set_added_coff(added_data);
 			if (func_ret != 0) {
 				ret = -EINVAL;
 			}
 			kfree(data_buf);
 			goto end;
-			break;	
+			break;
 		}
 
 		case V4L2_CID_SET_COFF_SEQ:
@@ -1786,7 +1787,7 @@ static int k3_v4l2_ioctl_s_ext_ctrls(struct file *file, void *fh,
 
 			if (NULL != sensor_name)
 				k3_v4l2_set_sensor(cameraid, sensor_name);
-				
+
 			break;
 		}
 
@@ -2747,7 +2748,7 @@ static struct v4l2_file_operations k3_v4l2_fops = {
 	.owner = THIS_MODULE,
 	.open = k3_v4l2_open,
 	.release = k3_v4l2_close,
-	.mmap = k3_v4l2_mmap,
+	.mmap = NULL,
 	.ioctl = video_ioctl2,
 };
 

@@ -19,6 +19,13 @@ config TOUCHSCREEN_RMI4_SYNAPTICS_GENERIC
        depends on I2C
        help
          Say Y here to enable support Synaptics RMI4
+
+config LOG_TO_EXCEPTION
+       bool "interface to upload exception log to apr"
+       default n
+       help
+                Say Y here to enable upload the exception log to apr
+
 source "drivers/huawei/device/accelerometer/Kconfig"
 
 source "drivers/huawei/device/compass/Kconfig"
@@ -33,8 +40,9 @@ source "drivers/huawei/device/touchscreen_D2/Kconfig"
 
 source "drivers/huawei/device/touchkey/Kconfig"
 
-source "drivers/huawei/device/felica/Kconfig"
+#source "drivers/huawei/device/felica/Kconfig"
 
 source "drivers/huawei/device/irda/Kconfig"
 
 endmenu
+

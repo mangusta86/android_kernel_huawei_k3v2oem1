@@ -11,10 +11,7 @@ obj-$(CONFIG_PCI)		+= pcie.o
 obj-$(CONFIG_ARCH_PROVIDES_UDELAY) += delay.o
 obj-$(CONFIG_MACH_TC45MSU3)	+= board-tc45msu3.o
 obj-$(CONFIG_MACH_K3V2OEM1)	+= board-k3v2oem1.o
-obj-$(CONFIG_MACH_EPRJ_U9508)	+= board-eprj_u9508.o
-obj-$(CONFIG_MACH_EPRJ_U9508)	+= board-eprj_u9508-power.o
-obj-$(CONFIG_MACH_EPRJ_U9508)	+= board-eprj_u9508-connect.o
-obj-$(CONFIG_MACH_EPRJ_U9508)	+= board-eprj_u9508-input.o
+obj-$(CONFIG_MACH_K3V2OEM2)	+= board-k3v2oem2.o
 obj-$(CONFIG_SMP)		+= platsmp.o headsmp.o
 obj-$(CONFIG_HOTPLUG_CPU)	+= hotplug.o
 obj-$(CONFIG_LOCAL_TIMERS)	+= localtimer.o
@@ -41,7 +38,7 @@ obj-$(CONFIG_SUPPORT_B3750000_BITRATE) += k3v2_clocks_cs_60M.o k3v2_clocks_init_
 
 clean-files :=  k3v2_iomux_blocks.h
 $(obj)/iomux.o $(MODVERDIR)/$(obj)/iomux.ver: $(obj)/k3v2_iomux_blocks.h
-$(obj)/k3v2_iomux_blocks.h: $(src)/gen_io_cfg.pl $(src)/iomux.xls
+$(obj)/k3v2_iomux_blocks.h: $(src)/gen_io_cfg.pl $(src)/iomux2.xls
 	$(PERL) -s $^ $@
 
 ifdef CONFIG_IPPS_PARAM_ALTERNATIVE
@@ -59,10 +56,3 @@ $(obj)/ipps_para.h: $(src)/ipps_para_gen.pl $(src)/ipps_para.xls
 endif
 
 endif
-
-#
-# EternityProject Drivers
-#
-
-# EPRJ Generic Drivers
-obj-y					+= eprj_generic/

@@ -30,11 +30,13 @@
 #include "cyttsp4_mt_common.h"
 
 #define GLOVE_FILTER					
-#define GLOVE_FILTER_DIST 5			
+#define GLOVE_FILTER_DIST 150			
 #define MAX_NUM_GLOVE 2				
 #define GLOVE_ID_NONE 99				
-#define GLOVE_AXIS_INIT	3000			
-
+#define GLOVE_AXIS_INIT	3000	
+#define OPMODE_GLOVE 136
+#define OPMODE_FINGER 0
+static bool leather_covered = false;
 
 #ifdef GLOVE_FILTER
 	int glove_id_0 = GLOVE_ID_NONE;
@@ -70,6 +72,9 @@ static int comp_dist(int x1,int y1,int x2,int y2)
 
 static void cyttsp4_lift_all(struct cyttsp4_mt_data *md)
 {
+	if (!md->si)
+		return;
+
 	if (md->num_prv_tch != 0) {
 		if (md->mt_function.report_slot_liftoff)
 			md->mt_function.report_slot_liftoff(md);
@@ -201,6 +206,16 @@ static void cyttsp4_get_mt_touches(struct cyttsp4_mt_data *md, int num_cur_tch)
 			continue;
 		}
 
+		/*if leather is covered skip any glove info*/
+		if (leather_covered && tch.abs[CY_TCH_O] == CY_OBJ_HOVER){
+			dev_dbg(dev, "%s: leather covered, filter glove info\n", __func__);
+			goto cyttsp4_get_mt_touches_pr_tch;
+		}
+		
+		/*if (tch.abs[CY_TCH_O] == CY_OBJ_STANDARD_FINGER) 
+		{
+			dev_info(dev, "%s: finger info\n", __func__);
+		}*/
 		// CHNQ added +
 		/* if Finger (fw), no matter what state the driver is in, change to IN_FINGER_STATE;
 		  * if Glove (fw), if already in IN_GLOVE_STATE, then no change;
@@ -561,8 +576,15 @@ static int cyttsp4_mt_attention(struct cyttsp4_device *ttsp)
 
 	dev_vdbg(dev, "%s\n", __func__);
 
-	/* core handles handshake */
-	rc = cyttsp4_xy_worker(md);
+	mutex_lock(&md->report_lock);
+	if (!md->is_suspended) {
+		/* core handles handshake */
+		rc = cyttsp4_xy_worker(md);
+	} else {
+		dev_vdbg(dev, "%s: Ignoring report while suspended\n",
+			__func__);
+	}
+	mutex_unlock(&md->report_lock);
 	if (rc < 0)
 		dev_err(dev, "%s: xy_worker error r=%d\n", __func__, rc);
 
@@ -577,7 +599,9 @@ static int cyttsp4_startup_attention(struct cyttsp4_device *ttsp)
 
 	dev_vdbg(dev, "%s\n", __func__);
 
+	mutex_lock(&md->report_lock);
 	cyttsp4_lift_all(md);
+	mutex_unlock(&md->report_lock);
 
 	// CHNQ added +
 	touch_type_state = IN_GLOVE_STATE;
@@ -611,13 +635,10 @@ static int cyttsp4_mt_open(struct input_dev *input)
 static void cyttsp4_mt_close(struct input_dev *input)
 {
 	struct device *dev = input->dev.parent;
-	struct cyttsp4_mt_data *md = dev_get_drvdata(dev);
 	struct cyttsp4_device *ttsp =
 		container_of(dev, struct cyttsp4_device, dev);
 
 	dev_dbg(dev, "%s\n", __func__);
-
-	cyttsp4_lift_all(md);
 
 	cyttsp4_unsubscribe_attention(ttsp, CY_ATTEN_IRQ,
 		cyttsp4_mt_attention, CY_MODE_OPERATIONAL);
@@ -637,11 +658,7 @@ static void cyttsp4_mt_early_suspend(struct early_suspend *h)
 
 	dev_dbg(dev, "%s\n", __func__);
 
-	if (md->si)
-		cyttsp4_lift_all(md);
 	pm_runtime_put(dev);
-
-	md->is_suspended = true;
 }
 
 static void cyttsp4_mt_late_resume(struct early_suspend *h)
@@ -653,8 +670,6 @@ static void cyttsp4_mt_late_resume(struct early_suspend *h)
 	dev_dbg(dev, "%s\n", __func__);
 
 	pm_runtime_get(dev);
-
-	md->is_suspended = false;
 }
 
 void cyttsp4_setup_early_suspend(struct cyttsp4_mt_data *md)
@@ -674,14 +689,23 @@ static int cyttsp4_mt_suspend(struct device *dev)
 
 	dev_dbg(dev, "%s\n", __func__);
 
-	if (md->si)
-		cyttsp4_lift_all(md);
+	mutex_lock(&md->report_lock);
+	md->is_suspended = true;
+	cyttsp4_lift_all(md);
+	mutex_unlock(&md->report_lock);
+
 	return 0;
 }
 
 static int cyttsp4_mt_resume(struct device *dev)
 {
+	struct cyttsp4_mt_data *md = dev_get_drvdata(dev);
+
 	dev_dbg(dev, "%s\n", __func__);
+
+	mutex_lock(&md->report_lock);
+	md->is_suspended = false;
+	mutex_unlock(&md->report_lock);
 
 	return 0;
 }
@@ -826,6 +850,117 @@ int cyttsp4_mt_release(struct cyttsp4_device *ttsp)
 	return 0;
 }
 
+static ssize_t cyttsp4_leather_detect_show(struct device *dev,
+		struct device_attribute *attr, char *buf)
+{	
+	int rc = leather_covered ? 0 : 1;
+	printk("%s rc = %d\n", __func__, rc);
+	return scnprintf(buf, CY_MAX_PRBUF_SIZE, "%d\n", rc);
+}
+
+static ssize_t cyttsp4_leather_detect_notify(struct device *dev,
+		struct device_attribute *attr, const char *buf, size_t size)
+{
+	unsigned long leather_value;
+	int rc;
+	int release_rc;
+	int current_mode;
+	struct cyttsp4_mt_data *md = dev_get_drvdata(dev);
+	static bool modified = false;
+	
+	rc = cyttsp4_request_exclusive(md->ttsp,
+			CY_MT_REQUEST_EXCLUSIVE_TIMEOUT);
+	if (rc < 0) {
+		dev_err(dev, "%s: Error on request exclusive r=%d\n",
+				__func__, rc);
+		goto cyttsp4_leather_detect_notify_err_release;
+	}
+	
+	rc = kstrtoul(buf, 10, &leather_value);
+	if (rc < 0) {
+		dev_err(dev, "%s: Invalid value.\n", __func__);
+		goto cyttsp4_leather_detect_notify_err_release;
+	}
+	
+	if(leather_value == 0)
+	{
+		leather_covered = true;
+		current_mode = cyttsp4_request_get_params(md->ttsp, CY_SCAN_TYPE);
+		if(current_mode < 0)
+		{
+			rc = current_mode;
+			dev_err(dev, "%s: Error on rcyttsp4_request_get_params CY_SCAN_TYPE r=%d\n",
+				__func__, rc);	
+			goto cyttsp4_leather_detect_notify_err_release;
+		}
+		if(OPMODE_FINGER == current_mode)
+		{	
+			/*enhence the threshold to avoid odd touch*/
+			rc = cyttsp4_request_set_params(md->ttsp, CY_THRESHOLD, 600);
+			if (rc < 0) {
+				dev_err(dev, "%s: Error on cyttsp4_request_set_params 600 r=%d\n",
+					__func__, rc);
+				goto cyttsp4_leather_detect_notify_err_release;
+			}	
+			modified = true;
+		}		
+	}else{
+		leather_covered = false;
+		if(modified)
+		{	
+			/*restore the old threshold*/
+			rc = cyttsp4_request_set_params(md->ttsp, CY_THRESHOLD, 200);
+			if (rc < 0) {
+				dev_err(dev, "%s: Error on cyttsp4_request_set_params 200 r=%d\n",
+					__func__, rc);	
+				goto cyttsp4_leather_detect_notify_err_release;
+			}
+			modified = false;
+		}
+		
+	}
+	
+cyttsp4_leather_detect_notify_err_release:
+	
+	release_rc = cyttsp4_release_exclusive(md->ttsp);
+	if (release_rc < 0) {
+		dev_err(dev, "%s: Error on release exclusive r=%d\n",
+				__func__, rc);
+		return release_rc;
+	}
+	if(rc < 0){
+		return rc;
+	}
+	return size;
+}
+
+static struct device_attribute mt_attributes[] = {
+	__ATTR(leather_detect, S_IRUGO | S_IWUSR,
+		cyttsp4_leather_detect_show, cyttsp4_leather_detect_notify),	
+};
+
+static int add_mt_sysfs_interfaces(struct device *dev)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(mt_attributes); i++)
+		if (device_create_file(dev, mt_attributes + i))
+			goto undo;
+	return 0;
+undo:
+	for (i--; i >= 0 ; i--)
+		device_remove_file(dev, mt_attributes + i);
+	dev_err(dev, "%s: failed to create sysfs interface\n", __func__);
+	return -ENODEV;
+}
+
+static void remove_mt_sysfs_interfaces(struct device *dev)
+{
+	int i;
+	for (i = 0; i < ARRAY_SIZE(mt_attributes); i++)
+		device_remove_file(dev, mt_attributes + i);
+}
+
 static int cyttsp4_mt_probe(struct cyttsp4_device *ttsp)
 {
 	struct device *dev = &ttsp->dev;
@@ -852,6 +987,7 @@ static int cyttsp4_mt_probe(struct cyttsp4_device *ttsp)
 
 	cyttsp4_init_function_ptrs(md);
 
+	mutex_init(&md->report_lock);
 	md->prv_tch_type = CY_OBJ_STANDARD_FINGER;
 	md->ttsp = ttsp;
 	md->pdata = pdata;
@@ -893,13 +1029,20 @@ static int cyttsp4_mt_probe(struct cyttsp4_device *ttsp)
 			cyttsp4_setup_input_attention, 0);
 	}
 
+	rc = add_mt_sysfs_interfaces(dev);
+	if(rc < 0)
+	{
+		goto error_add_sysfs;
+	}
 #ifdef CONFIG_HAS_EARLYSUSPEND
 	cyttsp4_setup_early_suspend(md);
 #endif
 
 	dev_dbg(dev, "%s: OK\n", __func__);
 	return 0;
-
+	
+error_add_sysfs:
+	remove_mt_sysfs_interfaces(dev);
 error_init_input:
 	pm_runtime_suspend(dev);
 	pm_runtime_disable(dev);

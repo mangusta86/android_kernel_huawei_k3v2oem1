@@ -19,7 +19,7 @@
 struct board_id_general_struct
 {
 	char	name[32];
-	int		board_id;
+	unsigned int		board_id;
 	union{
 	#ifdef CONFIG_HUAWEI_GPIO_UNITE
 		struct gpio_config_type *gpio_ptr;

@@ -697,7 +697,5 @@ endif #CONFIG_LEDS_TRIGGERS
 export CONFIG_RFKILL_BACKPORT_INPUT=y
 endif #CONFIG_COMPAT_KERNEL_2_6_31
 
-#d00138378 add begin
 #Add for Wi-Fi throughput monitor and CPU DDR frequency control
 export CONFIG_WIFI_GOV_K3_FREQ=y
-#d00138378 add end

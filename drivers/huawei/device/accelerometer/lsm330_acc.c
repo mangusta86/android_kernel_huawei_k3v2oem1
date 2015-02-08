@@ -1005,16 +1005,16 @@ static ssize_t attr_set_enable(struct device *dev,
 static ssize_t attr_get_calibrate(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
-	struct lsm330_acc_data *acc = dev_get_drvdata(dev);
+	//struct lsm330_acc_data *acc = dev_get_drvdata(dev);
 	int val = return_calibration;
-	return sprintf(buf, "%d\n", val);
+	return snprintf(buf, PAGE_SIZE, "%d\n", val);
 }
 
 static ssize_t attr_set_calibrate(struct device *dev,
 				struct device_attribute *attr,
 						const char *buf, size_t size)
 {
-	struct lsm330_acc_data *acc = dev_get_drvdata(dev);
+	//struct lsm330_acc_data *acc = dev_get_drvdata(dev);
 	unsigned long val;
 
 	if (strict_strtoul(buf, 10, &val))
@@ -1144,7 +1144,7 @@ static ssize_t attr_get_interr_enable(struct device *dev,
 	mutex_lock(&acc->lock);
 	val = acc->interrupts_enable_setting;
 	mutex_unlock(&acc->lock);
-	return sprintf(buf, "0x%02x\n", val);
+	return snprintf(buf, PAGE_SIZE, "0x%02x\n", val);
 }
 
 static ssize_t attr_set_interr_enable(struct device *dev,

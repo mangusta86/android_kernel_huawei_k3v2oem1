@@ -43,6 +43,12 @@ struct k3_vph_pwr_vol_vib_iset {
 
 #define TIMEOUT_MORE 	(50)
 
+enum _motor_type{
+    MOTOR_DEFAULT = 0,
+    MOTOR_LDO,
+    MOTOR_LINEAR
+};
+
 struct k3_vibrator_platform_data {
 	u8 low_freq;
 	u8 low_power;

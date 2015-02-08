@@ -12,6 +12,7 @@ k3fb-objs := edc_reg.o \
 	ldi.o \
 	mipi_dsi.o \
 	backlight_pwm.o \
+	panel/mipi_cmi_OTM1282B.o \
 	panel/ldi_samsung_LMS350DF04.o \
 	panel/mipi_sharp_LS035B3SX.o \
 	panel/mipi_samsung_S6E39A.o \

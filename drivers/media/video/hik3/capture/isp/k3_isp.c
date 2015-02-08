@@ -772,7 +772,7 @@ int k3_isp_stop_process(ipp_mode mode)
 static void k3_isp_turn_on_flash(struct work_struct *work)
 {
 	camera_flashlight *flashlight = get_camera_flash();
-	
+
 	if(flashlight){
 		flashlight->turn_on(FLASH_MODE, LUM_LEVEL4);
 	}
@@ -910,7 +910,7 @@ void k3_isp_poweroff(void)
 void k3_isp_auto_focus(int flag)
 {
 	print_debug("enter %s", __func__);
-	
+
 
 	if (isp_data.sensor->af_enable) {
 		camera_tune_ops->isp_auto_focus(flag);
@@ -1050,9 +1050,9 @@ int k3_isp_set_awb_lock( int awb_lock)
 int k3_isp_get_extra_coff(extra_coff *extra_data)
 {
 	int ret = 0;
-	
+
 	print_debug("enter %s", __func__);
-	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP)
 		ret = camera_tune_ops->isp_get_extra_coff(extra_data);
 
 	return ret;
@@ -1062,9 +1062,9 @@ int k3_isp_get_extra_coff(extra_coff *extra_data)
 int k3_isp_get_ae_coff(ae_coff *ae_data)
 {
 	int ret = 0;
-	
+
 	print_debug("enter %s", __func__);
-	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP)
 		ret = camera_tune_ops->isp_get_ae_coff(ae_data);
 
 	return ret;
@@ -1073,9 +1073,9 @@ int k3_isp_get_ae_coff(ae_coff *ae_data)
 int k3_isp_set_ae_coff(ae_coff *ae_data)
 {
 	int ret = 0;
-	
+
 	print_debug("enter %s", __func__);
-	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP)
 		ret = camera_tune_ops->isp_set_ae_coff(ae_data);
 
 	return ret;
@@ -1085,9 +1085,9 @@ int k3_isp_set_ae_coff(ae_coff *ae_data)
 int k3_isp_get_awb_coff(awb_coff *awb_data)
 {
 	int ret = 0;
-	
+
 	print_debug("enter %s", __func__);
-	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP)
 		ret = camera_tune_ops->isp_get_awb_coff(awb_data);
 
 	return ret;
@@ -1096,9 +1096,9 @@ int k3_isp_get_awb_coff(awb_coff *awb_data)
 int k3_isp_set_awb_coff(awb_coff *awb_data)
 {
 	int ret = 0;
-	
+
 	print_debug("enter %s", __func__);
-	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP)
 		ret = camera_tune_ops->isp_set_awb_coff(awb_data);
 
 	return ret;
@@ -1108,9 +1108,9 @@ int k3_isp_set_awb_coff(awb_coff *awb_data)
 int k3_isp_get_awb_ct_coff(awb_ct_coff *awb_ct_data)
 {
 	int ret = 0;
-	
+
 	print_debug("enter %s", __func__);
-	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP)
 		ret = camera_tune_ops->isp_get_awb_ct_coff(awb_ct_data);
 
 	return ret;
@@ -1119,9 +1119,9 @@ int k3_isp_get_awb_ct_coff(awb_ct_coff *awb_ct_data)
 int k3_isp_set_awb_ct_coff(awb_ct_coff *awb_ct_data)
 {
 	int ret = 0;
-	
+
 	print_debug("enter %s", __func__);
-	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP)
 		ret = camera_tune_ops->isp_set_awb_ct_coff(awb_ct_data);
 
 	return ret;
@@ -1131,9 +1131,9 @@ int k3_isp_set_awb_ct_coff(awb_ct_coff *awb_ct_data)
 int k3_isp_get_ccm_coff(ccm_coff *ccm_data)
 {
 	int ret = 0;
-	
+
 	print_debug("enter %s", __func__);
-	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP)
 		ret = camera_tune_ops->isp_get_ccm_coff(ccm_data);
 
 	return ret;
@@ -1142,9 +1142,9 @@ int k3_isp_get_ccm_coff(ccm_coff *ccm_data)
 int k3_isp_set_ccm_coff(ccm_coff *ccm_data)
 {
 	int ret = 0;
-	
+
 	print_debug("enter %s", __func__);
-	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP)
 		ret = camera_tune_ops->isp_set_ccm_coff(ccm_data);
 
 	return ret;
@@ -1154,9 +1154,9 @@ int k3_isp_set_ccm_coff(ccm_coff *ccm_data)
 int k3_isp_set_added_coff(added_coff *added_data)
 {
 	int ret = 0;
-	
+
 	print_debug("enter %s", __func__);
-	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP)
 		ret = camera_tune_ops->isp_set_added_coff(added_data);
 
 	return ret;
@@ -1165,33 +1165,33 @@ int k3_isp_set_added_coff(added_coff *added_data)
 int k3_isp_set_focus_range(camera_focus focus_range)
 {
 	int ret = 0;
-	
+
 	print_debug("enter %s", __func__);
-	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP)
 		ret = camera_tune_ops->isp_set_focus_range(focus_range);
 
-	return ret;	
+	return ret;
 }
 
 
 int k3_isp_set_fps_range(camera_frame_rate_mode mode)
 {
 	int ret = 1;
-	
+
 	print_debug("enter %s", __func__);
-	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP)
 		camera_tune_ops->isp_set_fps_range(mode);
 
-	return ret;	
+	return ret;
 }
 
 
 int k3_isp_set_max_exposure(camera_max_exposrure mode)
 {
 	int ret = 0;
-	
+
 	print_debug("enter %s", __func__);
-	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP)
 		ret = camera_tune_ops->isp_set_max_exposure(mode);
 
 	return ret;
@@ -1201,9 +1201,9 @@ int k3_isp_set_max_exposure(camera_max_exposrure mode)
 int k3_isp_get_coff_seq(seq_coffs *seq_data)
 {
 	int ret = 0;
-	
+
 	print_debug("enter %s", __func__);
-	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP)
 		ret = camera_tune_ops->isp_get_coff_seq(seq_data);
 
 	return ret;
@@ -1212,9 +1212,9 @@ int k3_isp_get_coff_seq(seq_coffs *seq_data)
 int k3_isp_set_coff_seq(seq_coffs *seq_data)
 {
 	int ret = 0;
-	
+
 	print_debug("enter %s", __func__);
-	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP)
 		ret = camera_tune_ops->isp_set_coff_seq(seq_data);
 
 	return ret;
@@ -1224,9 +1224,9 @@ int k3_isp_set_coff_seq(seq_coffs *seq_data)
 int k3_isp_set_max_expo_time(int time)
 {
 	int ret = 0;
-	
+
 	print_debug("enter %s", __func__);
-	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP) 
+	if (isp_data.sensor->isp_location == CAMERA_USE_K3ISP)
 		ret = camera_tune_ops->isp_set_max_expo_time(time);
 
 	return ret;
@@ -1278,8 +1278,9 @@ int k3_isp_get_ev(void)
 /* For metering area information settings */
 int k3_isp_set_metering_area(metering_area_s *area)
 {
-	print_debug("enter %s", __func__);
 	int ret = 0;
+
+	print_debug("enter %s", __func__);
 	if (NULL != camera_tune_ops)
 		if (camera_tune_ops->set_metering_area) {
 			ret |= camera_tune_ops->set_metering_area(area, isp_data.zoom);
@@ -1551,8 +1552,7 @@ int k3_isp_set_flash_mode(camera_flash flash_mode)
 	case CAMERA_FLASH_TORCH:
 		{
 			print_info("set camera flash TORCH MODE");
-//			flashlight->turn_on(TORCH_MODE, LUM_LEVEL2);
-			flashlight->turn_on(TORCH_MODE, LUM_LEVEL1); /* EPRJ: U9508 */
+			flashlight->turn_on(TORCH_MODE, LUM_LEVEL2);
 			break;
 		}
 	case CAMERA_FLASH_OFF:
@@ -1636,6 +1636,9 @@ int k3_isp_set_zoom(char preview_running, u32 zoom)
 		isp_data.sensor->check_zoom_limit(&zoom);
 	}
 	if (preview_running) {
+		k3_isp_calc_zoom(STATE_PREVIEW, YUV_SCALE_FIRST,
+			&isp_data.pic_attr[STATE_PREVIEW].in_width, &isp_data.pic_attr[STATE_PREVIEW].in_height);
+
 		ret |= isp_hw_ctl->isp_set_zoom(zoom, HIGH_QUALITY_MODE);
 		if (isp_data.sensor->af_enable)
 			ret |= camera_tune_ops->isp_set_focus_zoom(zoom);
@@ -1654,6 +1657,14 @@ int k3_isp_set_zoom(char preview_running, u32 zoom)
 		}
 	}
 #endif
+	return ret;
+}
+int k3_isp_set_ae_lock(int mode)
+{
+	print_info("enter %s mode = %d", __func__,mode);
+	int ret = 0;
+	isp_hw_ctl->isp_set_ae_lock( mode);
+	isp_data.ae_lock = mode;
 	return ret;
 }
 
@@ -1709,6 +1720,24 @@ int k3_isp_get_actual_iso(void)
 	return ret;
 }
 
+
+
+int k3_isp_get_algorithm_iso(void)
+{
+	int ret = 0;
+	print_debug("enter %s", __func__);
+
+	if (CAMERA_USE_K3ISP == isp_data.sensor->isp_location) {
+		ret = camera_tune_ops->isp_get_algorithm_iso();
+	} else if (CAMERA_USE_SENSORISP == isp_data.sensor->isp_location) {
+		if (isp_data.sensor->get_gain) {
+			ret = isp_data.sensor->get_gain() * 100 / 0x10;
+			ret = ((ret / 2) + 5) / 10 * 10;
+		}
+	}
+	return ret;
+}
+
 int k3_isp_get_hdr_iso_exp(hdr_para_reserved *iso_exp)
 {
 
@@ -1726,6 +1755,8 @@ int k3_isp_get_focus_distance(void)
 	print_debug("enter %s", __func__);
 	return camera_tune_ops->isp_get_focus_distance();
 }
+
+
 int k3_isp_get_awb_gain(int withShift)
 {
 	int ret = 0;
@@ -1960,6 +1991,33 @@ int k3_isp_yuvrect_to_rawrect(camera_rect_s *yuv, camera_rect_s *raw)
 
 	return 0;
 }
+int k3_isp_yuvrect_to_rawrect2(camera_rect_s *yuv, camera_rect_s *raw)
+{
+	u32 crop_width,	crop_height; /* cropped size of original raw rect */
+	u32 scale;
+	pic_attr_t *attr = &isp_data.pic_attr[STATE_PREVIEW];
+
+	if (attr->in_height * attr->out_width > attr->in_width * attr->out_height) {
+		/* do height crop */
+		crop_height = attr->in_width * attr->out_height / attr->out_width;
+		crop_width = crop_height * attr->out_width / attr->out_height;
+	} else {
+		/* do width crop */
+		crop_width = attr->in_height * attr->out_width / attr->out_height;
+		crop_height = crop_width * attr->out_height / attr->out_width;
+	}
+
+	scale = (YUV_SCALE_DIVIDEND * crop_width) / attr->out_width;
+
+	/* convert YUV rect to raw rect */
+	raw->width = scale * yuv->width / YUV_SCALE_DIVIDEND;
+	raw->height = scale * yuv->height / YUV_SCALE_DIVIDEND;
+	raw->left = scale * yuv->left / YUV_SCALE_DIVIDEND + (attr->in_width - crop_width) / 2;
+	raw->top = scale * yuv->top / YUV_SCALE_DIVIDEND + (attr->in_height - crop_height) / 2;
+
+	return 0;
+}
+
 
 int k3_isp_rawrect_to_yuvrect(camera_rect_s *yuv, camera_rect_s *raw)
 {
@@ -2054,8 +2112,6 @@ int k3_isp_antishaking_rect_stat2out(camera_rect_s *out, camera_rect_s *stat)
 */
 static void k3_isp_calc_zoom(camera_state state, scale_strategy_t scale_strategy, u32 *in_width, u32 *in_height)
 {
-	u32 scale_width;
-	u32 scale_height;
 	u32 temp_width;
 	u32 temp_height;
 	u32 scale;
@@ -2082,11 +2138,7 @@ static void k3_isp_calc_zoom(camera_state state, scale_strategy_t scale_strategy
 	}
 
 	/* do not support float compute, so multiple YUV_SCALE_DIVIDEND */
-	scale_width = (YUV_SCALE_DIVIDEND * temp_width) / attr->out_width;
-	scale_height = (YUV_SCALE_DIVIDEND * temp_height) / attr->out_height;
-	scale = (scale_width < scale_height) ? scale_width : scale_height;
-	print_debug("scale_width = %d, scale_height = %d, scale = %d",
-		    scale_width, scale_height, scale);
+	scale = (YUV_SCALE_DIVIDEND * temp_width) / attr->out_width;
 
 	/* we do not need raw scale down */
 	attr->raw_scale_down = 1;
@@ -2139,6 +2191,13 @@ static void k3_isp_calc_zoom(camera_state state, scale_strategy_t scale_strategy
 		attr->crop_width++;
 	if ((attr->crop_height * temp) < (temp_height * ZOOM_BASE))
 		attr->crop_height++;
+
+	if (isp_data.zoom != 0) {
+		if (attr->crop_width & 0x03)
+			attr->crop_width = (attr->crop_width & ~0x03) + 4;
+		if (attr->crop_height & 0x03)
+			attr->crop_height = (attr->crop_height & ~0x03) + 4;
+	}
 
 	attr->crop_x = (attr->yuv_in_width - attr->crop_width) / 2;
 	attr->crop_y = (attr->yuv_in_height - attr->crop_height) / 2;
@@ -2312,7 +2371,7 @@ static void k3_isp_set_default(void)
 	isp_data.af_need_flash = false;
 
 	isp_data.shoot_mode = CAMERA_SHOOT_SINGLE;
-	
+
 	isp_data.already_turn_on_flash = false;
 }
 

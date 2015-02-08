@@ -260,7 +260,7 @@
  /*( 45 ) battery temperature is 45 degree*/
 #define BQ2419x_WARM_BATTERY_THRESHOLD     (45)
  /*( 50 ) battery temperature is 50 degree*/
-#define BQ2419x_HOT_BATTERY_THRESHOLD      (47)
+#define BQ2419x_HOT_BATTERY_THRESHOLD      (50)
  /*( 3 ) battery temperature offset is 3 degree*/
 #define BQ2419x_TEMPERATURE_OFFSET          (3)
 

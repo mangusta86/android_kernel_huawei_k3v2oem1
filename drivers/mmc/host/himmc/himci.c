@@ -223,20 +223,37 @@ static void mshci_hi_set_timing(struct himci_host *hi_host, int sam, int drv, in
 }
 
 
+#include <linux/mmc/mn66831hub_api.h>
+#define		SDHUB_DEVICE_ID		(SDHUB_DEVID0)
 
 static irqreturn_t mshci_hi_card_detect_gpio(int irq, void *data)
 {
 	struct mshci_host *ms_host = (struct mshci_host *)data;
 	struct himci_host *hi_host = (struct himci_host *)(ms_host->private);
+    int ret;
 
 #ifdef SD_FPGA_GPIO
 	hi_host_trace(HIMCI_TRACE_SIGNIFICANT, "g00175134: CD Interrupt 0x%x\n",
 					GPIO_CD_RIS(hi_host->gpioaddr));
 	GPIO_CD_IC(hi_host->gpioaddr) = 0x1;
 #endif
-	hi_host->ocp_flag = 0;
 
-	tasklet_schedule(&ms_host->card_tasklet);
+
+    hi_host->ocp_flag = 0;
+#ifdef CONFIG_MMC_SD_HUB
+    if (ms_host->ops->get_present_status) {
+        ret = ms_host->ops->get_present_status(ms_host);  // ret=1 卡不在位；ret=0卡在位
+    	if (!ret) {
+    		SDHUB_Connect_hotplug( ms_host->mmc, SDHUB_DEVICE_ID );
+        } else {
+    		SDHUB_Disconnect( ms_host->mmc, SDHUB_DEVICE_ID );
+        }        
+    }
+    printk("CPRM : %s : %s : ret = %d\n", mmc_hostname(ms_host->mmc), __func__, ret);
+#else
+    tasklet_schedule(&ms_host->card_tasklet);
+#endif /* CONFIG_MMC_SD_HUB */
+
 	return IRQ_HANDLED;
 };
 
@@ -310,6 +327,8 @@ static void mshci_hi_update_timing(struct mshci_host *ms_host, int bsuspend)
 	}
 }
 
+extern int k3v2_wifi_power(int on);
+
 void mshci_hi_set_ios(struct mshci_host *ms_host, struct mmc_ios *ios)
 {
 	struct himci_host * hi_host = (struct himci_host *)(ms_host->private);
@@ -341,26 +360,63 @@ void mshci_hi_set_ios(struct mshci_host *ms_host, struct mmc_ios *ios)
 				regulator_set_mode(hi_host->signal_vcc, REGULATOR_MODE_IDLE);
 		    }
 
-		    if (hi_host->vcc) {
-				regulator_disable(hi_host->vcc);
+#ifdef CONFIG_MMC_SD_HUB
+		    if( !(ms_host->quirks & MSHCI_QUIRK_EXTERNAL_CARD_DETECTION) ) {
+		        if (hi_host->vcc) {
+			   	    regulator_disable(hi_host->vcc);
+		        }
+		    } else {
+		        printk("CPRM : mshci_hi_set_ios() : MMC_POWER_OFF\n");
 		    }
+#else
+		    if (hi_host->vcc) {
+		        regulator_disable(hi_host->vcc);
+		    }
+#endif
 
+		    //z00186406 add to power on wifi begin
+                    if (ms_host->quirks) {
+			k3v2_wifi_power(false);
+		    }
+                    //z00186406 add to power on wifi end
 			break;
 		case MMC_POWER_UP:
 		    hi_host_trace(HIMCI_TRACE_SIGNIFICANT, "set io to normal");
-
-		    if (hi_host->vcc) {
-				ret = regulator_set_voltage(hi_host->vcc, 2850000, 2850000);
-				if (ret != 0) {
-					himci_error("failed to regulator_set_voltage");
-				}
-
-				ret = regulator_enable(hi_host->vcc);
-				if (ret) {
-					himci_error("failed to regulator_enable");
-				}
+                    
+                    //z00186406 add to power off wifi begin
+                    if (ms_host->quirks) {
+			k3v2_wifi_power(true);
 		    }
+                    //z00186406 add to power off wifi end
 
+#ifdef CONFIG_MMC_SD_HUB
+            if( !(ms_host->quirks & MSHCI_QUIRK_EXTERNAL_CARD_DETECTION) ) {                
+    		    if (hi_host->vcc) {
+    				ret = regulator_set_voltage(hi_host->vcc, 2850000, 2850000);
+    				if (ret != 0) {
+    					himci_error("failed to regulator_set_voltage");
+    				}
+
+    				ret = regulator_enable(hi_host->vcc);
+    				if (ret) {
+    					himci_error("failed to regulator_enable");
+    				}
+    		    }
+            } else {
+                printk("CPRM : mshci_hi_set_ios() : MMC_POWER_UP\n");
+            }
+#else
+                 if (hi_host->vcc) {
+                     ret = regulator_set_voltage(hi_host->vcc, 3000000, 3000000);
+                     if (ret != 0) {
+                           himci_error("failed to regulator_set_voltage");
+                     }
+                     ret = regulator_enable(hi_host->vcc);
+                     if (ret) {
+                           himci_error("failed to regulator_enable");
+                     }
+                 }
+#endif
 			if (hi_host->signal_vcc) {
 				ret = regulator_set_voltage(hi_host->signal_vcc, 2600000, 2600000);
 				if (ret != 0) {
@@ -523,7 +579,11 @@ static int mshci_hi_start_signal_voltage_switch(struct mshci_host *ms_host,
 			hi_host_trace(HIMCI_TRACE_SIGNIFICANT, "alter driver 8mA");
 			pin_temp = iomux_get_pin(SD_CLK_PIN);
 			if (pin_temp) {
-				ret = pinmux_setdrivestrength(pin_temp, LEVEL3);
+#ifdef CONFIG_MMC_SD_HUB
+				ret = pinmux_setdrivestrength(pin_temp, LEVEL0);
+#else
+                ret = pinmux_setdrivestrength(pin_temp, LEVEL3);
+#endif
 				if (ret < 0)
 					himci_error("pinmux_setdrivestrength error");
 			} else {
@@ -891,6 +951,12 @@ static int __devinit hi_mci_probe(struct platform_device *pdev)
 
 	himci_trace(HIMCI_TRACE_SIGNIFICANT, "id:%d", pdev->id);
 
+	/* sd control, if disabled, do not probe*/
+	if (0 == pdev->id && get_sd_enable() == false){
+		printk(KERN_INFO "%s sd not use\n", __func__);
+		return -ENOENT;
+	}
+
 	/* must have platform data */
 	if (!plat) {
 		himci_error("Platform data not available");
@@ -929,16 +995,19 @@ static int __devinit hi_mci_probe(struct platform_device *pdev)
 	hi_host->pclk = clk_get(&pdev->dev, plat->clk_name);
 
         ms_host->pclk = NULL;
-
+	
+	//z00186406 add to enable wlan's host controller begin
         if(plat->quirks){
-                if((plat->quirks & MSHCI_QUIRK_EXTERNAL_CARD_DETECTION) || (plat->quirks & MSHCI_QUIRK_WLAN_DETECTION)){
+                if((plat->quirks & MSHCI_QUIRK_EXTERNAL_CARD_DETECTION) ||
+                     (plat->quirks & MSHCI_QUIRK_WLAN_DETECTION) ){
                         ms_host->clk_ref_counter = CLK_DISABLED;
                 }
+                //z00186406 add, to enable sdio clock for TI wifi end
                 else{
                         ms_host->clk_ref_counter = CLK_ENABLED;
                 }
         }
-
+	//z00186406 add to enable wlan's host controller end
 
 	if (IS_ERR(hi_host->pclk)) {
 		himci_error("clk_get fail!");
@@ -1015,6 +1084,13 @@ static int __devinit hi_mci_probe(struct platform_device *pdev)
 	if (ms_host->hw_mmc_id == 0)
 		ms_host->clock_gate = 0;
 
+	
+	//z00186406 add to enable wifi suspending begin
+	if(ms_host->quirks) {
+            ms_host->mmc->pm_caps |= MMC_PM_KEEP_POWER | MMC_PM_WAKE_SDIO_IRQ;
+        }
+	//z00186406 add to enable wifi suspending end
+	
 	if (plat->ocr_mask)
 		ms_host->mmc->ocr_avail |= plat->ocr_mask;
 
@@ -1154,7 +1230,9 @@ static int __devexit hi_mci_remove(struct platform_device *pdev)
 		if (plat->ext_cd_init)
 			plat->ext_cd_cleanup(&mshci_hi_notify_change);
 	}
-
+#ifdef CONFIG_MMC_SD_HUB
+    mshci_disconnect(ms_host);
+#endif
 	mshci_remove_host(ms_host, 1);
 
 	iounmap(ms_host->ioaddr);
@@ -1187,6 +1265,78 @@ static int __devexit hi_mci_remove(struct platform_device *pdev)
 }
 
 #ifdef CONFIG_PM
+#ifdef CONFIG_WIFI_GPIO_OPTIMIZE
+#define MMC_ID_WIFI 3
+#define SDIO_BLOCK "block_sdio"
+static struct iomux_block *sdio_block = NULL;
+static struct block_config *sdio_block_config  = NULL;
+
+int config_wifi_sdio_interface(enum iomux_func mode)
+{
+	int ret = 0;
+
+	if(sdio_block == NULL){
+		sdio_block = iomux_get_block(SDIO_BLOCK);
+		if(sdio_block == NULL){
+			printk("get sdio block error\n");
+			return -1;
+		}
+	}
+
+	if(sdio_block_config == NULL){
+		sdio_block_config = iomux_get_blockconfig(SDIO_BLOCK);
+		if(sdio_block_config == NULL){
+			printk("get sdio config block error\n");
+			return -1;
+        }
+	}
+
+	ret = blockmux_set(sdio_block, sdio_block_config, mode);
+	if(ret < 0){
+		printk("set sdio config error:%d\n", ret);
+		return ret;
+	}
+
+	return ret;
+}
+EXPORT_SYMBOL(config_wifi_sdio_interface);
+#endif
+
+
+static int hi_mci_shutdown(struct platform_device *dev, pm_message_t pm)
+{
+	struct mshci_host *ms_host = NULL;
+	struct himci_host *hi_host = NULL;
+	int ret = 0;
+	unsigned long flags;
+
+	ms_host = platform_get_drvdata(dev);
+	if( NULL == ms_host )
+	{
+		printk("[%s]:ms_host null exit.\n", __func__);
+		return 0;
+	}
+	hi_host = mshci_priv(ms_host);
+	if( NULL == hi_host )
+	{
+		printk("[%s]:hi_host null exit.\n", __func__);
+		return 0;
+	}
+
+	if (hi_host->pdev->id != 1)
+	{
+		printk("[%s]:hi_host->pdev->id = %d .\n", __func__,hi_host->pdev->id);
+		return 0;
+	}
+
+	printk("[%s]:++\n", __func__);
+
+	mshci_suspend_host(ms_host, pm);
+
+	printk("[%s]:--\n", __func__);
+	return 0;
+}
+
 
 static int hi_mci_suspend(struct platform_device *dev, pm_message_t pm)
 {
@@ -1195,7 +1345,11 @@ static int hi_mci_suspend(struct platform_device *dev, pm_message_t pm)
 	int ret = 0;
 	unsigned long flags;
 
-	if (ms_host->quirks & MSHCI_QUIRK_WLAN_DETECTION) {
+	printk("[%s]:++\n", __func__);
+	
+	//z00186406 add, to enable TI wifi suspend/resume functionality,  begin
+	if (ms_host->quirks & (MSHCI_QUIRK_WLAN_DETECTION )) {
+	//z00186406 add, to enable TI wifi suspend/resume functionality, end
 		/* sdio power off */
 		if (ms_host->mmc->ios.power_mode != MMC_POWER_OFF) {
 			ret = mmc_sdio_suspend_ext(ms_host->mmc);
@@ -1203,8 +1357,10 @@ static int hi_mci_suspend(struct platform_device *dev, pm_message_t pm)
 				printk("%s, sdio suspend error\n", __func__);
 				return ret;
 			}
-
-			ms_host->mmc->ios.power_mode = MMC_POWER_UP;
+			
+			//z00186406 add,  while suspend let wifi to keep power, begin
+			ms_host->mmc->ios.power_mode = MMC_POWER_ON;
+			//z00186406 add,  while suspend let wifi to keep power, end
 			hi_host->old_timing = 0;
 			hi_host->old_sig_voltage = 0;
 		}
@@ -1220,6 +1376,12 @@ static int hi_mci_suspend(struct platform_device *dev, pm_message_t pm)
 
 	mshci_hi_update_timing(ms_host, 1);
 
+#ifdef CONFIG_WIFI_GPIO_OPTIMIZE
+	if(MMC_ID_WIFI == dev->id){
+		config_wifi_sdio_interface(LOWPOWER);
+	}
+#endif
+	printk("[%s]:--\n", __func__);
 	return 0;
 }
 
@@ -1229,6 +1391,12 @@ static int hi_mci_resume(struct platform_device *dev)
 	struct himci_host *hi_host = mshci_priv(ms_host);
 	int ret = 0;
 	unsigned long flags;
+
+#ifdef CONFIG_WIFI_GPIO_OPTIMIZE
+	if(MMC_ID_WIFI == dev->id){
+		config_wifi_sdio_interface(NORMAL);
+	}
+#endif
 
 	if ( get_chipid() == CS_CHIP_ID )
 	{
@@ -1254,8 +1422,10 @@ static int hi_mci_resume(struct platform_device *dev)
 	}
 
 	mshci_resume_host(ms_host);
-
-	if (ms_host->quirks & MSHCI_QUIRK_WLAN_DETECTION) {
+	
+	//z00186406 add, to enable TI wifi suspend/resume functionality,  begin 
+	if (ms_host->quirks & (MSHCI_QUIRK_WLAN_DETECTION )) {
+	//z00186406 add, to enable TI wifi suspend/resume functionality, end
 		if (ms_host->mmc->ios.power_mode != MMC_POWER_OFF) {
 			ret = mmc_sdio_resume_ext(ms_host->mmc);
 			if (ret) {
@@ -1263,6 +1433,9 @@ static int hi_mci_resume(struct platform_device *dev)
 				return ret;
 			}
 		}
+		//z00186406, mask power keep flag to let sdio_card re_intialize, begin
+		ms_host->mmc->pm_flags &= ~MMC_PM_KEEP_POWER;
+		//z00186406, mask power keep flag to let sdio_card re_intialize, end
 	}
 	return ret;
 }
@@ -1277,6 +1450,7 @@ static struct platform_driver hi_mci_driver = {
 	.remove		= hi_mci_remove,
 	.suspend	= hi_mci_suspend,
 	.resume		= hi_mci_resume,
+	.shutdown   = hi_mci_shutdown,
 	.driver		= {
 		.name	  = "hi_mci",
 	},

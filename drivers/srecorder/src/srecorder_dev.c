@@ -30,6 +30,8 @@
 
 /*----local macroes------------------------------------------------------------------*/
 
+#define SRECORDER_LOG_OFFSET(a, b) (a)
+
 
 /*----local prototypes----------------------------------------------------------------*/
 
@@ -110,9 +112,9 @@ static loff_t srecorder_llseek(struct file *file, loff_t offset, int origin)
     {
     case SEEK_SET:
         {
-            if ((offset >= 0) && (offset <= s_srecorder_log_info.buf_size))
+            if ((offset >= 0) && (offset <= s_srecorder_log_info.log_len))
             {
-                s_srecorder_log_info.read_pos = LOG_OFFSET(s_srecorder_log_info.read_pos + offset, s_srecorder_log_info.buf_size);
+                s_srecorder_log_info.read_pos = SRECORDER_LOG_OFFSET(s_srecorder_log_info.read_pos + offset, s_srecorder_log_info.log_len);
                 return 0;
             }
             
@@ -120,9 +122,9 @@ static loff_t srecorder_llseek(struct file *file, loff_t offset, int origin)
         }
     case SEEK_CUR:
         {
-            if ((offset >= -s_srecorder_log_info.read_pos) && ((offset + s_srecorder_log_info.read_pos) <= s_srecorder_log_info.buf_size))
+            if ((offset >= -s_srecorder_log_info.read_pos) && ((offset + s_srecorder_log_info.read_pos) <= s_srecorder_log_info.log_len))
             {
-                s_srecorder_log_info.read_pos = LOG_OFFSET(s_srecorder_log_info.read_pos + offset, s_srecorder_log_info.buf_size);
+                s_srecorder_log_info.read_pos = SRECORDER_LOG_OFFSET(s_srecorder_log_info.read_pos + offset, s_srecorder_log_info.log_len);
                 return 0;
             }
             
@@ -130,9 +132,9 @@ static loff_t srecorder_llseek(struct file *file, loff_t offset, int origin)
         }
     case SEEK_END:
         {
-            if ((offset >= -s_srecorder_log_info.buf_size) && (offset <= 0))
+            if ((offset >= -s_srecorder_log_info.log_len) && (offset <= 0))
             {
-                s_srecorder_log_info.read_pos = LOG_OFFSET(s_srecorder_log_info.read_pos + offset, s_srecorder_log_info.buf_size);
+                s_srecorder_log_info.read_pos = SRECORDER_LOG_OFFSET(s_srecorder_log_info.read_pos + offset, s_srecorder_log_info.log_len);
                 return 0;
             }
             
@@ -175,15 +177,34 @@ static ssize_t srecorder_write(struct file *file, const char __user *data, size_
         return -1;
     }
 
-    if ('c' == c || 'C' == c)
+    switch (c)
     {
-        memset(s_srecorder_log_info.buf, 0xff, s_srecorder_log_info.buf_size);
-        srecorder_write_reserved_mem_header(false, false, INVALID_SRECORDER_MAGIC_NUM, 0);
-        
-        /* do clean */
-        srecorder_log_read_clean();
-        
-        return 0;
+    case 'c': /* clean reserved buffer */
+    case 'C': /* clean reserved buffer */
+        {
+            srecorder_write_reserved_mem_header(false, false, INVALID_SRECORDER_MAGIC_NUM, 0);
+
+            /* do clean */
+            spin_lock(&s_read_log_lock);
+            srecorder_log_read_clean();
+            spin_unlock(&s_read_log_lock);
+
+            return 0;
+        }
+        break;
+    case 'e': /* enable SRecorder */
+    case 'E': /* enable SRecorder */
+        {
+            srecorder_enable(); /* User enable SRecorder */
+            SRECORDER_PRINTK("^_^_^ Enable SRecorder %s!\n", (srecorder_has_been_enabled()) ? ("successfully") : ("failed"));
+            
+            return 0;
+        }
+        break;
+    default:
+        {
+            break;
+        }
     }
     
     return -1;
@@ -204,7 +225,72 @@ static ssize_t srecorder_write(struct file *file, const char __user *data, size_
 */
 static long srecorder_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
-    return -EPERM;
+    int rc = 0;
+    unsigned long __user *p = (unsigned long __user *)arg;
+    srecorder_reserved_mem_info_t *pmem_info = srecorder_get_reserved_mem_info();
+    srecorder_reserved_mem_header_t *pmem_header = (srecorder_reserved_mem_header_t *)srecorder_get_reserved_mem_addr();
+    
+    if ((SRIOC_SET_DUMP_ENABLE_BIT == cmd) || (SRIOC_CLR_DUMP_ENABLE_BIT == cmd))
+    {
+        if ((int)arg > LOG_TYPE_MAX)
+        {
+            return -EINVAL;
+        }
+    }
+    
+    switch (cmd)
+    {
+    case SRIOC_SET_DUMP_ENABLE_BIT:
+        {
+            srecorder_set_dump_enable_bit(arg);
+            break;
+        }
+    case SRIOC_CLR_DUMP_ENABLE_BIT:
+        {
+            srecorder_clear_dump_enable_bit(arg);
+            break;
+        }
+    case SRIOC_GET_DUMP_ENABLE_BITS:
+        {
+            spin_lock(&(pmem_info->lock));
+            rc = copy_to_user(p, pmem_header->dump_ctrl_bits, sizeof(pmem_header->dump_ctrl_bits));
+            spin_unlock(&(pmem_info->lock));
+            break;
+        }
+    case SRIOC_SET_DUMP_ENABLE_BITS:
+        {
+            spin_lock(&(pmem_info->lock));
+            rc = copy_from_user(pmem_header->dump_ctrl_bits, p, sizeof(pmem_header->dump_ctrl_bits));
+            spin_unlock(&(pmem_info->lock));
+            break;
+        }
+    case SRIOC_CLEAN:
+        {
+            srecorder_write_reserved_mem_header(false, false, INVALID_SRECORDER_MAGIC_NUM, 0);
+
+            /* do clean */
+            spin_lock(&s_read_log_lock);
+            srecorder_log_read_clean();
+            spin_unlock(&s_read_log_lock);
+            break;
+        }
+    case SRIOC_ENABLE:
+        {
+            srecorder_enable(); /* User enable SRecorder */
+            SRECORDER_PRINTK("^_^ Enable SRecorder %s!\n", (srecorder_has_been_enabled()) ? ("successfully") : ("failed"));
+            break;
+        }
+    case SRIOC_DISABLE:
+        {
+            srecorder_disable(); /* User enable SRecorder */
+            SRECORDER_PRINTK("^_^ Disable SRecorder %s!\n", (srecorder_has_been_enabled()) ? ("failed") : ("successfully"));
+            break;
+        }
+    default:
+        return -ENOTTY; 
+    }
+    
+    return rc;
 }
 
 
@@ -247,10 +333,12 @@ static ssize_t srecorder_read(struct file *file, char __user *buf, size_t count,
         SRECORDER_PRINTK("File: %s - Line: %d, Invalid parameter!\n", __FILE__, __LINE__);
         return -EINVAL;
     }
-    
-    if (unlikely(s_srecorder_log_info.read_pos >= s_srecorder_log_info.buf_size))
+
+    /* This is very important, or memory overflow may occur */
+    if (unlikely(s_srecorder_log_info.read_pos >= s_srecorder_log_info.log_len))
     {
-        SRECORDER_PRINTK("File: %s - Line: %d, No data left!\n", __FILE__, __LINE__);
+        SRECORDER_PRINTK("File: %s - Line: %d, read_pos = %d log_len = %d No data left!\n", 
+            __FILE__, __LINE__, s_srecorder_log_info.read_pos, s_srecorder_log_info.log_len);
         return -EFAULT; /* Bad address */
     }
     
@@ -262,7 +350,7 @@ static ssize_t srecorder_read(struct file *file, char __user *buf, size_t count,
         return -ENODEV; /* No such device or address */
     }
     
-    len = MIN(count, s_srecorder_log_info.buf_size - s_srecorder_log_info.read_pos);
+    len = MIN(count, s_srecorder_log_info.log_len - s_srecorder_log_info.read_pos);
     if (NULL == s_srecorder_log_info.log_buf) /* There is no log to be dumped */
     {
         SRECORDER_PRINTK("File: %s - Line: %d, SRecorder's temp buf is NULL!\n", __FILE__, __LINE__);
@@ -277,7 +365,7 @@ static ssize_t srecorder_read(struct file *file, char __user *buf, size_t count,
         return -EFAULT;
     }
     spin_unlock(&s_read_log_lock);
-    s_srecorder_log_info.read_pos = LOG_OFFSET(s_srecorder_log_info.read_pos + len, s_srecorder_log_info.buf_size);
+    s_srecorder_log_info.read_pos = SRECORDER_LOG_OFFSET(s_srecorder_log_info.read_pos + len, s_srecorder_log_info.log_len);
     
     return len;
 }
@@ -320,18 +408,11 @@ static int srecorder_open(struct inode *inode, struct file *file)
 */
 static inline void srecorder_log_read_clean(void)
 {
-    spin_lock(&s_read_log_lock);
-    
-    if (!s_dev_online)
+    if (NULL != s_srecorder_log_info.log_buf)
     {
-        spin_unlock(&s_read_log_lock);
-        return;
+        vfree(s_srecorder_log_info.log_buf);
+        s_srecorder_log_info.log_buf = NULL;
     }
-    
-    s_dev_online = false;
-    vfree(s_srecorder_log_info.log_buf);
-    spin_unlock(&s_read_log_lock);
-    srecorder_exit_dev();
 }
 
 
@@ -347,23 +428,13 @@ static inline void srecorder_log_read_clean(void)
 */
 static int srecorder_log_read_monitor(void *arg)
 {
-    int i = 0;
-
-    int loop_count = SRECORDER_TIMER_EXPIRE_PERIOD;
-    
-    while (i < loop_count)
-    {
-        if (!s_dev_online)
-        {
-            return 0;
-        }
-
-        msleep(60000); /* 60000ms*/
-        i++;
-    }
-
+    current->flags |= PF_NOFREEZE;
+    msleep(SRECORDER_TIMER_EXPIRE_PERIOD * 60000); /* 5 minitues */
+    spin_lock(&s_read_log_lock);
     srecorder_log_read_clean();
-
+    spin_unlock(&s_read_log_lock);
+    srecorder_exit_dev();
+    s_dev_online = false;
     return 0;
 }
 
@@ -381,9 +452,6 @@ static int srecorder_log_read_monitor(void *arg)
 int srecorder_init_dev(srecorder_module_init_params_t *pinit_params)
 {
     int ret = -1;
-
-    srecorder_reserved_mem_header_t *pheader = NULL;
-    int mem_header_size = sizeof(srecorder_reserved_mem_header_t);
     
     memset(&s_srecorder_log_info, 0, sizeof(srecorder_log_info));
     s_srecorder_log_info.buf = pinit_params->srecorder_reserved_mem_start_addr;
@@ -397,16 +465,13 @@ int srecorder_init_dev(srecorder_module_init_params_t *pinit_params)
     {
         SRECORDER_PRINTK("Cannot register miscdev on minor = %d (err = %d)\n", MISC_DYNAMIC_MINOR, ret);
     }
-
-    /* this kernel thread will monitor if user will dump the log in time or not */
-    pheader = (srecorder_reserved_mem_header_t *)s_srecorder_log_info.log_buf;
-    if ((NULL != pheader) 
-        && (SRECORDER_MAGIC_NUM == pheader->magic_num) 
-        && (srecorder_get_crc32((unsigned char *)pheader, mem_header_size - sizeof(pheader->crc32) 
-        - sizeof(pheader->reserved)) == pheader->crc32))
+    else
     {
-        kernel_thread(srecorder_log_read_monitor, NULL, CLONE_FS | CLONE_SIGHAND);
+        SRECORDER_PRINTK("^_^_^ Create /dev/srecorder successfully!\n ");
     }
+    
+    /* this kernel thread will monitor if user will dump the log in time or not */
+    kernel_thread(srecorder_log_read_monitor, NULL, CLONE_FS | CLONE_SIGHAND);
     
     return ret;
 }
@@ -424,6 +489,8 @@ int srecorder_init_dev(srecorder_module_init_params_t *pinit_params)
 */
 void srecorder_exit_dev(void)
 {
-    misc_deregister(&s_srecorder_miscdev);
+    int rc = misc_deregister(&s_srecorder_miscdev);
+
+    SRECORDER_PRINTK("~_~_~ Unregister /dev/srecorder %s!\n", (0 == rc) ? ("successfully") : ("failed!"));
 }
 

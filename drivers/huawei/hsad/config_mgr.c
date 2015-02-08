@@ -3,7 +3,7 @@
 #include <linux/gpio.h>
 #include "hsad/config_mgr.h"
 #include <hsad/config_general_struct.h>
-#include "auto-generate/config_total_product.c"
+#include "config_total_product.c"
 #include "mach/boardid.h"
 #include <hsad/config_debugfs.h>
 
@@ -14,6 +14,7 @@
 static int max_length = 0;
 
 struct list_head active_board_id_general_struct_list;
+unsigned int g_current_board_id = 0;
 
 /*common.c call set_hw_config,init list*/
 bool select_hw_config(unsigned int boardid)
@@ -24,6 +25,7 @@ bool select_hw_config(unsigned int boardid)
 	struct board_id_general_struct *config_pairs_ptr;
 
 	HW_CONFIG_DEBUG("boardid = 0x%x \n", boardid);
+	g_current_board_id = boardid;
 	if (((boardid >> 4) > BOARD_ID_MAX) || ((boardid & 0xf) > BOARD_ID_MAX)) {
 
 		HW_CONFIG_DEBUG(" boardid is unknow, boardid = 0x%x \n", boardid);
@@ -31,7 +33,7 @@ bool select_hw_config(unsigned int boardid)
 
 	INIT_LIST_HEAD(&active_board_id_general_struct_list);
 
-	for (i = 0; i < NELEMENTS(hw_ver_total_configs); i++) {
+	for (i = 0; hw_ver_total_configs[i] != NULL; i++) {
 		if (hw_ver_total_configs[i]->board_id == boardid) {
 			list_add(&(hw_ver_total_configs[i]->list), &active_board_id_general_struct_list);
 			count++;

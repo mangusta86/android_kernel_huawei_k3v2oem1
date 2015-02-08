@@ -59,6 +59,8 @@ struct usbnet {
 	struct usb_anchor	deferred;
 	struct tasklet_struct	bh;
 
+	int probe_fail;
+
 	struct work_struct	kevent;
 	unsigned long		flags;
 #define EVENT_TX_HALT	0
@@ -194,8 +196,7 @@ extern void usbnet_cdc_status(struct usbnet *, struct urb *);
 enum skb_state {
 	illegal = 0,
 	tx_start, tx_done,
-	rx_start, rx_done, rx_cleanup,
-	unlink_start
+	rx_start, rx_done, rx_cleanup
 };
 
 struct skb_data {	/* skb->cb is one of these */

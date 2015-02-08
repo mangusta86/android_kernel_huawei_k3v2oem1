@@ -441,7 +441,7 @@ AKECS_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	struct akm8963_data *akm = file->private_data;
 
 	/* NOTE: In this function the size of "char" should be 1-byte. */
-	char i2c_buf[RWBUF_SIZE];		/* for READ/WRITE */
+	char i2c_buf[RWBUF_SIZE] = {0};		/* for READ/WRITE */
 	int8_t sensor_buf[SENSOR_DATA_SIZE];/* for GETDATA */
 	int32_t ypr_buf[YPR_DATA_SIZE];	/* for SET_YPR */
 	int16_t acc_buf[3];				/* for GET_ACCEL */
@@ -483,6 +483,7 @@ AKECS_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			dev_err(&akm->i2c->dev, "copy_from_user failed.");
 			return -EFAULT;
 		}
+		break;
 	case ECS_IOCTL_GETDATA:
 	case ECS_IOCTL_GET_OPEN_STATUS:
 	case ECS_IOCTL_GET_CLOSE_STATUS:
@@ -495,7 +496,6 @@ AKECS_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			dev_err(&akm->i2c->dev, "invalid argument.");
 			return -EINVAL;
 		}
-		break;
 		break;
 	default:
 		break;
@@ -825,7 +825,7 @@ static ssize_t akm8963_sysfs_enable_show(
 	flag = ((akm->enable_flag >> pos) & 1);
 	mutex_unlock(&akm->val_mutex);
 
-	return sprintf(buf, "%d\n", flag);
+	return snprintf(buf, PAGE_SIZE, "%d\n", flag);
 }
 
 static ssize_t akm8963_sysfs_enable_store(
@@ -910,7 +910,7 @@ static ssize_t akm8963_sysfs_delay_show(
 	val = akm->delay[pos];
 	mutex_unlock(&akm->val_mutex);
 
-	return sprintf(buf, "%lld\n", val);
+	return snprintf(buf, PAGE_SIZE, "%lld\n", val);
 }
 
 static ssize_t akm8963_sysfs_delay_store(
@@ -1014,7 +1014,7 @@ static ssize_t akm8963_set_cal_show(
 	struct device *dev, struct device_attribute *attr, char *buf)
 {
        int err = 0;
-	err = sprintf(buf, "%d\n", calibration_value);
+	err = snprintf(buf, PAGE_SIZE, "%d\n", calibration_value);
 	return err;
 }
 static ssize_t akm8963_set_cal_store(
@@ -1058,7 +1058,7 @@ static ssize_t akm8963_bdata_show(
 	memcpy(&rbuf, akm->sense_data, sizeof(rbuf));
 	mutex_unlock(&akm->sensor_mutex);
 
-	return sprintf(buf,
+	return snprintf(buf, PAGE_SIZE,
 		"0x%02X,0x%02X,0x%02X,0x%02X,"
 		"0x%02X,0x%02X,0x%02X,0x%02X\n",
 		rbuf[0],rbuf[1],rbuf[2],rbuf[3],
@@ -1085,7 +1085,7 @@ static ssize_t akm8963_asa_show(
 	if (err < 0)
 		return err;
 
-	return sprintf(buf, "0x%02X,0x%02X,0x%02X\n",
+	return snprintf(buf, PAGE_SIZE, "0x%02X,0x%02X,0x%02X\n",
 		asa[0], asa[1], asa[2]);
 }
 #endif

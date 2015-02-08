@@ -75,7 +75,7 @@ static ssize_t show_acc_chip_info(struct device *dev,
 		pr_err("acc_chip info is null\n");
 		return -EINVAL;
 	}
-	return sprintf(buf, "%s\n", sensor_chip_info[ACC]);
+	return snprintf(buf, PAGE_SIZE, "%s\n", sensor_chip_info[ACC]);
 }
 static DEVICE_ATTR(acc_info, S_IRUGO,
 				   show_acc_chip_info, NULL);
@@ -86,7 +86,7 @@ static ssize_t show_akm_chip_info(struct device *dev,
 		pr_err("akm_chip info is null\n");
 		return -EINVAL;
 	}
-	return sprintf(buf, "%s\n", sensor_chip_info[AKM]);
+	return snprintf(buf, PAGE_SIZE, "%s\n", sensor_chip_info[AKM]);
 }
 static DEVICE_ATTR(akm_info, S_IRUGO,
 				   show_akm_chip_info, NULL);
@@ -97,7 +97,7 @@ static ssize_t show_gyro_chip_info(struct device *dev,
 		pr_err("gyro_chip info is null\n");
 		return -EINVAL;
 	}
-	return sprintf(buf, "%s\n", sensor_chip_info[GYRO]);
+	return snprintf(buf, PAGE_SIZE, "%s\n", sensor_chip_info[GYRO]);
 }
 static DEVICE_ATTR(gyro_info, S_IRUGO,
 				   show_gyro_chip_info, NULL);
@@ -108,7 +108,7 @@ static ssize_t show_ps_chip_info(struct device *dev,
 		pr_err("ps_chip info is null\n");
 		return -EINVAL;
 	}
-	return sprintf(buf, "%s\n", sensor_chip_info[PS]);
+	return snprintf(buf, PAGE_SIZE, "%s\n", sensor_chip_info[PS]);
 }
 static DEVICE_ATTR(ps_info, S_IRUGO,
 				   show_ps_chip_info, NULL);
@@ -119,7 +119,7 @@ static ssize_t show_als_chip_info(struct device *dev,
 		pr_err("als_chip info is null\n");
 		return -EINVAL;
 	}
-	return sprintf(buf, "%s\n", sensor_chip_info[ALS]);
+	return snprintf(buf, PAGE_SIZE, "%s\n", sensor_chip_info[ALS]);
 }
 static DEVICE_ATTR(als_info, S_IRUGO,
 				   show_als_chip_info, NULL);
@@ -131,7 +131,7 @@ static ssize_t sensor_show_akm_input(struct device *dev,
 		pr_err("sensor_show_akm_input dev is null\n");
 		return -EINVAL;
 	}
-	return sprintf(buf, "%s\n", sensor_binder_input[AKM]);
+	return snprintf(buf, PAGE_SIZE, "%s\n", sensor_binder_input[AKM]);
 
 }
 static DEVICE_ATTR(akm_input, S_IRUGO,
@@ -146,7 +146,7 @@ static ssize_t sensor_show_acc_input(struct device *dev,
 		pr_err("sensor_show_acc_input dev is null\n");
 		return -EINVAL;
 	}
-	return sprintf(buf, "%s\n", sensor_binder_input[ACC]);
+	return snprintf(buf, PAGE_SIZE, "%s\n", sensor_binder_input[ACC]);
 }
 static DEVICE_ATTR(acc_input, S_IRUGO,
 				   sensor_show_acc_input, NULL);
@@ -158,7 +158,7 @@ static ssize_t sensor_show_gyro_input(struct device *dev,
 		pr_err("sensor_show_gyro_input dev is null\n");
 		return -EINVAL;
 	}
-	return sprintf(buf, "%s\n", sensor_binder_input[GYRO]);
+	return snprintf(buf, PAGE_SIZE, "%s\n", sensor_binder_input[GYRO]);
 }
 static DEVICE_ATTR(gyro_input, S_IRUGO,
 				   sensor_show_gyro_input, NULL);
@@ -170,7 +170,7 @@ static ssize_t sensor_show_ps_input(struct device *dev,
 		pr_err("sensor_show_ps_input dev is null\n");
 		return -EINVAL;
 	}
-	return sprintf(buf, "%s\n", sensor_binder_input[PS]);
+	return snprintf(buf, PAGE_SIZE, "%s\n", sensor_binder_input[PS]);
 }
 static DEVICE_ATTR(ps_input, S_IRUGO,
 				   sensor_show_ps_input, NULL);
@@ -182,7 +182,7 @@ static ssize_t sensor_show_als_input(struct device *dev,
 		pr_err("sensor_show_als_input dev is null\n");
 		return -EINVAL;
 	}
-	return sprintf(buf, "%s\n", sensor_binder_input[ALS]);
+	return snprintf(buf, PAGE_SIZE, "%s\n", sensor_binder_input[ALS]);
 }
 static DEVICE_ATTR(als_input, S_IRUGO,
 				   sensor_show_als_input, NULL);
@@ -194,7 +194,7 @@ static ssize_t sensor_show_ori_input(struct device *dev,
 		pr_err("sensor_show_als_input dev is null\n");
 		return -EINVAL;
 	}
-	return sprintf(buf, "%s\n", sensor_binder_input[ORI]);
+	return snprintf(buf, PAGE_SIZE, "%s\n", sensor_binder_input[ORI]);
 }
 static DEVICE_ATTR(ori_input, S_IRUGO,
 				   sensor_show_ori_input, NULL);
@@ -205,18 +205,19 @@ static ssize_t show_gyro_selfTest_result(struct device *dev,
 		pr_err("gyro self tset result is null\n");
 		return -EINVAL;
 	}
-	return sprintf(buf, "%s\n", gyro_selfTest_result);
+	return snprintf(buf, PAGE_SIZE, "%s\n", gyro_selfTest_result);
 }
 static ssize_t attr_set_gyro_selftest(struct device *dev, struct device_attribute *attr,
 				const char *buf, size_t size)
 {
-	struct l3g4200d_data *gyro = dev_get_drvdata(dev);
+	//struct l3g4200d_data *gyro = dev_get_drvdata(dev);
 	unsigned long val;
 	int err = -1;
 
 	if (strict_strtoul(buf, 10, &val))
 		return -EINVAL;
-	if(set_selftest(val) || set_selftest_lm330(val))
+//	if(set_selftest(val) || set_selftest_lm330(val))
+	if(set_selftest(val))
 		pr_err("st set gyro selftest fail!\n");
 	return size;
 }
@@ -230,7 +231,7 @@ static ssize_t show_akm_selfTest_result(struct device *dev,
 		pr_err("akm self tset result is null\n");
 		return -EINVAL;
 	}
-	return sprintf(buf, "%s\n", akm_selfTest_result);
+	return snprintf(buf, PAGE_SIZE, "%s\n", akm_selfTest_result);
 }
 static ssize_t write_akm_selfTest_result(struct device *dev,
 				struct device_attribute *attr, const char *buf, size_t count)
@@ -240,6 +241,7 @@ static ssize_t write_akm_selfTest_result(struct device *dev,
 		return -EINVAL;
 	if(val) akm_selfTest_result = "1";
 	else akm_selfTest_result = "0";
+	return count;
 }
 static DEVICE_ATTR(akm_selfTest, 0664,
 				   show_akm_selfTest_result, write_akm_selfTest_result);
@@ -250,7 +252,7 @@ static ssize_t show_compass_softiron_type(struct device *dev,
 		pr_err("compass_softiron_type is null\n");
 		return -EINVAL;
 	}
-	return sprintf(buf, "%d\n", g_compass_softiron_type);
+	return snprintf(buf, PAGE_SIZE, "%d\n", g_compass_softiron_type);
 }
 static DEVICE_ATTR(compass_softiron_type, S_IRUGO,
 				   show_compass_softiron_type, NULL);
@@ -264,7 +266,7 @@ static ssize_t show_gyro_exist(struct device *dev,
 		return -EINVAL;
 	}
 	gyro_exist = get_gyro_exist_info();
-	return sprintf(buf, "%d\n", gyro_exist);
+	return snprintf(buf, PAGE_SIZE, "%d\n", gyro_exist);
 }
 static DEVICE_ATTR(gyro_exist, S_IRUGO,
 				   show_gyro_exist, NULL);

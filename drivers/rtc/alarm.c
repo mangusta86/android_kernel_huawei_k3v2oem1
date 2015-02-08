@@ -71,6 +71,8 @@ static struct platform_device *alarm_platform_dev;
 struct alarm_queue alarms[ANDROID_ALARM_TYPE_COUNT];
 static bool suspended;
 
+extern int k3_pmu_rtc_alarm(void);
+extern int k3_pmu_rtc_set_alarm(struct rtc_wkalrm *alarm);
 extern unsigned int get_pd_charge_flag(void);
 extern void oem_rtc_reboot(unsigned long t);
 static void check_rtc_alarm_work(struct work_struct *work);
@@ -311,10 +313,11 @@ err:
 int alarm_set_rtc_alarm(long time_sec,bool enable_irq)
 {
 	int err = 0;
-	struct timespec tmp_time;
-	struct rtc_time rtc_current_rtc_time;
-	unsigned long rtc_current_time;
-	unsigned long offset, alarm_value;
+	struct timespec tmp_time = {0};
+	struct rtc_time rtc_current_rtc_time = {0};
+	unsigned long rtc_current_time = 0;
+	unsigned long offset = 0;
+        unsigned long alarm_value = 0;
 
 	getnstimeofday(&tmp_time);
 	rtc_read_time(alarm_rtc_dev, &rtc_current_rtc_time);
@@ -340,7 +343,8 @@ int alarm_set_rtc_alarm(long time_sec,bool enable_irq)
 		poweroff_rtc_alarm.enabled = 0;
 	}
 
-	err = rtc_set_alarm(alarm_rtc_dev, &poweroff_rtc_alarm);
+	err = k3_pmu_rtc_set_alarm(&poweroff_rtc_alarm);
+//	err = rtc_set_alarm(alarm_rtc_dev, &poweroff_rtc_alarm);
 	printk(KERN_INFO "%s: [%d-%d-%d] [%d:%d:%d] return: %d\n",
 	       __FUNCTION__,
 	       poweroff_rtc_alarm.time.tm_year + 1900,
@@ -426,13 +430,13 @@ static void alarm_triggered_func(void *p)
 static int alarm_suspend(struct platform_device *pdev, pm_message_t state)
 {
 	int                 err = 0;
-	unsigned long       flags;
+	unsigned long       flags = 0;
 	struct rtc_wkalrm   rtc_alarm;
-	struct rtc_time     rtc_current_rtc_time;
-	unsigned long       rtc_current_time;
-	unsigned long       rtc_alarm_time;
-	struct timespec     rtc_delta;
-	struct timespec     wall_time;
+	struct rtc_time     rtc_current_rtc_time = {0};
+	unsigned long       rtc_current_time = 0;
+	unsigned long       rtc_alarm_time = 0;
+	struct timespec     rtc_delta = {0};
+	struct timespec     wall_time = {0};
 	struct alarm_queue *wakeup_queue = NULL;
 	struct alarm_queue *tmp_queue = NULL;
 
@@ -511,31 +515,19 @@ static int alarm_suspend(struct platform_device *pdev, pm_message_t state)
 
 static int alarm_resume(struct platform_device *pdev)
 {
-	struct rtc_wkalrm   alarm;
-	struct rtc_time     rtc_current_rtc_time;
-	int                 ret;
-	unsigned long       rtc_current_time;
-	unsigned long       poweroff_alarm_time;
-	unsigned long       flags;
+	struct rtc_wkalrm   alarm = {0};
+	struct rtc_time     rtc_current_rtc_time = {0};
+	int                 ret = 0;
+	unsigned long       rtc_current_time = 0;
+	unsigned long       poweroff_alarm_time =0 ;
+	unsigned long       flags = 0;
 
 	pr_alarm(SUSPEND, "alarm_resume(%p)\n", pdev);
-
-	rtc_tm_to_time(&poweroff_rtc_alarm.time, &poweroff_alarm_time);
-	rtc_read_time(alarm_rtc_dev, &rtc_current_rtc_time);
-	rtc_tm_to_time(&rtc_current_rtc_time, &rtc_current_time);
-
-	if (poweroff_rtc_alarm.enabled &&
-			(rtc_current_time + 1 < poweroff_alarm_time)) {
-		ret = rtc_set_alarm(alarm_rtc_dev, &poweroff_rtc_alarm);
-		if (likely(ret == 0))
-			goto update_timer;
-	}
 
 	memset(&alarm, 0, sizeof(alarm));
 	alarm.enabled = 0;
 	rtc_set_alarm(alarm_rtc_dev, &alarm);
 
-update_timer:
 	spin_lock_irqsave(&alarm_slock, flags);
 	suspended = false;
 	update_timer_locked(&alarms[ANDROID_ALARM_RTC_WAKEUP], false);
@@ -548,9 +540,9 @@ update_timer:
 
 void check_rtc_alarm_in_chg(void)
 {
-	struct rtc_time     rtc_current_rtc_time;
-	unsigned long       rtc_current_time;
-	unsigned long       rtc_alarm_time;
+	struct rtc_time     rtc_current_rtc_time = {0};
+	unsigned long       rtc_current_time = 0;
+	unsigned long       rtc_alarm_time = 0;
 
 	if (poweroff_rtc_alarm.enabled) {
 		rtc_read_time(alarm_rtc_dev, &rtc_current_rtc_time);

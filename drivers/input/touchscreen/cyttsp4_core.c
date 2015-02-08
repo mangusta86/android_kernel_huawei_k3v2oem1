@@ -168,6 +168,9 @@ void cyttsp4_pr_buf(struct device *dev, u8 *pr_buf, u8 *dptr, int size,
 }
 EXPORT_SYMBOL(cyttsp4_pr_buf);
 #endif
+static int cyttsp4_exec_cmd(struct cyttsp4_core_data *cd, u8 mode,
+		u8 *cmd_buf, size_t cmd_size, u8 *return_buf,
+		size_t return_buf_size, int timeout_ms);
 
 static u16 cyttsp4_calc_partial_app_crc(const u8 *data, int size, u16 crc)
 {
@@ -1282,7 +1285,7 @@ static int cyttsp4_subscribe_attention_(struct cyttsp4_device *ttsp,
 				 __func__,
 				 "already subscribed attention",
 				 ttsp, "mode", mode);
-
+			kfree(atten_new);
 			return 0;
 		}
 	}
@@ -1619,6 +1622,201 @@ static int cyttsp4_request_set_mode_(struct cyttsp4_device *ttsp, int mode)
 
 	return rc;
 }
+
+/*added by jiangyahua begin*/
+static int cyttsp4_get_finger_threshold(struct cyttsp4_core_data *cd )
+{	
+	u8 cmd_buf[CY_CMD_OP_GET_PARA_CMD_SZ];
+	u8 return_buf[CY_CMD_OP_GET_PARA_RET_SZ];
+	u8 finger_threshold_h, finger_threshold_l;
+	int rc;
+
+	cmd_buf[0] = CY_CMD_OP_GET_PARA;
+	cmd_buf[1] = CY_OP_PARA_FINGER_THRESHOLD;
+	rc = cyttsp4_exec_cmd(cd, CY_MODE_OPERATIONAL,
+			cmd_buf, sizeof(cmd_buf),
+			return_buf, sizeof(return_buf),
+			CY_COMMAND_COMPLETE_TIMEOUT);
+	if (rc < 0) {
+		dev_err(cd->dev, "%s: exec cmd error.\n", __func__);
+		return rc;
+	}
+
+	dev_dbg(cd->dev, "%s: return_buf=0x%x,0x%x,0x%x,0x%x\n", __func__,
+			return_buf[0],	return_buf[1],	return_buf[2],
+			return_buf[3]);
+
+	if (return_buf[0] != CY_OP_PARA_FINGER_THRESHOLD) {
+		dev_err(cd->dev, "%s: return data error.\n", __func__);
+		rc = -EINVAL;
+		return rc;
+	}
+
+	finger_threshold_h = return_buf[2];
+	finger_threshold_l = return_buf[3];
+	rc = merge_bytes(finger_threshold_h, finger_threshold_l);
+
+	return rc;
+}
+
+static int cyttsp4_get_scan_type(struct cyttsp4_core_data *cd)
+{
+	u8 cmd_buf[CY_CMD_OP_GET_PARA_CMD_SZ];
+	u8 return_buf[CY_CMD_OP_GET_PARA_RET_SZ];
+	int rc;
+
+	cmd_buf[0] = CY_CMD_OP_GET_PARA;
+	cmd_buf[1] = CY_OP_PARA_SCAN_TYPE;
+
+	rc =cyttsp4_exec_cmd(cd, CY_MODE_OPERATIONAL,
+			cmd_buf, sizeof(cmd_buf),
+			return_buf, sizeof(return_buf),
+			CY_COMMAND_COMPLETE_TIMEOUT);
+	if (rc < 0) {
+		dev_err(cd->dev, "%s: exec cmd error.\n", __func__);
+		return -EINVAL;
+	}
+
+	dev_dbg(cd->dev, "%s: return_buf=0x%x,0x%x,0x%x\n", __func__,
+			return_buf[0],	return_buf[1],	return_buf[2]);
+
+	if (return_buf[0] != CY_OP_PARA_SCAN_TYPE) {
+		dev_err(cd->dev, "%s: return data error.\n", __func__);
+		return  -EINVAL;
+	}
+
+	rc = return_buf[2];
+
+	return rc;
+}
+
+static int cyttsp4_request_get_params_(struct cyttsp4_device *ttsp, int type)
+{
+	struct cyttsp4_core *core = ttsp->core;
+	struct cyttsp4_core_data *cd = dev_get_drvdata(&core->dev);
+	int rc = 0;
+	//printk("%s type = %d\n", __func__, type);
+	
+	switch(type){
+	case CY_THRESHOLD:
+		rc = cyttsp4_get_finger_threshold(cd);
+		break;
+	case CY_DISPARITY:
+		rc = 0;//todo: add functional codes
+		break;
+	case CY_SCAN_TYPE:
+		rc = cyttsp4_get_scan_type(cd);
+		break;
+	default:
+		dev_err(cd->dev, "%s: unsupported type\n", __func__);
+	}
+
+	return rc;
+}
+
+static int cyttsp4_set_finger_threshold(struct cyttsp4_core_data *cd, int threshold_val)	
+{
+	u8 cmd_buf[CY_CMD_OP_SET_PARA_CMD_SZ];
+	u8 return_buf[CY_CMD_OP_SET_PARA_RET_SZ];
+	int rc;
+	//printk("%s threshold_val = %d\n", __func__, threshold_val);
+
+	if ((threshold_val < CY_OP_PARA_FINGER_THRESHOLD_MIN_VAL) ||
+		(threshold_val > CY_OP_PARA_FINGER_THRESHOLD_MAX_VAL)) {
+		dev_err(cd->dev, "%s: Invalid value, value=%d.\n", __func__,
+				(int)threshold_val);
+		rc = -EINVAL;
+		goto exit;
+	}
+
+	cmd_buf[0] = CY_CMD_OP_SET_PARA;
+	cmd_buf[1] = CY_OP_PARA_FINGER_THRESHOLD;
+	cmd_buf[2] = CY_OP_PARA_FINGER_THRESHOLD_SZ;
+	cmd_buf[3] = (u8)((threshold_val >> 8) & 0xFF);
+	cmd_buf[4] = (u8)(threshold_val & 0xFF);
+
+	rc = cyttsp4_exec_cmd(cd, CY_MODE_OPERATIONAL,
+			cmd_buf, sizeof(cmd_buf),
+			return_buf, sizeof(return_buf),
+			CY_COMMAND_COMPLETE_TIMEOUT);
+	if (rc < 0) {
+		dev_err(cd->dev, "%s: exec cmd error.\n", __func__);
+		return rc;
+	}
+
+	dev_dbg(cd->dev, "%s: return_buf=0x%x,0x%x\n", __func__,
+			return_buf[0],	return_buf[1]);
+exit:
+	return rc;
+}
+
+static int cyttsp4_set_scan_type(struct cyttsp4_core_data *cd, int disparity_val)
+{
+	u8 cmd_buf[CY_CMD_OP_SET_PARA_CMD_SZ];
+	u8 return_buf[CY_CMD_OP_SET_PARA_RET_SZ];
+	u8 scan_type = 0;
+	int rc;
+	switch (disparity_val) {
+	case CY_SIGNAL_DISPARITY_NONE:
+		cd->opmode = OPMODE_FINGER;
+		scan_type = CY_OP_PARA_SCAN_TYPE_NORMAL;
+		break;
+	case CY_SIGNAL_DISPARITY_SENSITIVITY:
+		cd->opmode = OPMODE_GLOVE;
+		scan_type = CY_OP_PARA_SCAN_TYPE_APAMC_MASK |
+				CY_OP_PARA_SCAN_TYPE_GLOVE_MASK;
+		break;
+	case CY_SIGNAL_DISPARITY_STYLUS:
+		scan_type = CY_OP_PARA_SCAN_TYPE_APAMC_MASK |
+				CY_OP_PARA_SCAN_TYPE_STYLUS_MASK;
+		break;
+	default:		
+		dev_err(cd ->dev, "%s: Invalid signal disparity=%d\n", __func__,
+				(int)disparity_val);
+		rc = -EINVAL;
+		goto exit;
+	}
+		
+	cmd_buf[0] = CY_CMD_OP_SET_PARA;
+	cmd_buf[1] = CY_OP_PARA_SCAN_TYPE;
+	cmd_buf[2] = CY_OP_PARA_SCAN_TYPE_SZ;
+	cmd_buf[3] = scan_type;
+
+	rc = cyttsp4_exec_cmd(cd, CY_MODE_OPERATIONAL,
+			cmd_buf, sizeof(cmd_buf),
+			return_buf, sizeof(return_buf),
+			CY_COMMAND_COMPLETE_TIMEOUT);
+	if (rc < 0)
+		dev_err(cd->dev, "%s: exec cmd error.\n", __func__);
+	
+	dev_dbg(cd->dev, "%s: return_buf=0x%x,0x%x\n", __func__,
+			return_buf[0],	return_buf[1]);
+exit:
+	return rc;
+}
+
+static int cyttsp4_request_set_params_(struct cyttsp4_device *ttsp, int type, int value)
+{
+	struct cyttsp4_core *core = ttsp->core;
+	struct cyttsp4_core_data *cd = dev_get_drvdata(&core->dev);
+	int rc = 0;
+		
+	switch(type){
+	case CY_THRESHOLD:
+		rc = cyttsp4_set_finger_threshold(cd, value);
+		break;
+	case CY_DISPARITY:
+		rc = 0;//todo: add functional codes
+		break;
+	case CY_SCAN_TYPE:
+		rc = cyttsp4_set_scan_type(cd, value);
+		break;
+	default:
+		dev_err(cd->dev, "%s: unsurppoted type\n", __func__);
+	}
+
+	return rc;
+}/*added by jiangyahua end*/
 
 /*
  * returns NULL if sysinfo has not been acquired from the device yet
@@ -1994,7 +2192,9 @@ static int cyttsp4_get_config_block_crc(struct cyttsp4_core_data *cd,
 exit:
 	return rc;
 }
+bool config_v_before30 = false;
 
+EXPORT_SYMBOL(config_v_before30);
 static int cyttsp4_get_ttconfig_version(struct cyttsp4_core_data *cd,
 		u16 *version)
 {
@@ -2019,6 +2219,11 @@ static int cyttsp4_get_ttconfig_version(struct cyttsp4_core_data *cd,
 		*version = get_unaligned_le16(&data[CY_TTCONFIG_OFFSET]);
 	else
 		*version = get_unaligned_be16(&data[CY_TTCONFIG_OFFSET]);
+	printk("%s version = %d\n", __func__, *version);
+	if(*version < 30)
+	{
+		config_v_before30 = true;
+	}
 
 exit:
 	return rc;
@@ -2417,8 +2622,10 @@ static int cyttsp4_core_wake_(struct cyttsp4_core_data *cd)
 				__func__, rc);
 
 		/* Initiate a read transaction to wake up */
-		cyttsp4_adap_read(cd->core->adap, CY_REG_BASE, &mode,
+		rc = cyttsp4_adap_read(cd->core->adap, CY_REG_BASE, &mode,
 				sizeof(mode));
+		if(rc < 0)
+			dev_err(dev, "%s: failed to read transaction wake up rc = %d\n", __func__, rc);
 	} else
 		dev_vdbg(cd->dev, "%s: HW power up succeeds\n",
 			__func__);
@@ -2617,7 +2824,10 @@ static int cyttsp4_startup_(struct cyttsp4_core_data *cd)
 	/* switch to operational mode */
 	dev_vdbg(cd->dev, "%s: set mode cd->core=%p hst_mode=%02X mode=%d...\n",
 		__func__, cd->core, CY_HST_OPERATE, CY_MODE_OPERATIONAL);
-	set_mode(cd, CY_MODE_OPERATIONAL);
+
+	rc = set_mode(cd, CY_MODE_OPERATIONAL);
+	if (rc < 0)
+		dev_err(cd->dev, "%s: failed to set mode to Operational rc = %d\n", __func__, rc);
 
 	rc = cyttsp4_get_ttconfig_info(cd);
 	if (rc < 0) {
@@ -2773,11 +2983,11 @@ static ssize_t cyttsp4_ic_ver_show(struct device *dev,
 	struct cyttsp4_cydata *cydata;
 
 	if (!cd->sysinfo.ready)
-		return sprintf(buf, "Corrupted Touch application!\n");
+		return snprintf(buf, PAGE_SIZE, "Corrupted Touch application!\n");
 
 	cydata = cd->sysinfo.si_ptrs.cydata;
 
-	return sprintf(buf,
+	return snprintf(buf, PAGE_SIZE,
 		"%s: 0x%02X 0x%02X\n"
 		"%s: 0x%02X\n"
 		"%s: 0x%02X\n"
@@ -2805,7 +3015,7 @@ static ssize_t cyttsp4_ttconfig_ver_show(struct device *dev,
 {
 	struct cyttsp4_core_data *cd = dev_get_drvdata(dev);
 
-	return sprintf(buf, "0x%04X\n", cd->sysinfo.ttconfig.version);
+	return snprintf(buf, PAGE_SIZE, "0x%04X\n", cd->sysinfo.ttconfig.version);
 }
 
 /*
@@ -2875,9 +3085,9 @@ static ssize_t cyttsp4_panel_id_show(struct device *dev,
 	struct cyttsp4_core_data *cd = dev_get_drvdata(dev);
 
 	if (!cd->sysinfo.ready)
-		return sprintf(buf, "SysInfo not ready!\n");
+		return snprintf(buf, PAGE_SIZE, "SysInfo not ready!\n");
 
-	return sprintf(buf, "%d\n",
+	return snprintf(buf, PAGE_SIZE, "%d\n",
 			GET_PANELID(cd->sysinfo.si_ptrs.pcfg->panel_info0));
 }
 
@@ -3356,13 +3566,13 @@ static ssize_t cyttsp4_finger_threshold_show(struct device *dev,
 		struct device_attribute *attr, char *buf)
 {
 	struct cyttsp4_core_data *cd = dev_get_drvdata(dev);
-	u8 cmd_buf[CY_CMD_OP_GET_PARA_CMD_SZ];
+	/*u8 cmd_buf[CY_CMD_OP_GET_PARA_CMD_SZ];
 	u8 return_buf[CY_CMD_OP_GET_PARA_RET_SZ];
-	u8 finger_threshold_h, finger_threshold_l;
+	u8 finger_threshold_h, finger_threshold_l;*/
 	int rc;
 
-	cmd_buf[0] = CY_CMD_OP_GET_PARA;
-	cmd_buf[1] = CY_OP_PARA_FINGER_THRESHOLD;
+	/*cmd_buf[0] = CY_CMD_OP_GET_PARA;
+	cmd_buf[1] = CY_OP_PARA_FINGER_THRESHOLD;*/
 
 	pm_runtime_get_sync(dev);
 	rc = request_exclusive(cd, cd->core, CY_CORE_REQUEST_EXCLUSIVE_TIMEOUT);
@@ -3372,7 +3582,7 @@ static ssize_t cyttsp4_finger_threshold_show(struct device *dev,
 		goto exit_put;
 	}
 
-	rc = cyttsp4_exec_cmd(cd, CY_MODE_OPERATIONAL,
+	/*rc = cyttsp4_exec_cmd(cd, CY_MODE_OPERATIONAL,
 			cmd_buf, sizeof(cmd_buf),
 			return_buf, sizeof(return_buf),
 			CY_COMMAND_COMPLETE_TIMEOUT);
@@ -3393,7 +3603,8 @@ static ssize_t cyttsp4_finger_threshold_show(struct device *dev,
 
 	finger_threshold_h = return_buf[2];
 	finger_threshold_l = return_buf[3];
-	rc = merge_bytes(finger_threshold_h, finger_threshold_l);
+	rc = merge_bytes(finger_threshold_h, finger_threshold_l);*/
+	rc = cyttsp4_get_finger_threshold(cd);
 
 exit_release:
 	if (release_exclusive(cd, cd->core) < 0)
@@ -3411,8 +3622,8 @@ static ssize_t cyttsp4_finger_threshold_store(struct device *dev,
 {
 	struct cyttsp4_core_data *cd = dev_get_drvdata(dev);
 	unsigned long threshold_val;
-	u8 cmd_buf[CY_CMD_OP_SET_PARA_CMD_SZ];
-	u8 return_buf[CY_CMD_OP_SET_PARA_RET_SZ];
+	/*u8 cmd_buf[CY_CMD_OP_SET_PARA_CMD_SZ];
+	u8 return_buf[CY_CMD_OP_SET_PARA_RET_SZ];*/
 	int rc;
 
 	rc = kstrtoul(buf, 10, &threshold_val);
@@ -3429,11 +3640,11 @@ static ssize_t cyttsp4_finger_threshold_store(struct device *dev,
 		goto exit;
 	}
 
-	cmd_buf[0] = CY_CMD_OP_SET_PARA;
+	/*cmd_buf[0] = CY_CMD_OP_SET_PARA;
 	cmd_buf[1] = CY_OP_PARA_FINGER_THRESHOLD;
 	cmd_buf[2] = CY_OP_PARA_FINGER_THRESHOLD_SZ;
 	cmd_buf[3] = (u8)((threshold_val >> 8) & 0xFF);
-	cmd_buf[4] = (u8)(threshold_val & 0xFF);
+	cmd_buf[4] = (u8)(threshold_val & 0xFF);*/
 
 	pm_runtime_get_sync(dev);
 	rc = request_exclusive(cd, cd->core, CY_CORE_REQUEST_EXCLUSIVE_TIMEOUT);
@@ -3443,7 +3654,7 @@ static ssize_t cyttsp4_finger_threshold_store(struct device *dev,
 		goto exit_put;
 	}
 
-	rc = cyttsp4_exec_cmd(cd, CY_MODE_OPERATIONAL,
+	/*rc = cyttsp4_exec_cmd(cd, CY_MODE_OPERATIONAL,
 			cmd_buf, sizeof(cmd_buf),
 			return_buf, sizeof(return_buf),
 			CY_COMMAND_COMPLETE_TIMEOUT);
@@ -3454,8 +3665,12 @@ static ssize_t cyttsp4_finger_threshold_store(struct device *dev,
 
 	rc = size;
 	dev_dbg(dev, "%s: return_buf=0x%x,0x%x\n", __func__,
-			return_buf[0],	return_buf[1]);
-
+			return_buf[0],	return_buf[1]);*/
+	rc = cyttsp4_set_finger_threshold(cd, threshold_val);
+	if(rc < 0){
+		goto exit_release;
+	}
+	rc = size;
 exit_release:
 	if (release_exclusive(cd, cd->core) < 0)
 		dev_err(cd->dev, "%s: fail to release exclusive\n", __func__);
@@ -3750,6 +3965,8 @@ struct cyttsp4_core_driver cyttsp4_core_driver = {
 	.request_write_config = cyttsp4_request_write_config_,
 	.write = cyttsp4_write_,
 	.read = cyttsp4_read_,
+	.request_get_params = cyttsp4_request_get_params_,
+	.request_set_params = cyttsp4_request_set_params_,
 	.driver = {
 		.name = CYTTSP4_CORE_NAME,
 		.bus = &cyttsp4_bus_type,

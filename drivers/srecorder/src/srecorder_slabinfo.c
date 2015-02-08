@@ -59,7 +59,7 @@
 #include "../include/srecorder_snprintf.h"
 
 
-#if DUMP_SLAB_INFO
+#if defined(CONFIG_DUMP_SLAB_INFO)
 
 /*----local macroes------------------------------------------------------------------*/
 
@@ -558,13 +558,13 @@ int srecorder_get_slabinfo(srecorder_reserved_mem_info_t *pmem_info)
         return -1;
     }
 
-    if (srecorder_get_bit(SLABINFO) || pmem_info->dump_modem_crash_log_only)
+    if (srecorder_log_has_been_dumped(SLABINFO_BIT6) || pmem_info->dump_modem_crash_log_only)
     {
         SRECORDER_PRINTK("slab info has been dumped successfully!\n");
         return 0;
     }
     
-    if (0 != srecorder_write_info_header(pmem_info, SLABINFO, &pinfo_header))
+    if (0 != srecorder_write_info_header(pmem_info, SLABINFO_BIT6, &pinfo_header))
     {
         return -1;
     }
@@ -625,7 +625,7 @@ int srecorder_get_slabinfo(srecorder_reserved_mem_info_t *pmem_info)
 */
 int srecorder_init_slabinfo(srecorder_module_init_params_t *pinit_params)
 {
-    srecorder_clear_bit(SLABINFO);
+    srecorder_clear_log_dumped_bit(SLABINFO_BIT6);
     
     return 0;
 }
@@ -643,7 +643,7 @@ int srecorder_init_slabinfo(srecorder_module_init_params_t *pinit_params)
 */
 void srecorder_exit_slabinfo(void)
 {
-    srecorder_set_bit(SLABINFO);
+    srecorder_set_log_dumped_bit(SLABINFO_BIT6);
 }
 #else
 int srecorder_get_slabinfo(srecorder_reserved_mem_info_t *pmem_info)

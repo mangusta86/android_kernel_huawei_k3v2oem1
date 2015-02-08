@@ -52,7 +52,8 @@
 
 #include <linux/cpufreq.h>
 
-#ifdef CONFIG_SRECORDER
+#ifdef CONFIG_DUMP_SYS_INFO
+#include <linux/module.h>
 #include <linux/srecorder.h>
 #endif
 
@@ -135,16 +136,16 @@ EXPORT_SYMBOL(elf_platform);
 static const char *cpu_name;
 static const char *machine_name;
 
-#if defined(CONFIG_SRECORDER) && DUMP_SYS_INFO
+#ifdef CONFIG_DUMP_SYS_INFO
 unsigned long get_cpu_name(void)
 {
-    return &cpu_name;
+    return (unsigned long)&cpu_name;
 }
 EXPORT_SYMBOL(get_cpu_name);
 
 unsigned long get_machine_name(void)
 {
-    return &machine_name;
+    return (unsigned long)&machine_name;
 }
 EXPORT_SYMBOL(get_machine_name);
 #endif

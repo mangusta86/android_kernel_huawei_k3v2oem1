@@ -30,7 +30,8 @@
 
 #include <trace/events/kmem.h>
 
-#ifdef CONFIG_SRECORDER
+#ifdef CONFIG_DUMP_SLAB_INFO
+#include <linux/module.h>
 #include <linux/srecorder.h>
 #endif
 
@@ -192,16 +193,16 @@ static enum {
 static DECLARE_RWSEM(slub_lock);
 static LIST_HEAD(slab_caches);
 
-#if defined(CONFIG_SRECORDER) && DUMP_SLAB_INFO
+#ifdef CONFIG_DUMP_SLAB_INFO
 unsigned long get_slub_lock(void)
 {
-    return &slub_lock;
+    return (unsigned long)&slub_lock;
 }
 EXPORT_SYMBOL(get_slub_lock);
 
 unsigned long get_slab_caches(void)
 {
-    return &slab_caches;
+    return (unsigned long)&slab_caches;
 }
 EXPORT_SYMBOL(get_slab_caches);
 #endif
@@ -1475,7 +1476,6 @@ static struct page *get_any_partial(struct kmem_cache *s, gfp_t flags)
 	struct zone *zone;
 	enum zone_type high_zoneidx = gfp_zone(flags);
 	struct page *page;
-	unsigned int cpuset_mems_cookie;
 
 	/*
 	 * The defrag ratio allows a configuration of the tradeoffs between
@@ -1499,32 +1499,23 @@ static struct page *get_any_partial(struct kmem_cache *s, gfp_t flags)
 			get_cycles() % 1024 > s->remote_node_defrag_ratio)
 		return NULL;
 
-	do {
-		cpuset_mems_cookie = get_mems_allowed();
-		zonelist = node_zonelist(slab_node(current->mempolicy), flags);
-		for_each_zone_zonelist(zone, z, zonelist, high_zoneidx) {
-			struct kmem_cache_node *n;
+	get_mems_allowed();
+	zonelist = node_zonelist(slab_node(current->mempolicy), flags);
+	for_each_zone_zonelist(zone, z, zonelist, high_zoneidx) {
+		struct kmem_cache_node *n;
 
-			n = get_node(s, zone_to_nid(zone));
+		n = get_node(s, zone_to_nid(zone));
 
-			if (n && cpuset_zone_allowed_hardwall(zone, flags) &&
-					n->nr_partial > s->min_partial) {
-				page = get_partial_node(n);
-				if (page) {
-					/*
-					 * Return the object even if
-					 * put_mems_allowed indicated that
-					 * the cpuset mems_allowed was
-					 * updated in parallel. It's a
-					 * harmless race between the alloc
-					 * and the cpuset update.
-					 */
-					put_mems_allowed(cpuset_mems_cookie);
-					return page;
-				}
+		if (n && cpuset_zone_allowed_hardwall(zone, flags) &&
+				n->nr_partial > s->min_partial) {
+			page = get_partial_node(n);
+			if (page) {
+				put_mems_allowed();
+				return page;
 			}
 		}
-	} while (!put_mems_allowed(cpuset_mems_cookie));
+	}
+	put_mems_allowed();
 #endif
 	return NULL;
 }
@@ -1846,11 +1837,6 @@ static void *__slab_alloc(struct kmem_cache *s, gfp_t gfpflags, int node,
 	if (unlikely(!node_match(c, node)))
 		goto another_slab;
 
-	/* must check again c->freelist in case of cpu migration or IRQ */
-	object = c->freelist;
-	if (object)
-		goto update_freelist;
-
 	stat(s, ALLOC_REFILL);
 
 load_freelist:
@@ -1860,7 +1846,6 @@ load_freelist:
 	if (kmem_cache_debug(s))
 		goto debug;
 
-update_freelist:
 	c->freelist = get_freepointer(s, object);
 	page->inuse = page->objects;
 	page->freelist = NULL;
@@ -3467,14 +3452,13 @@ struct kmem_cache *kmem_cache_create(const char *name, size_t size,
 		if (kmem_cache_open(s, n,
 				size, align, flags, ctor)) {
 			list_add(&s->list, &slab_caches);
-			up_write(&slub_lock);
 			if (sysfs_slab_add(s)) {
-				down_write(&slub_lock);
 				list_del(&s->list);
 				kfree(n);
 				kfree(s);
 				goto err;
 			}
+			up_write(&slub_lock);
 			return s;
 		}
 		kfree(n);

@@ -1,18 +1,22 @@
 /****************************************************************************
 *
-*    Copyright (c) 2005 - 2012 by Vivante Corp.  All rights reserved.
+*    Copyright (C) 2005 - 2013 by Vivante Corp.
 *
-*    The material in this file is confidential and contains trade secrets
-*    of Vivante Corporation. This is proprietary information owned by
-*    Vivante Corporation. No part of this work may be disclosed,
-*    reproduced, copied, transmitted, or used in any way for any purpose,
-*    without the express written permission of Vivante Corporation.
+*    This program is free software; you can redistribute it and/or modify
+*    it under the terms of the GNU General Public License as published by
+*    the Free Software Foundation; either version 2 of the license, or
+*    (at your option) any later version.
+*
+*    This program is distributed in the hope that it will be useful,
+*    but WITHOUT ANY WARRANTY; without even the implied warranty of
+*    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+*    GNU General Public License for more details.
+*
+*    You should have received a copy of the GNU General Public License
+*    along with this program; if not write to the Free Software
+*    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 *
 *****************************************************************************/
-
-
-
-
 
 
 #ifndef __gc_hal_driver_vg_h_
@@ -101,8 +105,7 @@ typedef enum _gceTASK
     gcvTASK_UNLOCK_VIDEO_MEMORY,
     gcvTASK_FREE_VIDEO_MEMORY,
     gcvTASK_FREE_CONTIGUOUS_MEMORY,
-    gcvTASK_UNMAP_USER_MEMORY,
-    gcvTASK_UNMAP_MEMORY
+    gcvTASK_UNMAP_USER_MEMORY
 }
 gceTASK;
 
@@ -207,7 +210,7 @@ typedef struct _gcsTASK_UNLOCK_VIDEO_MEMORY
     IN gceTASK                  id;
 
     /* Allocated video memory. */
-    IN gcuVIDMEM_NODE_PTR       node;
+    IN gctUINT64                node;
 }
 gcsTASK_UNLOCK_VIDEO_MEMORY;
 
@@ -218,7 +221,7 @@ typedef struct _gcsTASK_FREE_VIDEO_MEMORY
     IN gceTASK                  id;
 
     /* Allocated video memory. */
-    IN gcuVIDMEM_NODE_PTR       node;
+    IN gctUINT64                node;
 }
 gcsTASK_FREE_VIDEO_MEMORY;
 
@@ -259,23 +262,6 @@ typedef struct _gcsTASK_UNMAP_USER_MEMORY
     IN gctUINT32                address;
 }
 gcsTASK_UNMAP_USER_MEMORY;
-
-typedef struct _gcsTASK_UNMAP_MEMORY * gcsTASK_UNMAP_MEMORY_PTR;
-typedef struct _gcsTASK_UNMAP_MEMORY
-{
-    /* Task ID (gcvTASK_UNMAP_MEMORY). */
-    IN gceTASK                  id;
-
-    /* Physical memory address to unmap. */
-    IN gctPHYS_ADDR             physical;
-
-    /* Number of bytes in physical memory to unmap. */
-    IN gctSIZE_T                bytes;
-
-    /* Address of mapped memory to unmap. */
-    IN gctPOINTER               logical;
-}
-gcsTASK_UNMAP_MEMORY;
 
 #ifdef __cplusplus
 }

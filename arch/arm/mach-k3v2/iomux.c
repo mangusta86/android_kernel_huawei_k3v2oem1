@@ -18,6 +18,7 @@
 #include <linux/io.h>
 #include "iomux.h"
 #include <hsad/config_interface.h>
+#include <hsad/config_mgr.h>
 #include "k3v2_iomux_blocks.h"
 
 static DEFINE_MUTEX(iomux_lock);
@@ -31,6 +32,45 @@ static DEFINE_MUTEX(iomux_lock_debugfs);
 	do {							\
 		spin_unlock_irqrestore(&c->spinlock, flags);	\
 	} while (0)
+
+static struct block_table *p_active_block_table = NULL;
+static struct iocfg_lp *p_active_io_cfglp = NULL;
+static void get_active_block_table(void);
+static void get_active_io_cfglp(void);
+
+static void get_active_block_table(void)
+{
+	int i;
+
+	if (p_active_block_table != NULL)
+		return;
+
+	for (i = 0; block_config_tables[i].boardid != ENDSYMBOL; i++)
+	{
+		if (g_current_board_id == block_config_tables[i].boardid)
+		{
+			p_active_block_table = block_config_tables[i].p_block_table;
+			return;
+		}
+	}
+}
+
+static void get_active_io_cfglp(void)
+{
+	int i;
+
+	if (p_active_io_cfglp != NULL)
+		return;
+
+	for (i = 0; io_suspend_config_tables[i].boardid != ENDSYMBOL; i++)
+	{
+		if (g_current_board_id == io_suspend_config_tables[i].boardid)
+		{
+			p_active_io_cfglp = io_suspend_config_tables[i].p_iocfg_lp;
+			return;
+		}
+	}
+}
 
 /*get the pin by name*/
 struct  iomux_pin *iomux_get_pin(char *name)
@@ -163,18 +203,13 @@ static int iomux_canget_pin(struct  iomux_pin *pin, struct  iomux_block *block)
 struct iomux_block *iomux_get_block(char *name)
 {
 	int ret = 0;
-	int iomux_type = 0;
 	struct  iomux_block *block_temp = NULL;
 	struct  iomux_pin **pins_temp = NULL;
 	struct  block_table *table_temp = NULL;
 
 	mutex_lock(&iomux_lock);
-	iomux_type = get_iomux_type();
-	if (iomux_type == -1) {
-		pr_err("Get IOMUX type is failed,%s %d.\r\n", __func__, __LINE__);
-		goto out;
-	}
-	table_temp = block_config_tables[iomux_type];
+	get_active_block_table();
+	table_temp = p_active_block_table;
 	while ((*table_temp).name) {
 		if (strncmp(name, (*table_temp).name, MAX_NAME_CHARS)) {
 			table_temp++;
@@ -220,16 +255,11 @@ EXPORT_SYMBOL(iomux_get_block);
 
 struct block_config *iomux_get_blockconfig(char *name)
 {
-	int iomux_type = 0;
 	struct block_config *config_temp = NULL;
 	struct  block_table *table_temp = NULL;
 
-	iomux_type = get_iomux_type();
-	if (iomux_type == -1) {
-		pr_err("Get IOMUX type is failed,%s %d.\r\n", __func__, __LINE__);
-		return NULL;
-	}
-	table_temp = block_config_tables[iomux_type];
+	get_active_block_table();
+	table_temp = p_active_block_table;
 	while ((*table_temp).name) {
 		if (strncmp(name, (*table_temp).name, MAX_NAME_CHARS)) {
 			table_temp++;
@@ -272,17 +302,12 @@ EXPORT_SYMBOL(blockmux_set);
 void __init iomux_init_blocks(void)
 {
 	int ret;
-	int iomux_type = 0;
 	struct  iomux_block *block_temp = NULL;
 	struct block_config *config_temp = NULL;
 	struct  block_table *table_temp = NULL;
 
-	iomux_type = get_iomux_type();
-	if (iomux_type == -1) {
-		pr_err("Get IOMUX type is failed,%s %d.\r\n", __func__, __LINE__);
-		return ;
-	}
-	table_temp = block_config_tables[iomux_type];
+	get_active_block_table();
+	table_temp = p_active_block_table;
 	while ((*table_temp).name) {
 		block_temp = (*table_temp).block;
 		config_temp = (*table_temp).config_array;
@@ -348,7 +373,6 @@ static const struct file_operations debug_pin_fops = {
 
 static int dbg_blockmux_show(struct seq_file *s, void *unused)
 {
-	int iomux_type = 0;
 	struct  iomux_block *block_temp = NULL;
 	struct  iomux_pin **arraryp = NULL;
 	struct  block_table *table_temp = NULL;
@@ -358,13 +382,8 @@ static int dbg_blockmux_show(struct seq_file *s, void *unused)
 			"-----------------------------------------------\n");
 
 	mutex_lock(&iomux_lock_debugfs);
-	iomux_type = get_iomux_type();
-	if (iomux_type == -1) {
-		pr_err("Get IOMUX type is failed,%s %d.\r\n", __func__, __LINE__);
-		mutex_unlock(&iomux_lock);
-		return -INVALID;
-	}
-	table_temp = block_config_tables[iomux_type];
+	get_active_block_table();
+	table_temp = p_active_block_table;
 	while ((*table_temp).name) {
 		block_temp = iomux_get_block((*table_temp).name);
 		if (block_temp) {
@@ -437,16 +456,11 @@ late_initcall(iomux_debuginit);
 void iomux_debug_set(void)
 {
 	int i = 0;
-	int io_type = 0;
 	unsigned int uregv = 0;
 	struct iocfg_lp *iocfg_lookups = NULL;
 
-	io_type = get_iomux_type();
-	if (io_type == -1) {
-		pr_err("Get IOMUX type is failed,%s %d.\r\n", __func__, __LINE__);
-		return ;
-	}
-	iocfg_lookups = io_suspend_config_tables[io_type];
+	get_active_io_cfglp();
+	iocfg_lookups = p_active_io_cfglp;
 
 	for (i = 0; i < IO_LIST_LENGTH; i++) {
 
@@ -506,18 +520,12 @@ EXPORT_SYMBOL(iomux_debug_set);
 void iomux_debug_show(int check)
 {
 	int i = 0;
-	int io_type = 0;
 	int iflg = 0;
 	unsigned int uregv = 0;
 	struct iocfg_lp *iocfg_lookups = NULL;
 
-	io_type = get_iomux_type();
-	if (io_type == -1) {
-		pr_err("Get IOMUX type is failed,%s %d.\r\n", __func__, __LINE__);
-		return ;
-	}
-	iocfg_lookups = io_suspend_config_tables[io_type];
-
+	get_active_io_cfglp();
+	iocfg_lookups = p_active_io_cfglp;
 	for (i = 0; i < IO_LIST_LENGTH; i++) {
 
 		iflg = 0;

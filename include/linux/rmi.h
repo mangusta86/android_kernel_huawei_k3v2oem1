@@ -40,9 +40,6 @@
 
 #define SYNAPTICS_VBUS "ts-vbus"
 #define SYNAPTICS_VDD "ts-vdd"
-#define LCD_X_QHD	720
-#define LCD_Y_QHD	1280
-
 void synaptics_set_sensitivity(uint8_t tp_status);
 
 /* Permissions for sysfs attributes.  Since the permissions policy will change
@@ -60,7 +57,13 @@ enum rmi_attn_polarity {
 	RMI_ATTN_ACTIVE_LOW = 0,
 	RMI_ATTN_ACTIVE_HIGH = 1
 };
-
+enum rmi_tp_status {
+	TP_NULL = 0,
+	TP_FINGER = 1,
+	TP_GLOVE = 2,
+	TP_DRY = 3,
+	TP_WET = 4
+};
 /**
  * struct rmi_f11_axis_alignment - target axis alignment
  * @swap_axes: set to TRUE if desired to swap x- and y-axis
@@ -154,7 +157,6 @@ struct rmi_device_platform_data {
 	struct regulator *vdd;
 	struct regulator *vbus;
 	int attn_gpio;
-	int enable_gpio;
 	enum rmi_attn_polarity attn_polarity;
 	bool level_triggered;
 	void *gpio_data;

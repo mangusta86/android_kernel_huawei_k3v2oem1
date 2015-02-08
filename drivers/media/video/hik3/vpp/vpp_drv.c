@@ -22,7 +22,7 @@ MODULE_AUTHOR("j00140427");
 MODULE_DESCRIPTION("vpp driver");
 
 #define VPP_DEVICE_ID 19
-
+//#define VPP_TEST
 static struct video_device *s_vpp_device_p = NULL;
 static struct video_device s_vpp_device;
 
@@ -344,6 +344,7 @@ static long vpp_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
 }
 
 //only for test
+#ifdef VPP_TEST
 static int vpp_mmap(struct file *file, struct vm_area_struct *vma)
 {
     unsigned long start = 0;
@@ -370,6 +371,7 @@ static int vpp_mmap(struct file *file, struct vm_area_struct *vma)
     
     return 0;
 }
+#endif
 
 static void vpp_release( struct video_device *vdev )
 {
@@ -392,7 +394,9 @@ static struct v4l2_file_operations s_vpp_fops = {
   .owner = THIS_MODULE,
   .open =  vpp_open,
   .release = vpp_close,
+#ifdef VPP_TEST
   .mmap = vpp_mmap,
+#endif
   .ioctl= vpp_ioctl,
 };
 

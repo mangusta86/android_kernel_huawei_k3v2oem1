@@ -25,7 +25,7 @@
 #include <linux/delay.h>
 #include <mach/gpio.h>
 #include <linux/time.h>
-
+#include <hsad/config_interface.h>
 
 
 #define SD_GPIO_DCDC GPIO_21_4
@@ -270,6 +270,7 @@ static int hi6421_regulator_disable(struct regulator_dev *dev)
 		hi6421_regulator_set_bits(hi6421_regulator_data, regulator_vset_to_reg[regulator_id], HI6421_BUCK012_VSEL_MASK, 56);
 	}
 
+#ifndef CONFIG_K3_REGULATOR_ALWAYS_ON
 	if (regulator_id <= HI6421_LDO20) {
 		hi6421_regulator_set_bits(hi6421_regulator_data, regulator_ctrl_to_reg[regulator_id], HI6421_LDO_ENA_MASK, 0);
 	} else if (regulator_id == HI6421_LDOAUDIO) {
@@ -280,6 +281,7 @@ static int hi6421_regulator_disable(struct regulator_dev *dev)
 	if (regulator_id == HI6421_LDO0) {
 		writel(0, hi6421_regulator_data->base + PMU_REST_REG);
 	}
+#endif
 	if (regulator_id == HI6421_LDO12) {
 		gpio_direction_output(SD_GPIO_DCDC, 0);
 		gpio_free(SD_GPIO_DCDC);
@@ -542,6 +544,7 @@ static int hi6421_chg_pump_disable(struct regulator_dev *dev)
 	rdev_info(dev, "will be disabled\n");
 	#endif
 
+#ifndef CONFIG_K3_REGULATOR_ALWAYS_ON
 	if (regulator_id == HI6421_USB_CHG_PUMP) {
 		hi6421_regulator_set_bits(hi6421_regulator_data, (u16)HI6421_USB_HDMI_CHG_PUMP_CTRL_REG,
 			HI6421_USB_CHG_PUMP_ENA_MASK, 0);
@@ -552,6 +555,7 @@ static int hi6421_chg_pump_disable(struct regulator_dev *dev)
 		rdev_err(NULL, "can't disable, because there is no chg pump\n");
 		return -EINVAL;
 	}
+#endif
 	return 0;
 }
 static struct regulator_ops hi6421_chg_pump_ops = {
@@ -804,6 +808,8 @@ static __devinit int hi6421_regulator_probe(struct platform_device *pdev)
 {
 	int ret, regulator_id, reg_ocp;
 	int irq;
+	int oclk;
+	bool pmu_out26m_enable=false;
 	struct hi6421_regulator_data  *hi6421_regulator_data;
 	struct regulator_init_data *regulator_init_data = pdev->dev.platform_data;
 
@@ -834,6 +840,17 @@ static __devinit int hi6421_regulator_probe(struct platform_device *pdev)
 		rdev_err(NULL, "hi6421 regulator no base adder,please check: ret=%d!\n", ret);
 		goto err_free_mem;
 	}
+
+	pmu_out26m_enable = get_pmu_out26m_enable();
+	if (pmu_out26m_enable){
+		/*irda enable hi6421 clk_26M*/
+		oclk=  readl(hi6421_regulator_data->base+TCXO_CTRL);
+
+		oclk |= HI6421_CLK_26_EN;
+
+		writel(oclk,hi6421_regulator_data->base+TCXO_CTRL);
+	}
+
 	/*get clock*/
 	hi6421_regulator_data->clk_pmu = clk_get(NULL, "clk_pmuspi");
 	if (IS_ERR(hi6421_regulator_data->clk_pmu)) {

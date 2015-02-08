@@ -37,6 +37,8 @@ created by huawei zhouzhigang 2012/01/13
 
 #include <linux/platform_device.h>
 #include <hsad/config_interface.h>
+
+
 extern int modem_monitor_uevent_notify(int event);
 /*=========================================================*/
 //#define _MODEM_DEBUG
@@ -59,6 +61,7 @@ extern int modem_monitor_uevent_notify(int event);
 #define CLEAR_TX()  {modem_transfer_ctl.is_tx=0;}
 #define CLEAR_RX()  {modem_transfer_ctl.is_rx=0;}
 static struct sock *g_nlfd=NULL;
+
 DEFINE_MUTEX(modem_receive_sem);
 DEFINE_MUTEX(send_sem);
 
@@ -73,6 +76,8 @@ unsigned int gpio_cpap_resend;
 unsigned int gpio_apcp_resend;
 
 static unsigned int g_rild_pid = 0;
+
+
 const char * sprd_event_str[] =
 {
    "MODEM_OFF",
@@ -84,6 +89,10 @@ const char * sprd_event_str[] =
    "MODEM_AP_POWEROFF",
    0
 };
+
+static int is_sprdspi_download = 0;
+static int apcp_resend_state = -1;
+
 /* Format of the message send from kernel to userspace */
 struct sprd_nl_packet_msg {
 	int sprd_event;
@@ -149,6 +158,7 @@ typedef struct
 //                                                                           struct device_attribute *attr, const char *buf, size_t count);
 extern int get_modem_state(void);
 extern unsigned int get_modem_flashless();
+extern void sprd_wake_lock_timeout();
 void set_modem_state(int state);
 
 #define GET_MODEM_STATE()  get_modem_state()
@@ -525,15 +535,15 @@ static irqreturn_t cp2ap_rts_handle(int irq, void *handle)
         CP_RTS_REQ = 1;
         ap2cp_rdy_enable(); ///2
         PLUS_CPAP_RTS_ENABLE();
-
 		if(rts_disable_pending)
 		{
 		   CP_RTS_DISABLE = 1;
 		   wake_up(&modem_transfer_ctl.spi_read_wq);//wake up send wq, use event
 		}
 		//use_rts_enable = 1;
-        queue_work(modem_rx_wq, &modem_transfer_ctl.rx_work);
+             queue_work(modem_rx_wq, &modem_transfer_ctl.rx_work);
 		rts_disable_pending = 1;
+		sprd_wake_lock_timeout();
     }
     else
     {
@@ -542,6 +552,8 @@ static irqreturn_t cp2ap_rts_handle(int irq, void *handle)
 		CP_RTS_DISABLE = 1;
         wake_up(&modem_transfer_ctl.spi_read_wq);//wake up send wq, use event
     }
+
+    
   }
 	
     return IRQ_HANDLED;
@@ -954,6 +966,12 @@ int spi_packet_verify(unsigned char *packet)
     unsigned int  sum_packet  = 0;
     unsigned char *data = (unsigned char *)packet;
     packet_header *header = (packet_header*)packet;
+    static int resend_log_count = 0;
+
+    /* when download modem image, we don't checksum */
+    if (0 != is_sprdspi_download) {
+        return 0;
+    }
 
     /*check header*/
     if ((header->tag != 0x7e7f) || (header->type != 0xaa55)
@@ -969,10 +987,17 @@ int spi_packet_verify(unsigned char *packet)
     }
 
     if (header->reserved2 == sum_packet) {
+        if (0 != resend_log_count) {
+            printk("[SPI OK]Receive packet sum(%d) == head.reserved2(%d).\n",\
+                                        sum_packet, header->reserved2);
+            resend_log_count--;
+        }
         return 0;
     } else {
         printk("[SPI ERROR]Receive packet sum(%d) != head.reserved2(%d).\n",\
                                     sum_packet, header->reserved2);
+        /* when check sum error, print 3 frame log after resend */
+        resend_log_count = 3;
         return -1;
     }
 }
@@ -1062,11 +1087,18 @@ static void sprd_modem_rx_work(struct work_struct *work)
 	   	   printk("count:%d, packet_len:%d\n",count,packet->length);
 	   
           if (spi_packet_verify(&modem_transfer_ctl.read_buf[count]) && get_modem_flashless()) {
-                gpio_set_value(gpio_apcp_resend, 1);
-                count = CP_WAIT_COUNT*2;
-                goto start_read;
+                if (1 != apcp_resend_state) {
+                    gpio_set_value(gpio_apcp_resend, 1);
+                    msleep(5);
+                    apcp_resend_state = 1;
+                }
+                goto done;
           } else {
-                gpio_set_value(gpio_apcp_resend, 0);
+                if (0 != apcp_resend_state) {
+                    gpio_set_value(gpio_apcp_resend, 0);
+                    msleep(5);
+                    apcp_resend_state = 0;
+                }
           }
 
 	   ts0710_rx_handler_buf(&modem_transfer_ctl.read_buf[sizeof(packet_header)+count], packet->length);
@@ -1084,11 +1116,18 @@ static void sprd_modem_rx_work(struct work_struct *work)
 
 
           if (spi_packet_verify(&modem_transfer_ctl.read_buf[count]) && get_modem_flashless()) {
-                gpio_set_value(gpio_apcp_resend, 1);
-                count = CP_WAIT_COUNT*2;
-                goto start_read;
+                if (1 != apcp_resend_state) {
+                    gpio_set_value(gpio_apcp_resend, 1);
+                    msleep(5);
+                    apcp_resend_state = 1;
+                }
+                goto done;
           } else {
-                gpio_set_value(gpio_apcp_resend, 0);
+                if (0 != apcp_resend_state) {
+                    gpio_set_value(gpio_apcp_resend, 0);
+                    msleep(5);
+                    apcp_resend_state = 0;
+                }
           }
 
 	   ts0710_rx_handler_buf(&modem_transfer_ctl.read_buf[sizeof(packet_header)+count], packet->length);
@@ -1376,12 +1415,15 @@ static int sprdspi_open(struct inode *inode, struct file *f)
 {
     printk("sprspi_open enter\n");
     memset(modem_transfer_ctl.read_buf, 0, sizeof(modem_transfer_ctl.read_buf));
+    is_sprdspi_download = 1;
     return nonseekable_open(inode, f);
 }
 
 static int sprdspi_release(struct inode *inode, struct file *f)
 {
+    printk("sprdspi_release enter\n");
     memset(modem_transfer_ctl.read_buf, 0, sizeof(modem_transfer_ctl.read_buf));
+    is_sprdspi_download = 0;
     return 0;
 }
 static const struct file_operations sprdspi_fops = {

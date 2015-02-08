@@ -88,7 +88,7 @@
 #define OV8830_APERTURE_FACTOR		240 // F2.4
 #define OV8830_EQUIVALENT_FOCUS		35 // 35mm
 
-#define OV8830_AWBOFFSET_VALUE  0x0a
+//#define OV8830_AWBOFFSET_VALUE  0x0a
 //#define OV8830_AP_WRITEAE_MODE
 
 static camera_capability ov8830_cap[] = {
@@ -106,14 +106,14 @@ static camera_capability ov8830_cap[] = {
 #define OV8830_AUTOFPS_GAIN_MID2LOW		0x40
 
 #define OV8830_MAX_FRAMERATE		30
-#define OV8830_MIDDLE_FRAMERATE		15
-#define OV8830_MIN_FRAMERATE		15
+#define OV8830_MIDDLE_FRAMERATE		12
+#define OV8830_MIN_FRAMERATE		12
 
 #define OV8830_MIN_CAP_FRAMERATE	8
 
-#define OV8830_FLASH_TRIGGER_GAIN	0x80
+#define OV8830_FLASH_TRIGGER_GAIN	0x70
 
-#define OV8830_SHARPNESS_PREVIEW	0x10
+#define OV8830_SHARPNESS_PREVIEW	0x18
 #define OV8830_SHARPNESS_CAPTURE	0x10
 
 /* camera sensor denoise parameters */
@@ -274,7 +274,7 @@ const struct isp_reg_t isp_init_regs_ov8830_foxconn[] = {
 	{0x1c4e9, 0x40},
 	{0x1c4ea, 0x78},
 	//{0x1c4eb, 0x80},
-	{0x1c4ec, 0x68}, //ori is 0x70, yangyang for awb
+	{0x1c4ec, 0x78}, //ori is 0x70, yangyang for awb
 
 /* Global Gamma */
 	{0x1c49b, 0x01},
@@ -289,11 +289,11 @@ const struct isp_reg_t isp_init_regs_ov8830_foxconn[] = {
 
 /* Tone Mapping */
 	//contrast curve change for skin over exposure 20120728
-       {0x1C4C0, 0x26},
-       {0x1C4C1, 0x35},
-       {0x1C4C2, 0x3e},
-       {0x1C4C3, 0x46},
-       {0x1C4C4, 0x4e},
+	{0x1C4C0, 0x24}, //add contrast 20120803, new curve 20120816
+	{0x1C4C1, 0x32},
+	{0x1C4C2, 0x3c},
+	{0x1C4C3, 0x44},
+	{0x1C4C4, 0x4d},
        {0x1C4C5, 0x56},
        {0x1C4C6, 0x60},
        {0x1C4C7, 0x6b},
@@ -495,11 +495,46 @@ const struct isp_reg_t isp_init_regs_ov8830_foxconn[] = {
 	{0x1c183, 0x00},//MinNum
 	{0x1c184, 0x04},//AWB Step
 	{0x1c58d, 0x00},//LimitAWBAtD65Enable
-
+#if 0
 	{0x1c1be, OV8830_AWBOFFSET_VALUE},//AWB offset
 	{0x1c1bf, 0x00},
 	{0x1c1c0, 0x00},
 	{0x1c1c1, OV8830_AWBOFFSET_VALUE},
+#endif
+
+    //awb offset adaptive gain
+	//offset in preview:
+	/*low gain*/
+	{0x1c1be, 0x00},//b
+	{0x1c1bf, 0x00},//gb
+	{0x1c1c0, 0x00},//gr
+	{0x1c1c1, 0x00},//r
+	/*high gain*/
+	{0x1c57c, 0x0a},
+	{0x1c57d, 0x00},
+	{0x1c57e, 0x00},
+	{0x1c57f, 0x0a},
+
+	//offset in capture
+	/*low gain*/
+	{0x1c580, 0x00},
+	{0x1c581, 0x00},
+	{0x1c582, 0x00},
+	{0x1c583, 0x00},
+	/*high gain*/
+	{0x1c584, 0x00},
+	{0x1c585, 0x00},
+	{0x1c586, 0x00},
+	{0x1c587, 0x00},
+
+	/*gain-threshold setting for new firmware*/
+	{0x1c57a, 0x00},//0x1c59a
+	{0x1c57b, 0x50},//0x1c59b
+	/*awb offest enable
+	*bit[0]:AWB offset;
+	*bit[1]:AWB offset;
+	*/
+	{0x1e980, 0x00},
 
 	{0x1c1aa, 0x00},//avgAllEnable
 	{0x1c1ad, 0x02},//weight of A
@@ -511,16 +546,16 @@ const struct isp_reg_t isp_init_regs_ov8830_foxconn[] = {
 	{0x1c5ae, 0x80},//pre-rgain
 
 	{0x1ccce, 0x02},//ori0x02 awb shift
-	{0x1cccf, 0xf8},//B gain for A
-	{0x1ccd0, 0x20},//R gain for A
+	{0x1cccf, 0xf4},//B gain for A
+	{0x1ccd0, 0x24},//R gain for A
 	{0x1c5b8, 0x00},//B gain for C outdoor
-	{0x1c5b9, 0x10},//R gain for C outdoor
+	{0x1c5b9, 0x18},//R gain for C outdoor
 	{0x1ccd1, 0x00},
-	{0x1ccd2, 0x10},//R gain for C indoor
+	{0x1ccd2, 0x20},//R gain for C indoor
 	{0x1ccd3, 0xf8},//B gain for D indoor, y00215412
-	{0x1ccd4, 0x08},//R gain for D indoor
+	{0x1ccd4, 0x14},//R gain for D indoor
 	{0x1cccc, 0xf8},//B gain for D outdoor
-	{0x1cccd, 0x08},//R gain for D outdoor
+	{0x1cccd, 0x14},//R gain for D outdoor
 
 	{0x1c5b4, 0x02},//C indoor/outdoor switch lum 1 Richard@0517
 	{0x1c5b5, 0xff},//C indoor/outdoor switch lum 1 Richard@0517
@@ -538,9 +573,9 @@ const struct isp_reg_t isp_init_regs_ov8830_foxconn[] = {
 	{0x1c5d1, 0x20},
 	{0x1c5d2, 0x03},
 	{0x1c5d3, 0x00},
-	{0x1c5d4, 0x40},//
+	{0x1c5d4, 0x46},//
 	{0x1c5d5, 0xa0},//
-	{0x1c5d6, 0xac},//0xb0->0xac change for red skin in outdoor d light
+	{0x1c5d6, 0xad},//0xb0->0xac change for red skin in outdoor d light
 	{0x1c5d7, 0xe4},//0xe8->0xe4 change for red skin in outdoor d light
 	{0x1c5d8, 0x40},//
 	{0x1c1c2, 0x00},
@@ -552,8 +587,8 @@ const struct isp_reg_t isp_init_regs_ov8830_foxconn[] = {
 	{0x66208, 0x1c},
 	{0x66209, 0x78},
 	{0x6620a, 0x68},
-	{0x6620b, 0xd0}, //ori is 0xce, yangyang for awb
-	{0x6620c, 0xb0},
+	{0x6620b, 0xf8}, //ori is 0xce, yangyang for awb
+	{0x6620c, 0xb2},
 	{0x6620d, 0x40},
 	{0x6620e, 0x32},
 	{0x6620f, 0x6e},
@@ -615,11 +650,11 @@ const struct isp_reg_t isp_init_regs_ov8830_foxconn[] = {
 	{0x1C20D, 0x92},//0xc8->0x92 change for red skin in outdoor d light
 
 	{0x1C220, 0x00},//cmx right delta
-	{0x1C221, 0xae},
+	{0x1C221, 0x6e},
 	{0x1C222, 0xff},
-	{0x1C223, 0x7d},
-	{0x1C224, 0xff},
-	{0x1C225, 0xd5},
+	{0x1C223, 0x8d},
+	{0x1C224, 0x00},
+	{0x1C225, 0x05},
 	{0x1C226, 0xff},
 	{0x1C227, 0xde},
 	{0x1C228, 0x00},
@@ -645,10 +680,10 @@ const struct isp_reg_t isp_init_regs_ov8830_foxconn[] = {
 	{0x65408, 0x0b},
 
 	//high gain curve for dark color change 20120728
-	{0x1d963, 0x1c}, //add contrast 20120803
-	{0x1d964, 0x2f},
-	{0x1d965, 0x3e},
-	{0x1d966, 0x4a},
+	{0x1d963, 0x26}, //add contrast 20120803
+	{0x1d964, 0x36},
+	{0x1d965, 0x41},
+	{0x1d966, 0x4b},
 	{0x1d967, 0x54},
 	{0x1d968, 0x5d},
 	{0x1d969, 0x66},
@@ -681,10 +716,10 @@ const struct isp_reg_t isp_init_regs_ov8830_foxconn[] = {
 
 	{0x1d99e, 0x01}, //dynamic UV curve, huiyan 20120803 for dark uv noise
 	//low gain UV curve 1/2
-	{0x1d904, 0x93},
-	{0x1d905, 0x9d},
-	{0x1d906, 0xa0},
-	{0x1d907, 0xa0},
+	{0x1d904, 0x30},
+	{0x1d905, 0x46},
+	{0x1d906, 0x70},
+	{0x1d907, 0x89},
 	{0x1d908, 0xa0},
 	{0x1d909, 0xa0},
 	{0x1d90a, 0xa0},
@@ -698,7 +733,7 @@ const struct isp_reg_t isp_init_regs_ov8830_foxconn[] = {
 	{0x1d912, 0x73},
 	{0x1d913, 0x55},
 	//high gain UV curve 1/2
-	{0x1d914, 0x46},
+	{0x1d914, 0x30},
 	{0x1d915, 0x70},
 	{0x1d916, 0x89},
 	{0x1d917, 0x98},
@@ -733,7 +768,7 @@ const struct isp_reg_t isp_init_regs_ov8830_foxconn[] = {
 	{0x1d94a, 0x11}, //super highlight A thres //66207
 	{0x1d928, 0x11}, //highlight A thres //66207
 	{0x1d929, 0x20}, //middlelight A thres//ori is 0x18, yangyang for awb
-	{0x1d92a, 0x1d}, //lowlight A thres
+	{0x1d92a, 0x20}, //lowlight A thres
 	{0x1d94b, 0x14}, //super highlight D thres //66208
 	{0x1d92b, 0x14}, //highlight D thres //66208
 	{0x1d92c, 0x14}, //middlelight D thres
@@ -744,7 +779,7 @@ const struct isp_reg_t isp_init_regs_ov8830_foxconn[] = {
 	{0x1d930, 0x40}, //lowlight D limit
 	{0x1d94d, 0x48}, //super highlight A limit //6620e
 	{0x1d931, 0x48}, //highlight A limit //6620e
-	{0x1d932, 0x33}, //middlelight A limit//ori is 0x36, yangyang for awb
+	{0x1d932, 0x34}, //middlelight A limit//ori is 0x36, yangyang for awb
 	{0x1d933, 0x30}, //lowlight A limit//ori is 0x32, yangyang for awb
 	{0x1d94e, 0x6e}, //super highlight D split //6620f
 	{0x1d934, 0x6e}, //highlight D split //6620f
@@ -881,7 +916,7 @@ const struct isp_reg_t isp_init_regs_ov8830_samsung[] = {
 	{0x65603, 0x60},//y00215412 change sharpness high gain threshod 0x40->0x60 20120814
 	{0x65608, 0x06},
 	{0x65609, 0x20},
-	{0x6560c, 0x00},//high gain sharpness
+	{0x6560c, 0x08},//high gain sharpness
 	{0x6560d, OV8830_SHARPNESS_PREVIEW},//low gain sharpness
 	{0x6560e, 0x10},//MinSharpenTp
 	{0x6560f, 0x60},//MaxSharpenTp
@@ -1120,11 +1155,45 @@ const struct isp_reg_t isp_init_regs_ov8830_samsung[] = {
 	{0x1c183, 0x00},//MinNum
 	{0x1c184, 0x04},//AWB Step:awb adjust every 2 FPS
 	{0x1c58d, 0x00},//LimitAWBAtD65Enable
-
-	{0x1c1be, OV8830_AWBOFFSET_VALUE},//AWB offset
+#if 0
+    {0x1c1be, OV8830_AWBOFFSET_VALUE},//AWB offset
 	{0x1c1bf, 0x00},
 	{0x1c1c0, 0x00},
 	{0x1c1c1, OV8830_AWBOFFSET_VALUE},
+#endif
+    //awb offset adaptive gain
+	//offset in preview:
+	/*low gain*/
+	{0x1c1be, 0x00},//b
+	{0x1c1bf, 0x00},//gb
+	{0x1c1c0, 0x00},//gr
+	{0x1c1c1, 0x00},//r
+	/*high gain*/
+	{0x1c57c, 0x0c},
+	{0x1c57d, 0x00},
+	{0x1c57e, 0x00},
+	{0x1c57f, 0x0c},
+
+	//offset in capture
+	/*low gain*/
+	{0x1c580, 0x00},
+	{0x1c581, 0x00},
+	{0x1c582, 0x00},
+	{0x1c583, 0x00},
+	/*high gain*/
+	{0x1c584, 0x00},
+	{0x1c585, 0x00},
+	{0x1c586, 0x00},
+	{0x1c587, 0x00},
+
+	/*gain-threshold setting for new firmware*/
+	{0x1c57a, 0x00},//0x1c59a
+	{0x1c57b, 0x50},//0x1c59b
+	/*awb offest enable
+	*bit[0]:AWB offset;
+	*bit[1]:AWB offset;
+	*/
+	{0x1e980, 0x00},
 
 	{0x1c1aa, 0x00},//avgAllEnable
 	{0x1c1ad, 0x02},//weight of A
@@ -1136,8 +1205,8 @@ const struct isp_reg_t isp_init_regs_ov8830_samsung[] = {
 	{0x1c5ae, 0x80},//pre-rgain
 
 	{0x1ccce, 0x02},//awb shift mode.2 means enable;0 means diable.
-	{0x1cccf, 0x10},//B gain for A
-	{0x1ccd0, 0x10},//R gain for A
+	{0x1cccf, 0x00},//B gain for A
+	{0x1ccd0, 0x0c},//R gain for A
 	{0x1c5b8, 0x00},//B gain for C outdoor
 	{0x1c5b9, 0x00},//R gain for C outdoor
 	{0x1ccd1, 0x20},//B gain for C indoor; C lightbox testing; outdoor grasslot
@@ -1172,16 +1241,16 @@ const struct isp_reg_t isp_init_regs_ov8830_samsung[] = {
 	{0x1c1c3, 0x20},
 
 /* OVISP CTAWB setting for Long Exposure (HDR/3D) */
-	{0x66206, 0x14},
-	{0x66207, 0x19},
-	{0x66208, 0x15},
-	{0x66209, 0x77},//horizontal coordinate of cwf center point
+	{0x66206, 0x13},
+	{0x66207, 0x22},
+	{0x66208, 0x20},
+	{0x66209, 0x85},//horizontal coordinate of cwf center point
 	{0x6620a, 0x65},//vertical coordinate of cwf center point
-	{0x6620b, 0xc0},//slope of A light
+	{0x6620b, 0xe0},//slope of A light
 	{0x6620c, 0xc0},//slope of D light
 	{0x6620d, 0x48},
-	{0x6620e, 0x34},
-	{0x6620f, 0x70},
+	{0x6620e, 0x32},
+	{0x6620f, 0x73},
 	{0x66210, 0x56},
 	{0x66201, 0x52},
 
@@ -1276,9 +1345,9 @@ const struct isp_reg_t isp_init_regs_ov8830_samsung[] = {
 	{0x65408, 0x0b},
 
 	//high gain curve for dark color change 20120728
-	{0x1d963, 0x1c},
-	{0x1d964, 0x2f},
-	{0x1d965, 0x3e},
+	{0x1d963, 0x1C},//1c
+	{0x1d964, 0x2F},//2f
+	{0x1d965, 0x3E},//3e
 	{0x1d966, 0x4a},
 	{0x1d967, 0x54},
 	{0x1d968, 0x5d},
@@ -1313,36 +1382,37 @@ const struct isp_reg_t isp_init_regs_ov8830_samsung[] = {
 
 	{0x1d99e, 0x01}, //dynamic UV curve
 	//low gain UV curve 1/2
-	{0x1d904, 0x93},//about 1.15 times
-	{0x1d905, 0x9d},
-	{0x1d906, 0xa0},//about 1.25 times
-	{0x1d907, 0xa0},
-	{0x1d908, 0xa0},
-	{0x1d909, 0xa0},
-	{0x1d90a, 0xa0},
-	{0x1d90b, 0xa0},
-	{0x1d90c, 0xa0},
-	{0x1d90d, 0xa0},
-	{0x1d90e, 0xa0},
-	{0x1d90f, 0x9f},
+	{0x1d904, 0x30},
+	{0x1d905, 0x60},
+	{0x1d906, 0x7C},
+	{0x1d907, 0x8E},
+	{0x1d908, 0x9A},
+	{0x1d909, 0xA0},
+	{0x1d90a, 0xA0},
+	{0x1d90b, 0xA0},
+	{0x1d90c, 0xA0},
+	{0x1d90d, 0xA0},
+	{0x1d90e, 0xA0},
+	{0x1d90f, 0x9F},
 	{0x1d910, 0x98},
 	{0x1d911, 0x89},
 	{0x1d912, 0x73},
 	{0x1d913, 0x55},//about 0.65 times
 	//high gain UV curve 1/2
-	{0x1d914, 0x46},//about 0.6 times
-	{0x1d915, 0x70},
-	{0x1d916, 0x89},
-	{0x1d917, 0x98},
-	{0x1d918, 0x9f},
-	{0x1d919, 0xa0},//about 01.25 times
-	{0x1d91a, 0xa0},
-	{0x1d91b, 0xa0},
-	{0x1d91c, 0xa0},
-	{0x1d91d, 0xa0},
-	{0x1d91e, 0xa0},
-	{0x1d91f, 0x9f},
-	{0x1d920, 0x98},
+
+	{0x1d914, 0x30},
+	{0x1d915, 0x60},
+	{0x1d916, 0x7C},
+	{0x1d917, 0x8E},
+	{0x1d918, 0x98},
+	{0x1d919, 0x9C},//about 01.25 times
+	{0x1d91a, 0x9C},
+	{0x1d91b, 0x9C},
+	{0x1d91c, 0x9C},
+	{0x1d91d, 0x9C},
+	{0x1d91e, 0x9C},
+	{0x1d91f, 0x9A},
+	{0x1d920, 0x94},
 	{0x1d921, 0x89},
 	{0x1d922, 0x73},
 	{0x1d923, 0x55},//about 0.65 times
@@ -1382,21 +1452,92 @@ const struct isp_reg_t isp_init_regs_ov8830_samsung[] = {
 	{0x1d937, 0x56}, //highlight A split //66210
 
 	{0x1d926, 0x13}, //middlelight cwf thres
-	{0x1d929, 0x1c}, //middlelight A thres
+	{0x1d929, 0x22}, //middlelight A thres
 	{0x1d92c, 0x20}, //middlelight D thres
 	{0x1d92f, 0x48}, //middlelight D limit
-	{0x1d932, 0x35}, //middlelight A limit
+	{0x1d932, 0x32}, //middlelight A limit
 	{0x1d935, 0x70}, //middlelight D split
 	{0x1d938, 0x56}, //middlelight A split
 
 	{0x1d927, 0x16}, //lowlight cwf thres
-	{0x1d92a, 0x1c}, //lowlight A thres
+	{0x1d92a, 0x25}, //lowlight A thres
 	{0x1d92d, 0x20}, //lowlight D thres
 	{0x1d930, 0x48}, //lowlight D limit
 	{0x1d933, 0x32}, //lowlight A limit
-	{0x1d936, 0x70}, //lowlight D split
+	{0x1d936, 0x75}, //lowlight D split
 	{0x1d939, 0x56}, //lowlight A split
 };
+
+/* < zhoutian 00195335 2013-04-25 added for SuperZoom-LowLight begin */
+struct isp_reg_t isp_init_regs_lowlight_ov8830_backup[] = {
+	//auto uv saturation
+	{0x1c4eb, 0x78}, //UV max saturation
+	{0x1c4ec, 0x70}, //UV min saturation
+
+	//Tone curve
+	{0x1C4C0, 0x33},
+	{0x1C4C1, 0x44},
+	{0x1C4C2, 0x4f},
+	{0x1C4C3, 0x58},
+	{0x1C4C4, 0x5f},
+	{0x1C4C5, 0x64},
+	{0x1C4C6, 0x69},
+	{0x1C4C7, 0x6f},
+	{0x1C4C8, 0x78},
+	{0x1C4C9, 0x84},
+	{0x1C4CA, 0x91},
+	{0x1C4CB, 0xa0},
+	{0x1C4CC, 0xb0},
+	{0x1C4CD, 0xc5},
+	{0x1C4CE, 0xdf},
+};
+
+const struct isp_reg_t isp_init_regs_lowlight_ov8830_foxconn[] = {
+	//auto uv saturation
+	{0x1c4eb, 0x78}, //UV max saturation
+	{0x1c4ec, 0x70}, //UV min saturation
+
+	//Tone curve
+	{0x1C4C0, 0x33},
+	{0x1C4C1, 0x44},
+	{0x1C4C2, 0x4f},
+	{0x1C4C3, 0x58},
+	{0x1C4C4, 0x5f},
+	{0x1C4C5, 0x64},
+	{0x1C4C6, 0x69},
+	{0x1C4C7, 0x6f},
+	{0x1C4C8, 0x78},
+	{0x1C4C9, 0x84},
+	{0x1C4CA, 0x91},
+	{0x1C4CB, 0xa0},
+	{0x1C4CC, 0xb0},
+	{0x1C4CD, 0xc5},
+	{0x1C4CE, 0xdf},
+};
+
+const struct isp_reg_t isp_init_regs_lowlight_ov8830_samsung[] = {
+	//auto uv saturation
+	{0x1c4eb, 0x78}, //UV max saturation
+	{0x1c4ec, 0x70}, //UV min saturation
+
+	//Tone curve
+	{0x1C4C0, 0x33},
+	{0x1C4C1, 0x44},
+	{0x1C4C2, 0x4f},
+	{0x1C4C3, 0x58},
+	{0x1C4C4, 0x5f},
+	{0x1C4C5, 0x64},
+	{0x1C4C6, 0x69},
+	{0x1C4C7, 0x6f},
+	{0x1C4C8, 0x78},
+	{0x1C4C9, 0x84},
+	{0x1C4CA, 0x91},
+	{0x1C4CB, 0xa0},
+	{0x1C4CC, 0xb0},
+	{0x1C4CD, 0xc5},
+	{0x1C4CE, 0xdf},
+};
+/* zhoutian 00195335 2013-04-25 added for SuperZoom-LowLight end > */
 
 static u16 ov8830_vcm_start = 0;
 static u16 ov8830_vcm_end = 0;
@@ -1409,7 +1550,7 @@ static framesize_s ov8830_framesizes[] = {
 	{0, 0, 1600, 1200, 3608, 1956, 30, 25, 0x246, 0x1e5, 0x100, VIEW_FULL, RESOLUTION_4_3, true, {ov8830_framesize_1600x1200, ARRAY_SIZE(ov8830_framesize_1600x1200)} },
 
 	/* 1080P, 1920*1088 y36721 0221 change to 24fps */
-	{0, 0, 1920, 1088, 3608, 2456, 25, 21, 0x261, 0x1fc, 0x218, VIEW_FULL, RESOLUTION_16_9, false, {ov8830_framesize_1080p, ARRAY_SIZE(ov8830_framesize_1080p)} },
+	{0, 0, 1920, 1088, 3608, 2000, 30, 21, 0x261, 0x1fc, 0x218, VIEW_FULL, RESOLUTION_16_9, false, {ov8830_framesize_1080p, ARRAY_SIZE(ov8830_framesize_1080p)} },
 
 	/* 2048x1536 */
 	{0, 0, 2048, 1536, 3608, 2456, 25, 21, 0x261, 0x1fc, 0x218, VIEW_FULL, RESOLUTION_4_3, false, {ov8830_framesize_2048x1536, ARRAY_SIZE(ov8830_framesize_2048x1536)} },
@@ -1780,6 +1921,40 @@ static int ov8830_get_framesizes(camera_state state,
 	return 0;
 }
 
+/* < zhoutian 00195335 2013-04-25 added for SuperZoom-LowLight begin */
+/*
+ **************************************************************************
+ * FunctionName: ov8830_support_hw_lowlight;
+ * Description : check sensor support hw lowlight or not;
+ * ReturnValue : 1-supported 0-not;
+ **************************************************************************
+*/
+static int ov8830_support_hw_lowlight(void)
+{
+	return 1;
+}
+
+static void ov8830_switch_to_lowlight_isp_seq(bool mode)
+{
+	u32 size = sizeof(isp_init_regs_lowlight_ov8830_backup)/sizeof(isp_init_regs_lowlight_ov8830_backup[0]);
+
+	print_debug("enter %s", __func__);
+	if(mode == true)
+	{
+		ov8830_read_isp_seq(isp_init_regs_lowlight_ov8830_backup, size);
+		if(factory_id == OV8830_SAMSUNG_FACTORY_ID)
+			ov8830_write_isp_seq(isp_init_regs_lowlight_ov8830_samsung, size);
+		else
+			ov8830_write_isp_seq(isp_init_regs_lowlight_ov8830_foxconn, size);
+	}
+	else
+	{
+		ov8830_write_isp_seq(isp_init_regs_lowlight_ov8830_backup, size);
+	}
+
+}
+/* zhoutian 00195335 2013-04-25 added for SuperZoom-LowLight end > */
+
 /*
  **************************************************************************
  * FunctionName: ov8830_init_reg;
@@ -1985,23 +2160,17 @@ static awb_gain_t ov8830_flash_awb[FLASH_PLATFORM_MAX][OV8830_MODULE_MAX] = {
 		{0xd7, 0x80, 0x80, 0xfc}, /* SAMSUNG ori is {0xcd, 0x80, 0x80, 0xf5}*/
 		{0xc8, 0x80, 0x80, 0x104}, /* FOXCONN and others */
 	},
-
+	
 	/* 9510E: U9510E/T9510E */
 	{
-		{0xb4, 0x80, 0x80, 0xf0}, /* SAMSUNG */
-		{0xb0, 0x80, 0x80, 0xf0}, /* FOXCONN and others */
+		{0xbd, 0x80, 0x80, 0xf8}, /* SAMSUNG */
+		{0xbd, 0x80, 0x80, 0xf8}, /* FOXCONN and others */
 	},
 
 	/* s10 */
 	{
 		{0xd7, 0x80, 0x80, 0x100}, /* SAMSUNG ori is {0xd5, 0x80, 0x80, 0xf6}*/
 		{0xd0, 0x80, 0x80, 0x100}, /* FOXCONN and others */
-	},
-
-	/* EternityProject: U9508 */
-	{
-		{0xbe, 0xe6, 0xe7, 0xfc}, /* SAMSUNG */
-		{0xb8, 0xef, 0xd0, 0x108}, /* FOXCONN and others */
 	}
 };
 
@@ -2025,7 +2194,7 @@ static ccm_gain_t preview_gain ={0x80, 0x80, 0x80};
 #define R_GAIN_SHIFT	0x82
 #define B_GAIN_SHIFT	0x82
 
-#define R_GAIN_MAX	0xb0
+#define R_GAIN_MAX	0xb8
 #define B_GAIN_MIN	0x60
 
 static void ov8830_awb_dynamic_ccm_gain(u32 frame_index, u32 ae, awb_gain_t  *awb_gain, ccm_gain_t *ccm_gain)
@@ -2117,7 +2286,7 @@ static void ov8830_awb_dynamic_ccm_gain(u32 frame_index, u32 ae, awb_gain_t  *aw
 		cap_gain[FRAMESIZE_NOBINNING].r_gain, cap_gain[FRAMESIZE_NOBINNING].b_gain,
 		cap_gain[FRAMESIZE_BINNING].r_gain, cap_gain[FRAMESIZE_BINNING].b_gain);
 }
-
+#if 0
 static void ov8830_get_awb_offset(camera_state state, u8 *rgain, u8 *ggain,u8 *bgain)
 {
 	if (state == STATE_PREVIEW) {
@@ -2130,7 +2299,7 @@ static void ov8830_get_awb_offset(camera_state state, u8 *rgain, u8 *ggain,u8 *b
 		*rgain = 0x00;
 	}
 }
-
+#endif
 static void ov8830_get_ccm_pregain(camera_state state, u32 frame_index, u8 *bgain, u8 *rgain)
 {
 	bool binning;
@@ -2209,15 +2378,15 @@ static int ov8830_check_sensor(void)
 	if (factory_id == OV8830_SUNNY_FACTORY_ID) {
 		print_info("vendor GPIO id:0x%x, it is Sunny", factory_id);
 		memcpy(ov8830_sensor.vcm, &vcm_dw9714_ov8830, sizeof(vcm_info_s));
-		strcpy(ov8830_sensor.info.name,"ov8830_sunny");
+		strncpy(ov8830_sensor.info.name,"ov8830_sunny",sizeof(ov8830_sensor.info.name));
 	} else if (factory_id == OV8830_FOXCONN_FACTORY_ID) {
 		print_info("Vendor GPIO id:0x%x, it is Foxconn", factory_id);
 		memcpy(ov8830_sensor.vcm, &vcm_ad5823, sizeof(vcm_info_s));
-		strcpy(ov8830_sensor.info.name,"ov8830_foxconn");
+		strncpy(ov8830_sensor.info.name,"ov8830_foxconn",sizeof(ov8830_sensor.info.name));
 	} else  if (factory_id == OV8830_SAMSUNG_FACTORY_ID) {
 		print_error("Vendor GPIO id:0x%x, it is Samsung", factory_id);
 		memcpy(ov8830_sensor.vcm, &vcm_dw9714_ov8830, sizeof(vcm_info_s));
-		strcpy(ov8830_sensor.info.name,"ov8830_samsung");
+		strncpy(ov8830_sensor.info.name,"ov8830_samsung",sizeof(ov8830_sensor.info.name));
 	} else {
 		print_error("Vendor GPIO id:0x%x, not supported yet, use default Sunny", factory_id);
 		memcpy(ov8830_sensor.vcm, &vcm_dw9714_ov8830, sizeof(vcm_info_s));
@@ -3283,10 +3452,10 @@ static void ov8830_get_vcm_otp(u16 *vcm_start, u16 *vcm_end)
 	else
 		*vcm_start = 0;
 
-	if (ov8830_vcm_end > (OV8830_VCM_V2H_OFFSET >> 2))
-		*vcm_end = (ov8830_vcm_end << 2) - OV8830_VCM_V2H_OFFSET;
-	else
-		*vcm_end = 0;
+	//if (ov8830_vcm_end > (OV8830_VCM_V2H_OFFSET >> 2))
+	//	*vcm_end = (ov8830_vcm_end << 2) - OV8830_VCM_V2H_OFFSET;
+	//else
+	//	*vcm_end = 0;
 	*vcm_end = (ov8830_vcm_end << 2) ;
 }
 
@@ -3301,7 +3470,7 @@ static int ov8830_get_equivalent_focus()
 	print_info("enter %s", __func__);
 	return OV8830_EQUIVALENT_FOCUS;
 }
-
+#if 0
 int  ov8830_set_isp_extra_param(int mode)
 {
 	print_info("%s",__func__);
@@ -3341,7 +3510,9 @@ if(mode == STATE_PREVIEW)
    }
 
 }
+	return 0;
 }
+#endif
 /*
  **************************************************************************
  * FunctionName: ov8830_set_default;
@@ -3390,7 +3561,7 @@ static void ov8830_set_default(void)
 	ov8830_sensor.get_vflip = ov8830_get_vflip;
 	ov8830_sensor.update_flip = ov8830_update_flip;
 
-	ov8830_sensor.set_isp_extra_param = ov8830_set_isp_extra_param;
+	//ov8830_sensor.set_isp_extra_param = ov8830_set_isp_extra_param;
 	strncpy(ov8830_sensor.info.name, "ov8830", sizeof(ov8830_sensor.info.name));
 	ov8830_sensor.interface_type = MIPI1;
 #ifdef MIPI_4LANE
@@ -3451,7 +3622,7 @@ static void ov8830_set_default(void)
 
 	ov8830_sensor.get_override_param = ov8830_get_override_param;
 	ov8830_sensor.fill_denoise_buf = ov8830_fill_denoise_buf;
-	ov8830_sensor.get_awb_offset	 = ov8830_get_awb_offset;
+	//ov8830_sensor.get_awb_offset	 = ov8830_get_awb_offset;
 	ov8830_sensor.get_flash_awb = ov8830_get_flash_awb;
 
 #ifndef OVISP_DEBUG_MODE
@@ -3471,8 +3642,8 @@ static void ov8830_set_default(void)
 	ov8830_sensor.af_enable = 1;
 
 	/* switch of red clip correcttion for RAW sensor, set it true to open, default close */
-	ov8830_sensor.rcc_enable = true;
-	
+	ov8830_sensor.rcc_enable = false;//close to increase saturation
+
 	ov8830_sensor.fps_max = 30;
 	ov8830_sensor.fps_min = 15;
 	ov8830_sensor.fps = 24;
@@ -3489,6 +3660,11 @@ static void ov8830_set_default(void)
 	ov8830_sensor.hflip = 0;
 	ov8830_sensor.vflip = 0;
 	ov8830_sensor.old_flip = 0;
+
+	/* < zhoutian 00195335 2013-04-25 added for SuperZoom-LowLight begin */
+	ov8830_sensor.support_hw_lowlight		= ov8830_support_hw_lowlight;
+	ov8830_sensor.switch_to_lowlight_isp_seq	= ov8830_switch_to_lowlight_isp_seq;
+	/* zhoutian 00195335 2013-04-25 added for SuperZoom-LowLight end > */
 }
 
 /*

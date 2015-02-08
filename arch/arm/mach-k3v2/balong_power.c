@@ -73,6 +73,7 @@ MODULE_LICENSE("GPL");
 
 #define MAX_ENUM_WAIT           1000    /* mini sec */
 #define MAX_ENUM_RETRY          20
+#define MAX_ENUM_RESUME_RETRY   20
 #define MAX_HSIC_RESET_RETRY    3
 #define MAX_RESUME_RETRY_TIME   3
 
@@ -107,7 +108,8 @@ static const char *power_state_name[] =
 
 static enum balong_power_s_e  balong_curr_power_state;
 static struct wake_lock balong_wakelock;
-static struct workqueue_struct *workqueue;
+static struct workqueue_struct *workqueue_usb;
+static struct workqueue_struct *workqueue_ril;
 static struct work_struct l2_resume_work;
 static struct work_struct l3_resume_work;
 static struct work_struct modem_reset_work;
@@ -123,6 +125,8 @@ static unsigned long      balong_last_suspend = 0;
 static int modem_on_delay = 140;
 static int usb_on_delay = 100;
 static int reset_isr_register = 0;
+static int modem_reset_process = 0;
+static spinlock_t     modem_reset_lock;
 
 static struct balong_power_plat_data* balong_driver_plat_data;
 static struct iomux_block *balong_iomux_block;
@@ -149,6 +153,7 @@ enum _BALONG_STATE_FLAG_ {
     BALONG_STATE_READY,
     BALONG_SIM_PNP_INSERTED,
     BALONG_SIM_PNP_REMOVED,
+    BALONG_STATE_RESET,
     BALONG_STATE_INVALID,
 };
 
@@ -176,6 +181,11 @@ static struct notifier_block switch_usb_notifier = {
     .notifier_call = switch_usb_notifier_call_for_balong,
 };
 
+static struct file *balong_notify_filp = NULL;
+static int balong_notified = 0;
+#define NOTIFY_GET_INTF		0x6010
+#define NOTIFY_PUT_INTF		0x6011
+
 //#define GPIO_CP_RESET             balong_driver_plat_data->gpios[BALONG_RESET].gpio
 #define GPIO_CP_POWER_ON        balong_driver_plat_data->gpios[BALONG_POWER_ON].gpio
 #define GPIO_CP_PMU_RESET       balong_driver_plat_data->gpios[BALONG_PMU_RESET].gpio
@@ -197,8 +207,70 @@ static struct notifier_block switch_usb_notifier = {
 
 #define accu_udelay(usecs)   udelay(usecs)
 #define accu_mdelay(msecs)   mdelay(msecs)
-#define my_wake_lock(fg)      wake_lock(fg);pr_info("balong_wake_lock\n");
-#define my_wake_unlock(fg)    wake_unlock(fg);pr_info("balong_wake_unlock\n");
+#define my_wake_lock(fg)     { wake_lock(fg);pr_info("balong_wake_lock\n"); }
+#define my_wake_unlock(fg)   { wake_unlock(fg);pr_info("balong_wake_unlock\n"); }
+#define USBCORE_AUTOSUSPEND        "/sys/module/usbcore/parameters/autosuspend"
+
+static int usbcore_modem_ready_autosuspend=500;                                  //when Modem Ready, set usb autosuspend time as 500ms
+static int usbcore_modem_poweron_autosuspend = 2000;        //when Modem Power On, set usb autosuspend time as 2000ms
+static int get_usbcore_autosuspend(int* pvalue)
+{
+    mm_segment_t oldfs;
+    struct file *filp;
+#define BUFFER_SIZE (sizeof(*pvalue)+1)
+    char buf[BUFFER_SIZE]= {0};
+    int ret = 0;
+
+    oldfs = get_fs();
+    set_fs(KERNEL_DS);
+
+    filp = filp_open(USBCORE_AUTOSUSPEND, O_RDWR, 0);
+    if (!filp || IS_ERR(filp)) {
+        pr_info("balong_power: Invalid usbcore_autosuspend filp=%ld\n", PTR_ERR(filp));
+        set_fs(oldfs);
+        ret = -EINVAL;
+        return ret;
+    } else {
+        ret = filp->f_op->read(filp, buf, BUFFER_SIZE, &filp->f_pos);
+    }
+
+    if (sscanf(buf, "%d", pvalue) != 1) {
+        pr_info("balong_power: Invalid result get from usbcore_autosuspend\n");
+        ret = -EINVAL;
+    }
+
+    filp_close(filp, NULL);
+    set_fs(oldfs);
+
+    return ret;
+}
+
+/* set usbcore autosuspend value */
+static int set_usbcore_autosuspend(int value)
+{
+    mm_segment_t oldfs;
+    struct file *filp;
+#define BUFFER_SIZE (sizeof(value)+1)
+    char buf[BUFFER_SIZE];
+    int ret = 0;
+
+    oldfs = get_fs();
+    set_fs(KERNEL_DS);
+
+    filp = filp_open(USBCORE_AUTOSUSPEND, O_RDWR, 0);
+    if (!filp || IS_ERR(filp)) {
+        pr_err("balong_power: failed to access usbcore_autosuspend filp=%ld\n", PTR_ERR(filp));
+        ret = -EINVAL;
+        return ret;
+    } else {
+        snprintf(buf, BUFFER_SIZE, "%d", value);
+        ret = filp->f_op->write(filp, buf, strlen(buf), &filp->f_pos);
+
+        filp_close(filp, NULL);
+    }
+    set_fs(oldfs);
+    return ret;
+}
 
 static int balong_change_notify_event(int event)
 {
@@ -295,15 +367,28 @@ static void balong_power_reset_work(struct work_struct *work)
 
 static irqreturn_t modem_reset_isr(int irq, void *dev_id)
 {
+    int flags;
     struct device* dev = (struct device*)dev_id;
     int status=-1;
     status = gpio_get_value(GPIO_RESET_IND);
     dev_info(dev, "modem_reset_isr get. %d !!\n",status);
 
     dev_info(dev, "modem reset abnorm, notice ril.\n");
-    queue_work(workqueue, &modem_reset_work);
 
-    return IRQ_HANDLED;
+    spin_lock_irqsave(&modem_reset_lock, flags);
+    if(modem_reset_process != 1) {
+        modem_reset_process = 1;
+        spin_unlock_irqrestore(&modem_reset_lock, flags);
+
+        if(!wake_lock_active(&balong_wakelock))
+            wake_lock_timeout(&balong_wakelock, 5 * HZ);
+
+        queue_work(workqueue_ril, &modem_reset_work);
+   } else {
+        spin_unlock_irqrestore(&modem_reset_lock, flags);
+        dev_info(dev, "Modem reset is in process, do nothing!\n");
+   }
+   return IRQ_HANDLED;
 }
 
 
@@ -335,9 +420,14 @@ static irqreturn_t sim_pnp_ind_isr(int irq, void *dev_id)
 
 static void balong_modem_ready_work(struct work_struct *work)
 {
+    int ret1=0,ret2=0,value;
     if( GPIO_CP_PM_RDY==gpio_get_value(GPIO_CP_PM_INDICATION) ) {
-        if( GPIO_CP_SW_RDY==gpio_get_value(GPIO_CP_SW_INDICATION) )
+        if( GPIO_CP_SW_RDY==gpio_get_value(GPIO_CP_SW_INDICATION) ) {
             balong_change_notify_event(BALONG_STATE_READY);
+            ret1 =  get_usbcore_autosuspend( &value );
+            ret2 =  set_usbcore_autosuspend(usbcore_modem_ready_autosuspend);
+            pr_info("balong_power: %s. get/set usbcore_autosuspend %d -> %d, return %d, %d\n", __func__, value, usbcore_modem_ready_autosuspend, ret1, ret2);
+        }
     }
 }
 /*
@@ -357,6 +447,7 @@ static irqreturn_t mdm_sw_state_isr(int irq, void *dev_id)
 static void request_reset_isr(struct device *dev)
 {
     int status = 0;
+    int flags;
     u32 uGPIORegsAddress;
     struct balong_power_plat_data *plat = dev->platform_data;
     int offset =  GPIO_RESET_IND % 8;
@@ -394,6 +485,10 @@ static void request_reset_isr(struct device *dev)
         reset_isr_register = 1;
         irq_set_irq_wake(gpio_to_irq(GPIO_RESET_IND), true);
     }
+
+    spin_lock_irqsave(&modem_reset_lock, flags);
+    modem_reset_process = 0;
+    spin_unlock_irqrestore(&modem_reset_lock, flags);
 }
 
 static void free_reset_isr(struct device *dev)
@@ -523,23 +618,43 @@ static void set_usb_hsic_suspend(bool suspend)
 
 static void notify_usb_resume(void)
 {
-    mm_segment_t oldfs;
-    struct file *filp;
+	mm_segment_t oldfs;
 
-    oldfs = get_fs();
-    set_fs(KERNEL_DS);
+	oldfs = get_fs();
+	set_fs(KERNEL_DS);
 
-       /* k3 uses the file node of "/dev/ttyACM3",but we use the node of "/dev/ttyUSB0" */
-    filp = filp_open("/dev/ttyUSB0", O_RDWR, 0);
+	if (balong_notify_filp == NULL || IS_ERR(balong_notify_filp)) {
+		balong_notify_filp = filp_open("/dev/ttyUSB0", O_RDWR, 0);
+	}
 
-    if (!filp || IS_ERR(filp)) {
-        pr_err("balong_power: Can not open tty file. filp=%ld\n", PTR_ERR(filp));
-    } else {
-        filp_close(filp, NULL);
-    }
-    set_fs(oldfs);
+	if (balong_notify_filp != NULL && !IS_ERR(balong_notify_filp)) {
+		balong_notified = 1;
+		balong_notify_filp->f_op->unlocked_ioctl(
+		balong_notify_filp, NOTIFY_GET_INTF, 0);
+	} else {
+		pr_warn("balong_power: %s - balong_notify_filp is %ld",
+			__func__, PTR_ERR(balong_notify_filp));
+	}
+
+	set_fs(oldfs);
 }
 
+static void notify_usb_suspend()
+{
+    if (balong_notified) {
+        mm_segment_t oldfs;
+        oldfs = get_fs();
+        set_fs(KERNEL_DS);
+        balong_notified = 0;
+        if (balong_notify_filp != NULL  && !IS_ERR(balong_notify_filp))
+            balong_notify_filp->f_op->unlocked_ioctl(
+                balong_notify_filp, NOTIFY_PUT_INTF, 0);
+	else
+		pr_warn("balong_power: %s - balong_notify_filp is %ld",
+			__func__, PTR_ERR(balong_notify_filp));
+        set_fs(oldfs);
+    }
+}
 
 /* Do CP power on */
 static void balong_power_on(void)
@@ -652,10 +767,18 @@ static int usb_enum_check2(void)
 static int usb_enum_check3(void)
 {
     int i;
-
+    int flags;
     pr_info("balong_power: Start usb enum check 3\n");
 
-    for (i=0; i<MAX_ENUM_RETRY; i++) {
+    for (i=0; i<MAX_ENUM_RESUME_RETRY; i++) {
+        spin_lock_irqsave(&modem_reset_lock, flags);
+        if(modem_reset_process == 1) {
+            spin_unlock_irqrestore(&modem_reset_lock, flags);
+            pr_info("balong_power: Modem Reset detected, exit usb_enum_check3\n");
+            break;
+        } else {
+            spin_unlock_irqrestore(&modem_reset_lock, flags);
+        }
 		msleep(250 + (i * 2));
         /* Check ECHI connect state to see if the enumeration will be success */
         if ((readl(IO_ADDRESS(REG_BASE_USB2EHCI) + 0x58) & 1)) {
@@ -690,7 +813,13 @@ static int usb_enum_check3(void)
 static void balong_power_l2_resume(struct work_struct *work)
 {
     msleep(10);
-    notify_usb_resume();
+    if(balong_curr_power_state == BALONG_POW_S_USB_L2_TO_L0) {
+        notify_usb_resume();
+    } else if(balong_curr_power_state == BALONG_POW_S_USB_L0) {
+        notify_usb_suspend();
+    } else {
+        pr_info("Balong Power: Unexpected balong power state: %d\n", balong_curr_power_state);
+    }
 }
 
 /* Resume from L3 state */
@@ -703,6 +832,15 @@ static void balong_power_l3_resume(struct work_struct *work)
 
 	pr_info("balong power: enter balong_power_l3_resume\n");
 	for (i=0; i<MAX_HSIC_RESET_RETRY; i++) {
+             spin_lock_irqsave(&modem_reset_lock, flags);
+		if(modem_reset_process == 1) {
+                    spin_unlock_irqrestore(&modem_reset_lock, flags);
+			pr_info("balong_power: Modem Reset detected, stop USB L3 Resume\n");
+			break;
+		} else {
+                    spin_unlock_irqrestore(&modem_reset_lock, flags);
+             }
+
 		if (gpio_get_value(GPIO_HOST_WAKEUP)) {
 			/* AP wakeup CP */
 			mdelay(5);
@@ -751,7 +889,19 @@ static void balong_power_l3_resume(struct work_struct *work)
     
 	if (i == MAX_HSIC_RESET_RETRY) {
 		pr_err("balong_power: Resume enumeration failed.\n");
-		my_wake_unlock(&balong_wakelock);
+
+             spin_lock_irqsave(&modem_reset_lock, flags);
+		if(modem_reset_process == 0) {
+			modem_reset_process = 1;
+                   spin_unlock_irqrestore(&modem_reset_lock, flags);
+
+                   balong_change_notify_event(BALONG_STATE_RESET);
+                   pr_err("balong_power: ril recovery start.\n");
+		}
+		else {
+                   spin_unlock_irqrestore(&modem_reset_lock, flags);
+			pr_err("balong_power: Modem reset is in process, do nothing!\n");
+		}
 	}
 }
 
@@ -784,6 +934,11 @@ static ssize_t balong_power_set(struct device *dev,
 			spin_lock_irqsave(&balong_state_lock, flags);
 			balong_power_change_state(BALONG_POW_S_INIT_ON);
 			spin_unlock_irqrestore(&balong_state_lock, flags);
+            {
+                int ret;
+                ret =  set_usbcore_autosuspend(usbcore_modem_poweron_autosuspend);
+                pr_info("balong_power: %s. get/set usbcore_autosuspend to %d, return %d\n", __func__, usbcore_modem_poweron_autosuspend, ret);
+            }
 
 		if (plat && plat->flashless) {
 			/* For flashless, enable USB to enumerate with CP's bootrom */
@@ -819,12 +974,19 @@ static ssize_t balong_power_set(struct device *dev,
 		free_reset_isr(dev);
 		spin_lock_irqsave(&balong_state_lock, flags);
 /* < DTS00176579032901 begin: modified ap not suspend 2012/03/29 > */
-        if (balong_curr_power_state == BALONG_POW_S_USB_L0)
+//        if (balong_curr_power_state == BALONG_POW_S_USB_L0)
 			my_wake_unlock(&balong_wakelock);
 /* < DTS00176579032901 end: modified ap not suspend 2012/03/29 > */
         balong_power_change_state(BALONG_POW_S_OFF);
 		spin_unlock_irqrestore(&balong_state_lock, flags);
-        enable_usb_hsic(false);
+
+		enable_usb_hsic(false);
+
+	        if (balong_notify_filp != NULL && !IS_ERR(balong_notify_filp)) {
+	            filp_close(balong_notify_filp, NULL);
+	            balong_notify_filp = NULL;
+	        }
+
 		gpio_set_value(GPIO_HOST_ACTIVE, 0);
 		gpio_set_value(GPIO_SLAVE_WAKEUP, 0);
 		gpio_lowpower_set(LOWPOWER);
@@ -1055,7 +1217,7 @@ static irqreturn_t host_wakeup_isr(int irq, void *dev_id)
             if (gpio_get_value(GPIO_SLAVE_WAKEUP) == 0) {
                 /* CP wakeup AP, must do something to make USB host know it */
                 pr_info("It's CP wakeup AP, so resume BUS first\n");
-                queue_work(workqueue, &l2_resume_work);
+                queue_work(workqueue_usb, &l2_resume_work);
             }
         }
         break;
@@ -1066,6 +1228,8 @@ static irqreturn_t host_wakeup_isr(int irq, void *dev_id)
             /* If AP wakeup CP, set SLAVE_WAKEUP to low to complete */
             if (gpio_get_value(GPIO_SLAVE_WAKEUP))
                 gpio_set_value(GPIO_SLAVE_WAKEUP, 0);
+
+            queue_work(workqueue_usb, &l2_resume_work);
         }
         break;
 
@@ -1202,9 +1366,16 @@ static int balong_power_probe(struct platform_device *pdev)
         dev_info(&pdev->dev, "Warning: Register hisik3_ehci_bus_pre_resume fn failed!\n");
 
     /* Initialize works */
-    workqueue = create_singlethread_workqueue("balong_power_workqueue");
-    if (!workqueue) {
-        dev_err(&pdev->dev, "Create workqueue failed\n");
+    workqueue_usb = create_singlethread_workqueue("balong_usb_workqueue");
+    if (!workqueue_usb) {
+        dev_err(&pdev->dev, "Create balong usb workqueue failed\n");
+        status = -1;
+        goto error;
+    }
+    /* Initialize works */
+    workqueue_ril = create_singlethread_workqueue("balong_ril_workqueue");
+    if (!workqueue_ril) {
+        dev_err(&pdev->dev, "Create balong ril workqueue failed\n");
         status = -1;
         goto error;
     }
@@ -1234,7 +1405,8 @@ static int balong_power_remove(struct platform_device *pdev)
 
     wake_lock_destroy(&balong_wakelock);
 
-    destroy_workqueue(workqueue);
+    destroy_workqueue(workqueue_usb);
+    destroy_workqueue(workqueue_ril);
 
     device_remove_file(&(pdev->dev), &dev_attr_state);
     device_remove_file(&(pdev->dev), &dev_attr_gpio);
@@ -1277,11 +1449,19 @@ int balong_power_suspend(struct platform_device *pdev, pm_message_t state)
 
 int balong_power_resume(struct platform_device *pdev)
 {
+       int flags;
 	dev_info(&pdev->dev, "sys resume+\n");
 	if (balong_curr_power_state == BALONG_POW_S_USB_L3) {
 		if (!wake_lock_active(&balong_wakelock))
 			my_wake_lock(&balong_wakelock);
-		queue_work(workqueue, &l3_resume_work);
+
+            spin_lock_irqsave(&modem_reset_lock, flags);
+		if(modem_reset_process == 0) {
+                   spin_unlock_irqrestore(&modem_reset_lock, flags);
+			queue_work(workqueue_usb, &l3_resume_work);
+            } else {
+                    spin_unlock_irqrestore(&modem_reset_lock, flags);
+            }
 	} else if (balong_curr_power_state != BALONG_POW_S_OFF) {
         dev_info(&pdev->dev, "resume at unexpected state %d\n", balong_curr_power_state);
     }
@@ -1426,13 +1606,13 @@ static int charger_notifier_call_for_balong(struct notifier_block *this,
 			usb_cable_connected_status = USB_CABLE_CONNECTED;
 			break;
 		case CHARGER_TYPE_STANDARD:
-			usb_cable_connected_status = USB_CABLE_CONNECTED;
+			usb_cable_connected_status = USB_CABLE_NOT_CONNECTED;
 			break;
 		case CHARGER_REMOVED:
 			usb_cable_connected_status = USB_CABLE_NOT_CONNECTED;
 			break;
 		case USB_EVENT_OTG_ID:
-			usb_cable_connected_status = USB_CABLE_CONNECTED;
+			usb_cable_connected_status = USB_CABLE_NOT_CONNECTED;
 			break;
 		default:
 			return NOTIFY_OK;
@@ -1443,7 +1623,9 @@ static int charger_notifier_call_for_balong(struct notifier_block *this,
 		} else {
 			balong_usb_disable_raw();
 		}
-	}
+	} else {
+	      pr_info("usb charger detected, but usb switch is not set,  do nothing\n");
+       }
 	return NOTIFY_OK;
 }
 
@@ -1453,14 +1635,26 @@ static int switch_usb_notifier_call_for_balong(struct notifier_block *this,
 	switch (code) {
 		case USB_TO_MODEM1:
 		case USB_TO_MODEM1_DOWNLOAD:
-			balong_usb_enable();
+			usb_switch_status = USB_TURNED_ON;
 			break;
 		case USB_TO_AP:
-			balong_usb_disable();
+			usb_switch_status = USB_TURNED_OFF;
+			break;
 		default:
 			break;
 	}
-    return true;
+
+	if(usb_cable_connected_status == USB_CABLE_CONNECTED) {
+		if(usb_switch_status == USB_TURNED_ON) {
+			balong_usb_enable_raw();
+		} else {
+			balong_usb_disable_raw();
+		}
+	}
+	else {
+		pr_info("usb switch detected, but usb is not connect,  do nothing\n");
+	}
+	return true;
 }
 
 static int __init balong_power_init(void)
@@ -1475,6 +1669,7 @@ static int __init balong_power_init(void)
     }
     platform_driver_register(&balong_power_driver);
     spin_lock_init(&balong_state_lock);
+    spin_lock_init(&modem_reset_lock);
     balong_netlink_init();
     return 0;
 }
@@ -1509,12 +1704,23 @@ static int __init charger_notifier_balong_init(void)
 static int __init switch_usb_notifier_balong_init(void)
 {
 	int status = 0;
+	enum usb_charger_type plugin_stat = CHARGER_REMOVED;
 	status = get_modem_type( MODEM_BALONG );
 	if(status < 0)
 	{
 		pr_err("do not register usb charger notify for balong\n");
 		return status;
 	}
+
+	plugin_stat = get_charger_name();
+	if ((CHARGER_TYPE_USB == plugin_stat) ||
+        (CHARGER_TYPE_NON_STANDARD == plugin_stat) ||
+        (CHARGER_TYPE_BC_USB == plugin_stat)) {
+		usb_cable_connected_status = USB_CABLE_CONNECTED;
+	} else {
+		usb_cable_connected_status = USB_CABLE_NOT_CONNECTED;
+	}
+
 	/*register notify block for usb event*/
 	status = switch_usb_register_notifier(&switch_usb_notifier);
 	if(status < 0)

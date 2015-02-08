@@ -48,7 +48,7 @@
 #include "../include/srecorder_snprintf.h"
 
 
-#if DUMP_CURRENT_PS_BACKTRACE
+#if defined(CONFIG_DUMP_CURRENT_PS_BACKTRACE)
 
 /*----local macroes------------------------------------------------------------------*/
 
@@ -1207,7 +1207,7 @@ static int srecorder_dump_current_ps_backtrace(srecorder_reserved_mem_info_t *pm
         return -1;
     }
 
-    if (0 != srecorder_write_info_header(pmem_info, CURRENT_PS_BACKTRACE, &pinfo_header))
+    if (0 != srecorder_write_info_header(pmem_info, CURRENT_PS_BACKTRACE_BIT5, &pinfo_header))
     {
         return -1;
     }
@@ -1288,7 +1288,7 @@ static int srecorder_dump_current_ps_backtrace(srecorder_reserved_mem_info_t *pm
 */
 int srecorder_get_current_ps_backtrace(srecorder_reserved_mem_info_t *pmem_info)
 {
-    if (srecorder_get_bit(CURRENT_PS_BACKTRACE) || pmem_info->dump_modem_crash_log_only)
+    if (srecorder_log_has_been_dumped(CURRENT_PS_BACKTRACE_BIT5) || pmem_info->dump_modem_crash_log_only)
     {
         SRECORDER_PRINTK("current ps backtrace has been dumped successfully!\n");
         return 0;
@@ -1310,7 +1310,7 @@ int srecorder_get_current_ps_backtrace(srecorder_reserved_mem_info_t *pmem_info)
 */
 int srecorder_init_current_ps_backtrace(srecorder_module_init_params_t *pinit_params)
 {
-    srecorder_clear_bit(CURRENT_PS_BACKTRACE);
+    srecorder_clear_log_dumped_bit(CURRENT_PS_BACKTRACE_BIT5);
     
     return 0;
 }
@@ -1328,7 +1328,7 @@ int srecorder_init_current_ps_backtrace(srecorder_module_init_params_t *pinit_pa
 */
 void srecorder_exit_current_ps_backtrace(void)
 {
-    srecorder_set_bit(CURRENT_PS_BACKTRACE);
+    srecorder_set_log_dumped_bit(CURRENT_PS_BACKTRACE_BIT5);
 }
 #else
 int srecorder_get_current_ps_backtrace(srecorder_reserved_mem_info_t *pmem_info)

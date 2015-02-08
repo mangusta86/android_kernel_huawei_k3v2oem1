@@ -2467,6 +2467,18 @@ void SwitchToD0 (void)
 #ifdef Disconnected_USB_ID_with_CBUS_ID_As_defult
 void CBUS_ID_Opened_AfterPlugedout( void )
 {
+        char mhl_chip_name[15];
+        bool ret =0;
+
+        ret = get_hw_config_string("MHL/chip_name",mhl_chip_name,15,NULL);
+        if(ret)
+        {
+                if(strstr(mhl_chip_name,"none"))
+                {
+                        printk("sii8240 doesn't support on this production");
+                        return 0;
+                }
+        }
         TXD_DEBUG_PRINT(("Drv: USB_ID should disconnected with CBUS_ID now when OTG pluged out.\n"));
 
         SiiRegWrite(REG_INTR4, 0xFF); // clear all interrupts except MHL_EST

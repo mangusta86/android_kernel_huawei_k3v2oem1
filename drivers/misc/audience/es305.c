@@ -15,6 +15,8 @@
 #include <linux/regulator/driver.h>
 #include <linux/regulator/machine.h>
 
+#include <hsad/config_interface.h>
+
 #include "es305.h"
 #ifdef CONFIG_HUAWEI_HW_DEV_DCT
 #include <linux/hw_dev_dec.h>
@@ -53,6 +55,8 @@
 #define WAKEUP_IOMUX_BLOCK_NAME "block_audio_es305"
 
 #define ES305_EACH_MSG_SIZE ( 32 )
+
+#define AUDIENCE_I2C_EAGAIN ( 0xFFF )
 
 /* msg format : 0x12345678 */
 #define ES305_GET_BYTE0(msg) ((msg >> 24) & 0xFF)
@@ -108,6 +112,11 @@ extern void hi6421_lock_sysclk(bool);
 static unsigned int path_playback[] = {
     0x80520074, /* BYPASS MODE PORT D to PORT B */
     0x80260092, /* ROUTE 146 : PORT A(64bits) <--> PORT C(32bits) */
+};
+
+static unsigned int path_playback_for_smartpa[] = {
+    0x80520074, /* BYPASS MODE PORT D to PORT B */
+    0x8026009a, /* ROUTE 154 : PORT A(64bits) <--> PORT C(32bits) */
 };
 
 static unsigned int path_first_nb_call_receiver[] = {
@@ -397,7 +406,10 @@ static int es305_sync(void)
         ret = audience_i2c_write(w_buf, 4);
         if (0 > ret) {
             loge("%s : write sync msg error", __FUNCTION__);
-            continue;
+            if (-EAGAIN == ret)
+                return ret;
+            else
+                continue;
         }
 
         SLEEP_RANGE(AUDIENCE_SYNC_TIME);
@@ -405,7 +417,10 @@ static int es305_sync(void)
         ret = audience_i2c_read(r_buf, 4);
         if (0 > ret) {
             loge("%s : read sync ack error", __FUNCTION__);
-            continue;
+            if (-EAGAIN == ret)
+                return ret;
+            else
+                continue;
         }
 
         if ((w_buf[0] == r_buf[0]) &&
@@ -429,7 +444,7 @@ static int es305_check_cmd_ack(unsigned int msg)
     ret = audience_i2c_read(msgbuf, 4);
     if (0 > ret) {
         loge("%s: i2c read error %d", __FUNCTION__, ret);
-        return -EINVAL;
+        return ret;
     }
 
     logd("%s: read ack : 0x%02x%02x%02x%02x", __FUNCTION__,
@@ -480,6 +495,8 @@ static int es305_send_msg(unsigned int msg)
         ret = audience_i2c_write(msgbuf, 4);
         if (0 > ret) {
             loge("%s: i2c write error %d", __FUNCTION__, ret);
+            if (-EAGAIN == ret)
+                return ret;
             ret = es305_sync();
             /* sync error means es305 sleep; otherwise retry*/
             if (0 > ret) {
@@ -497,7 +514,10 @@ static int es305_send_msg(unsigned int msg)
         ret = audience_i2c_write(msgbuf, 4);
         if (0 > ret) {
             loge("%s: i2c write error %d", __FUNCTION__, ret);
-            continue;
+            if (-EAGAIN == ret)
+                break;
+            else
+                continue;
         }
 
         /* polling mode */
@@ -505,16 +525,15 @@ static int es305_send_msg(unsigned int msg)
 
         ret = es305_check_cmd_ack(msg);
 
-        if (!ret)
+        if (0 == ret || -EAGAIN == ret)
             break;
         else
             loge("%s: send msg %#x error, %d times left",
                     __FUNCTION__, msg, retry);
     }
 
-    if (0 > retry && 0 > ret) {
+    if (0 > ret) {
         loge("%s: send msg %#x error", __FUNCTION__, msg);
-        return -1;
     }
 
     return ret;
@@ -547,6 +566,8 @@ static int es305_check_wakeup(void)
             gpio_set_value(pdata->gpio_es305_wakeup, 0);
             SLEEP_RANGE(AUDIENCE_WAKEUP_L_TIME);
             ret = es305_sync();
+            if (-EAGAIN == ret)
+                break;
         } while ((0 > ret) && --retry);
 
         if (0 > ret) {
@@ -556,8 +577,8 @@ static int es305_check_wakeup(void)
         es305_mode = ES305_NORMAL;
 
 err_sync:
-        ret = gpio_direction_input(pdata->gpio_es305_wakeup);
-        if (0 > ret)
+        temp = gpio_direction_input(pdata->gpio_es305_wakeup);
+        if (0 > temp)
             loge("%s: set gpio input mode error", __FUNCTION__);
 
 err_free_gpio:
@@ -612,7 +633,10 @@ static ssize_t es305_i2c_download(struct file *file, struct es305_img *img)
         ret = audience_i2c_write(buf, 2);
         if (0 > ret) {
             loge("%s: send boot command(%d retries left)", __FUNCTION__, retry);
-            continue;
+            if (-EAGAIN == ret)
+                break;
+            else
+                continue;
         }
 
         /* wait for i2c ack */
@@ -620,7 +644,10 @@ static ssize_t es305_i2c_download(struct file *file, struct es305_img *img)
         ret = audience_i2c_read(buf, 1);
         if (0 > ret) {
             loge("%s: i2c read error(%d retries left)", __FUNCTION__, retry);
-            continue;
+            if (-EAGAIN == ret)
+                break;
+            else
+                continue;
         }
 
         if (AUDIENCE_MSG_BOOT_ACK != buf[0]) {
@@ -647,7 +674,10 @@ static ssize_t es305_i2c_download(struct file *file, struct es305_img *img)
         if (0 > ret) {
             loge("%s: firmware load error : %d(%d retries left)",
                     __FUNCTION__, ret, retry);
-            continue;
+            if (-EAGAIN == ret)
+                break;
+            else
+                continue;
         }
 
         /* Delay time before issue a Sync Cmd */
@@ -659,16 +689,18 @@ static ssize_t es305_i2c_download(struct file *file, struct es305_img *img)
         if (0 > ret) {
             loge("%s: sync command error %d(%d retries left)",
                 __FUNCTION__, ret, retry);
-            continue;
+            if (-EAGAIN == ret)
+                break;
+            else
+                continue;
         } else {
             logi("%s: sync successfully", __FUNCTION__);
             break;
         }
     }
 
-    if (0 > retry) {
+    if (0 > retry || 0 > ret) {
         loge("%s: initialized failed", __FUNCTION__);
-        ret = -EINVAL;
     }
 
     kfree(p_img->data);
@@ -709,8 +741,13 @@ static int es305_set_pathid(enum ES305_PATHID pathid)
 
     switch(pathid) {
     case ES305_PATH_BYPASS:
-        ret = es305_send_msg_by_array(path_playback,
+	    if(is_smartpa_support()){
+	        ret = es305_send_msg_by_array(path_playback_for_smartpa,
+                                      SIZE_OF_ARRAY(path_playback_for_smartpa));
+	    }else{
+            ret = es305_send_msg_by_array(path_playback,
                                       SIZE_OF_ARRAY(path_playback));
+	    }
         break;
 /* call narrow band */
     case ES305_PATH_FIRST_NB_CALL_RECEIVER:
@@ -907,7 +944,7 @@ static int es305_set_status(unsigned char status)
             loge("%s : disable anr error", __FUNCTION__);
     }
 
-    return 0;
+    return ret;
 }
 
 static int es305_open(struct inode *inode, struct file *file)
@@ -1005,6 +1042,10 @@ static long es305_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
         }
 
         ret = audience_i2c_read(msg, 4);
+        if (0 > ret) {
+            loge("%s: i2c read error", __FUNCTION__);
+            goto err_exit;
+        }
         if (copy_to_user(argp, &msg, 4)){
             loge("%s: copy_to_user error", __FUNCTION__);
             ret = -EFAULT;
@@ -1019,6 +1060,12 @@ static long es305_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 err_exit:
     mutex_unlock(&es305_lock);
+
+    if (ret == -EAGAIN) {
+	    loge("%s: time out return %d ", __FUNCTION__, ret);
+	    ret = AUDIENCE_I2C_EAGAIN;
+	}
+
     return ret;
 }
 

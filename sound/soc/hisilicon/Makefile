@@ -7,6 +7,6 @@ snd-soc-hi3620-hi6421-objs := hi3620_hi6421.o
 obj-$(CONFIG_SND_SOC_PCM_HI3620) += snd-soc-hi3620.o
 obj-$(CONFIG_SND_HI3620_HI6421) += snd-soc-hi3620-hi6421.o
 
-ifeq ($(CONFIG_K3_HDMI_SII9134),y)
+ifeq ($(CONFIG_K3_HDMI),y)
 EXTRA_CFLAGS := -DHDMI_DISPLAY
 endif

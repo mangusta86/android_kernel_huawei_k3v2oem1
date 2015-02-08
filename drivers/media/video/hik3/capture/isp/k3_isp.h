@@ -166,6 +166,8 @@ typedef struct _k3_isp_data {
 	camera_white_balance	awb_mode;
 
 	awb_mode_t                 awb_lock;
+	aecagc_mode_t             ae_lock;
+
 	camera_iso		iso;
 	camera_sharpness	sharpness;
 	camera_saturation	saturation;
@@ -185,6 +187,9 @@ typedef struct _k3_isp_data {
 	int					ev;
 	camera_frame_rate_mode fps_mode;
 	camera_frame_buf		*current_frame;
+
+	int			next_crop_pos;
+	int			cur_crop_pos;
 
 	struct semaphore frame_sem;
 	/* AndroidK3 added by y36721 for focus 2011-10-28 end */
@@ -221,6 +226,7 @@ typedef struct _isp_hw_controller {
 	isp_process_mode_t(*isp_get_process_mode) (void);
 	int (*isp_check_config) (struct v4l2_pix_format *pixfmt);
 	int (*isp_set_zoom) (u32 ratio, zoom_quality_t quality);
+	int (*isp_set_ae_lock)(int mode);
 	int (*isp_get_fps) (camera_sensor *sensor, camera_fps fps);
 	int (*isp_set_fps) (camera_sensor *sensor, camera_fps fps, u8 value);
 
@@ -275,6 +281,9 @@ void k3_ispio_deinit(void);
 
 /* Used to switch between yuv rect and raw rect */
 int k3_isp_yuvrect_to_rawrect(camera_rect_s *yuv, camera_rect_s *raw);
+
+int k3_isp_yuvrect_to_rawrect2(camera_rect_s *yuv, camera_rect_s *raw);
+
 int k3_isp_rawrect_to_yuvrect(camera_rect_s *yuv, camera_rect_s *raw);
 int k3_isp_antishaking_rect_stat2out(camera_rect_s *out, camera_rect_s *stat);
 int k3_isp_antishaking_rect_out2stat(camera_rect_s *out, camera_rect_s *stat);

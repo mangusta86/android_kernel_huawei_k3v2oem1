@@ -14,7 +14,8 @@
 #include <linux/mux.h>
 #include <linux/slab.h>
 #include <linux/miscdevice.h>
-
+#include <linux/uaccess.h>	   /* copy_from_user() */
+#include <linux/debugfs.h>
 #include <linux/platform_device.h>
 
 #include "tpa6132.h"
@@ -56,6 +57,62 @@ static struct tpa6132_platform_data *pdata = NULL;
 static struct mutex tpa6132_lock;
 static struct iomux_block *tpa6132_iomux_block = NULL;
 static struct block_config *tpa6132_block_config = NULL;
+#ifdef CONFIG_DEBUG_FS
+struct dentry *tpa6132_debugfs;
+static int tpa6132_read(struct file *file, char __user *user_buf,
+				   size_t count, loff_t *ppos)
+{
+    unsigned int value = 0;
+	char buf[32];
+    memset(buf,0,32);
+    value = gpio_get_value(pdata->gpio_tpa6132_en);
+	sprintf(buf,"%d\n",value);
+    return simple_read_from_buffer(user_buf, count, ppos, buf, strlen(buf));
+}
+static int tpa6132_write(struct file *file,
+		const char __user *user_buf, size_t count, loff_t *ppos)
+{
+    int ret=0;
+    char buf[32];
+    size_t buf_size;
+    unsigned int value;
+    memset(buf,0,32);
+    buf_size = min(count, (sizeof(buf)-1));
+    if (copy_from_user(buf, user_buf, buf_size))
+	    return -EFAULT;
+    kstrtoint(buf, 10, &value);
+    if(value){
+    	ret = blockmux_set(tpa6132_iomux_block, tpa6132_block_config, NORMAL);
+        if (0 > ret) {
+            loge("%s: set iomux to gpio normal error", __FUNCTION__);
+            goto err_exit;
+        }
+        gpio_set_value(pdata->gpio_tpa6132_en, 1);
+    }
+    else{
+        gpio_set_value(pdata->gpio_tpa6132_en, 0);
+        ret = blockmux_set(tpa6132_iomux_block, tpa6132_block_config, LOWPOWER);
+        if (0 > ret) {
+            loge("%s: set iomux to gpio lowpower error", __FUNCTION__);
+            goto err_exit;
+        }
+    }
+err_exit:
+    return buf_size;     
+}
+static int default_open(struct inode *inode, struct file *file)
+{
+	if (inode->i_private)
+		file->private_data = inode->i_private;
+	return 0;
+}
+static const struct file_operations tpa6132_list_fops = {
+	.read =     tpa6132_read,
+	.write =    tpa6132_write,
+	.open =		default_open,
+	.llseek =	default_llseek,
+};
+#endif
 
 static int tpa6132_open(struct inode *inode, struct file *file)
 {
@@ -158,7 +215,11 @@ static int __devinit tpa6132_probe(struct platform_device *pdev)
         gpio_free(pdata->gpio_tpa6132_en);
         return ret;
     }
-
+#ifdef CONFIG_DEBUG_FS  
+	if (!debugfs_create_file("tpa6132", 0644, NULL, NULL,
+				 &tpa6132_list_fops))
+		pr_warn("PA: Failed to create tpa6132 debugfs file\n");
+#endif
     return ret;
 }
 

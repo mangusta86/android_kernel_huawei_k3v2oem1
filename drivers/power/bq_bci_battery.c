@@ -139,11 +139,11 @@ static int calc_capacity_from_voltage(void)
     int battery_voltage = 0;
 
     battery_voltage = bq27510_battery_voltage(&dev27510);
-    if (battery_voltage < BAT_VOL_3500)
+    if (battery_voltage < BAT_VOL_3400)
         data = 2;
-    else if (battery_voltage < BAT_VOL_3550 && battery_voltage >= BAT_VOL_3500)
+    else if (battery_voltage < BAT_VOL_3450 && battery_voltage >= BAT_VOL_3400)
         data = 10;
-    else if (battery_voltage < BAT_VOL_3600 && battery_voltage >= BAT_VOL_3550)
+    else if (battery_voltage < BAT_VOL_3600 && battery_voltage >= BAT_VOL_3450)
         data = 20;
     else if (battery_voltage < BAT_VOL_3700 && battery_voltage >= BAT_VOL_3600)
         data = 30;
@@ -421,7 +421,7 @@ static int bq_charger_event(struct notifier_block *nb, unsigned long event,
         di->charge_full_count = 0;
    }
 
-    dev_info(di->dev,"received event = %x, charge_status = %d\n",event,di->charge_status);
+    dev_info(di->dev,"received event = %lx, charge_status = %d\n",event,di->charge_status);
 
     power_supply_changed(&di->bat);
     return ret;
@@ -670,11 +670,13 @@ static int __devinit bq_bci_battery_probe(struct platform_device *pdev)
     unsigned int i = 0;
 
     di = kzalloc(sizeof(*di), GFP_KERNEL);
-    if (!di)
+    if (!di){
         return -ENOMEM;
+    }
 
     if (!pdata) {
         dev_dbg(&pdev->dev, "platform_data not available\n");
+        kfree(di);
         return -EINVAL;
     }
 

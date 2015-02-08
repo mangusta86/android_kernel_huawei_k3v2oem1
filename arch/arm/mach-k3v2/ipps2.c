@@ -203,6 +203,7 @@ struct ipps2 {
 	u8						shadow[RAM_SIZE];
 	struct ipps_device		*idev;
 	bool	is_halt;
+	unsigned long			ddr_type;
 };
 
 struct cmd_proc {
@@ -458,7 +459,7 @@ static int mcu_cmd_proc(struct device *dev, enum ipps_cmd_type cmd, unsigned int
 				mcu_cmd = (*(unsigned int *)data == IPPS_ENABLE) ? MCU_CMD_GPU_OP_ON : MCU_CMD_GPU_OP_OFF;
 				ipps2->shadow[GPU_STATUS_OFFSET] &= ~IPPS_ENABLE;
 				ipps2->shadow[GPU_STATUS_OFFSET] |= *(unsigned char *)data;
-			} else if (object & IPPS_OBJ_DDR) {
+			} else if ((object & IPPS_OBJ_DDR) && (ipps2->ddr_type & 0x700) == 0x200) {//only LPDDR2 can set
 				mcu_cmd = (*(unsigned int *)data == IPPS_ENABLE) ? MCU_CMD_DDR_OP_ON : MCU_CMD_DDR_OP_OFF;
 				ipps2->shadow[DDR_STATUS_OFFSET] &= ~IPPS_ENABLE;
 				ipps2->shadow[DDR_STATUS_OFFSET] |= *(unsigned char *)data;
@@ -493,7 +494,7 @@ static int mcu_cmd_proc(struct device *dev, enum ipps_cmd_type cmd, unsigned int
 				mcu_cmd = MCU_FUNC_CMD(IPPS_OBJ_GPU, *(unsigned char *)data);
 				ipps2->shadow[GPU_STATUS_OFFSET] &= ~IPPS_DVFS_AVS_ENABLE;
 				ipps2->shadow[GPU_STATUS_OFFSET] |= *(unsigned char *)data;
-			} else if (object & IPPS_OBJ_DDR) {
+			} else if ((object & IPPS_OBJ_DDR) && (ipps2->ddr_type & 0x700) == 0x200) {//only LPDDR2 can set
 				mcu_cmd = MCU_FUNC_CMD(IPPS_OBJ_DDR, *(unsigned char *)data);
 				ipps2->shadow[DDR_STATUS_OFFSET] &= ~IPPS_DFS_ENABLE;
 				ipps2->shadow[DDR_STATUS_OFFSET] |= *(unsigned char *)data;
@@ -739,15 +740,6 @@ static void trim_patch(struct ipps2 *ipps2, int hpm_value)
 
 extern int get_cpu_max_freq(void);
 
-#define EPRJ_F1 1612000
-#define EPRJ_F2 1716000
-#define EPRJ_F3 1820000
-#define EPRJ_F4 1924000
-#define EPRJ_F5 2067000
-#define EPRJ_F6 2132000
-
-#define EPRJ_IPPS2_OVERCLOCKING	EPRJ_F3
-
 static void cpu_profile_adjust(struct ipps2 *ipps2)
 {
 	int max_freq,index,index_freq;
@@ -755,10 +747,8 @@ static void cpu_profile_adjust(struct ipps2 *ipps2)
 	unsigned long efuse0, efuse2, efuse3;
 	union param *p;
 
-//#ifdef  CONFIG_CPU_MAX_FREQ
-//	max_freq = CONFIG_CPU_MAX_FREQ;
-#ifdef EPRJ_IPPS2_OVERCLOCKING
-	max_freq = EPRJ_IPPS2_OVERCLOCKING;
+#ifdef  CONFIG_CPU_MAX_FREQ
+	max_freq = CONFIG_CPU_MAX_FREQ;
 #else
 	efuse0 = readl(IO_ADDRESS(REG_BASE_PCTRL)+0x1DC);
 	efuse_version = (efuse0 >> 29) & 0x07;
@@ -843,12 +833,11 @@ static void firmware_request_complete(const struct firmware *fw,
 	struct platform_device *pdev = to_platform_device(dev);
 	struct ipps2 *ipps2 = platform_get_drvdata(pdev);
 	struct ipps_device *idev;
-	unsigned long ddr_type;
 	int ret;
 
 	if (NULL == ipps2) {
 		pr_err("%s %d platform_get_drvdata NULL\n", __func__, __LINE__);
-		return -1;
+		goto exit;
 	}
 
 	if (NULL == fw || fw->size != RAM_SIZE) {
@@ -878,13 +867,12 @@ static void firmware_request_complete(const struct firmware *fw,
 	}
 #endif
 
-	ddr_type = readl(IO_ADDRESS(REG_BASE_DDRC_CFG)+0x1C);
-	dev_info(dev,"DDR type:%lx\n",ddr_type);
-	if((ddr_type & 0x700) == 0x200)	{
-		idev->object = IPPS_OBJ_CPU | IPPS_OBJ_GPU | IPPS_OBJ_DDR | IPPS_OBJ_TEMP;
-	} else {
-		idev->object = IPPS_OBJ_CPU | IPPS_OBJ_GPU | IPPS_OBJ_TEMP;
-		ipps2->shadow[DDR_STATUS_OFFSET] = 0x0;
+	idev->object = IPPS_OBJ_CPU | IPPS_OBJ_GPU | IPPS_OBJ_DDR | IPPS_OBJ_TEMP;
+
+	ipps2->ddr_type = readl(IO_ADDRESS(REG_BASE_DDRC_CFG)+0x1C);
+	dev_info(dev,"DDR type:%lx\n",ipps2->ddr_type);
+	if((ipps2->ddr_type & 0x700) != 0x200)	{ //if it is not LPDDR2, disable DDR DFS
+		ipps2->shadow[DDR_STATUS_OFFSET] = 0x00;
 	}
 
 	#ifdef CONFIG_EXTRAL_DYNAMIC_DCDC

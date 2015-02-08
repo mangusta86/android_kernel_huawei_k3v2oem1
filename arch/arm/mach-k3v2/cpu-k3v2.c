@@ -1250,10 +1250,10 @@ static int __cpuinit k3v2_cpu_init(struct cpufreq_policy *policy)
 {
 	int result = 0;
 
-/*	if (policy->cpu != 0) {
+	if (policy->cpu != 0) {
 		pr_err("[%s] %d cpu=%d\n", __func__, __LINE__, policy->cpu);
 	}
-*/
+
 	policy->cpuinfo.transition_latency = 1 * 1000;
 
 	if (!cpufreq_table) {
@@ -1349,7 +1349,7 @@ ERROR:
 static int k3v2_cpu_exit(struct cpufreq_policy *policy)
 {
 	if (policy->cpu != 0) {
-//		pr_err("[%s] %d cpu=%d\n", __func__, __LINE__, policy->cpu);
+		pr_err("[%s] %d cpu=%d\n", __func__, __LINE__, policy->cpu);
 		return -EINVAL;
 	}
 

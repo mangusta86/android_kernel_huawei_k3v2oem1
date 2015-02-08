@@ -48,6 +48,11 @@
 
 #include "queue.h"
 
+//#define CONFIG_EMMC_AGE_LOG_ENABLE
+#ifdef CONFIG_EMMC_AGE_LOG_ENABLE
+#include <linux/debugfs.h>
+#endif
+
 MODULE_ALIAS("mmc:block");
 #ifdef MODULE_PARAM_PREFIX
 #undef MODULE_PARAM_PREFIX
@@ -304,6 +309,49 @@ int get_mmcpart_by_name(char *part_name, char *dev_name)
 	mutex_unlock(&mmcpart_table_mutex);
 	return -1;
 }
+#ifdef CONFIG_EMMC_AGE_LOG_ENABLE
+
+static struct dentry *dentry_mmclog;
+static u64 rwlog_enable_flag = 0;   /* 0 : Disable , 1: Enable */
+static u64 rwlog_index = 0;     /* device index, 0: for emmc */
+int mmc_debug_mask = 0;
+
+static int rwlog_enable_set(void *data, u64 val)
+{
+    rwlog_enable_flag = val;
+    return 0;
+}
+static int rwlog_enable_get(void *data, u64 *val)
+{
+	*val = rwlog_enable_flag;
+	return 0;
+}
+static int rwlog_index_set(void *data, u64 val)
+{
+    rwlog_index = val;
+    return 0;
+}
+static int rwlog_index_get(void *data, u64 *val)
+{
+	*val = rwlog_index;
+	return 0;
+}
+static int debug_mask_set(void *data, u64 val)
+{
+    mmc_debug_mask = (int)val;
+    return 0;
+}
+static int debug_mask_get(void *data, u64 *val)
+{
+	*val = (u64)mmc_debug_mask;
+	return 0;
+}
+
+DEFINE_SIMPLE_ATTRIBUTE(rwlog_enable_fops,rwlog_enable_get, rwlog_enable_set, "%llu\n");
+DEFINE_SIMPLE_ATTRIBUTE(rwlog_index_fops,rwlog_index_get, rwlog_index_set, "%llu\n");
+DEFINE_SIMPLE_ATTRIBUTE(debug_mask_fops,debug_mask_get, debug_mask_set, "%llu\n");
+
+#endif
 
 static struct mmc_blk_data *mmc_blk_get(struct gendisk *disk)
 {
@@ -443,9 +491,6 @@ static struct mmc_blk_ioc_data *mmc_blk_ioctl_copy_from_user(
 		goto idata_err;
 	}
 
-	if (!idata->buf_bytes)
-		return idata;
-
 	idata->buf = kzalloc(idata->buf_bytes, GFP_KERNEL);
 	if (!idata->buf) {
 		err = -ENOMEM;
@@ -477,7 +522,7 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 	struct mmc_command cmd = {0};
 	struct mmc_data data = {0};
 	struct mmc_request mrq = {0};
-	struct scatterlist sg;
+	struct scatterlist *sg_list = NULL;
 	int i;
 	int err;
 
@@ -493,6 +538,22 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 	if (IS_ERR(idata))
 		return PTR_ERR(idata);
 
+	cmd.opcode = idata->ic.opcode;
+	cmd.arg = idata->ic.arg;
+	cmd.flags = idata->ic.flags;
+
+	data.blksz = idata->ic.blksz;
+	data.blocks = idata->ic.blocks;
+
+
+	if (idata->ic.write_flag)
+		data.flags = MMC_DATA_WRITE;
+	else
+		data.flags = MMC_DATA_READ;
+
+	mrq.cmd = &cmd;
+	mrq.data = &data;
+
 	md = mmc_blk_get(bdev->bd_disk);
 	if (!md) {
 		err = -EINVAL;
@@ -505,47 +566,21 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 		goto cmd_done;
 	}
 
-	cmd.opcode = idata->ic.opcode;
-	cmd.arg = idata->ic.arg;
-	cmd.flags = idata->ic.flags;
 
-	if (idata->buf_bytes) {
-		data.sg = &sg;
-		data.sg_len = 1;
-		data.blksz = idata->ic.blksz;
-		data.blocks = idata->ic.blocks;
+	data.sg_len = (u32)(idata->buf_bytes + card->host->max_seg_size -1) / card->host->max_seg_size;
 
-		sg_init_one(data.sg, idata->buf, idata->buf_bytes);
-
-		if (idata->ic.write_flag)
-			data.flags = MMC_DATA_WRITE;
-		else
-			data.flags = MMC_DATA_READ;
-
-		/* data.flags must already be set before doing this. */
-		mmc_set_data_timeout(&data, card);
-
-		/* Allow overriding the timeout_ns for empirical tuning. */
-		if (idata->ic.data_timeout_ns)
-			data.timeout_ns = idata->ic.data_timeout_ns;
-
-		if ((cmd.flags & MMC_RSP_R1B) == MMC_RSP_R1B) {
-			/*
-			 * Pretend this is a data transfer and rely on the
-			 * host driver to compute timeout.  When all host
-			 * drivers support cmd.cmd_timeout for R1B, this
-			 * can be changed to:
-			 *
-			 *     mrq.data = NULL;
-			 *     cmd.cmd_timeout = idata->ic.cmd_timeout_ms;
-			 */
-			data.timeout_ns = idata->ic.cmd_timeout_ms * 1000000;
-		}
-
-		mrq.data = &data;
+	sg_list = kzalloc(data.sg_len * sizeof(struct scatterlist), GFP_KERNEL);
+	if (!sg_list) {
+		err = -ENOMEM;
+		goto cmd_done;
 	}
 
-	mrq.cmd = &cmd;
+	data.sg = sg_list;
+	sg_init_table(data.sg, data.sg_len);
+	for (i = 0; i < data.sg_len - 1; i++) {
+		sg_set_buf(&sg_list[i], idata->buf + card->host->max_seg_size * i, card->host->max_seg_size);
+	}
+	sg_set_buf(&sg_list[i], idata->buf + card->host->max_seg_size * i, idata->buf_bytes - card->host->max_seg_size * i);
 
 	mmc_claim_host(card->host);
 
@@ -553,6 +588,24 @@ static int mmc_blk_ioctl_cmd(struct block_device *bdev,
 		err = mmc_app_cmd(card->host, card);
 		if (err)
 			goto cmd_rel_host;
+	}
+
+	/* data.flags must already be set before doing this. */
+	mmc_set_data_timeout(&data, card);
+	/* Allow overriding the timeout_ns for empirical tuning. */
+	if (idata->ic.data_timeout_ns)
+		data.timeout_ns = idata->ic.data_timeout_ns;
+
+	if ((cmd.flags & MMC_RSP_R1B) == MMC_RSP_R1B) {
+		/*
+		 * Pretend this is a data transfer and rely on the host driver
+		 * to compute timeout.  When all host drivers support
+		 * cmd.cmd_timeout for R1B, this can be changed to:
+		 *
+		 *     mrq.data = NULL;
+		 *     cmd.cmd_timeout = idata->ic.cmd_timeout_ms;
+		 */
+		data.timeout_ns = idata->ic.cmd_timeout_ms * 1000000;
 	}
 
 	mmc_wait_for_req(card->host, &mrq);
@@ -594,6 +647,8 @@ cmd_rel_host:
 	mmc_release_host(card->host);
 
 cmd_done:
+	if (sg_list)
+		kfree(sg_list);
 	mmc_blk_put(md);
 	kfree(idata->buf);
 	kfree(idata);
@@ -1030,7 +1085,7 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *req)
 	struct mmc_blk_data *md = mq->data;
 	struct mmc_card *card = md->queue.card;
 	struct mmc_blk_request brq;
-	int ret = 1, disable_multi = 0, retry = 0;
+	int ret = 1, disable_multi = 0, retry = 0, data_err_retry = 0, gen_err = 0;
 
 	/*
 	 * Reliable writes are used to implement Forced Unit Access and
@@ -1127,6 +1182,23 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *req)
 			brq.sbc.flags = MMC_RSP_R1 | MMC_CMD_AC;
 			brq.mrq.sbc = &brq.sbc;
 		}
+#ifdef CONFIG_EMMC_AGE_LOG_ENABLE
+		if(1 == rwlog_enable_flag)
+		{
+			if(	brq.cmd.opcode == MMC_WRITE_MULTIPLE_BLOCK
+			|| brq.cmd.opcode == MMC_WRITE_BLOCK
+			|| brq.cmd.opcode == MMC_READ_MULTIPLE_BLOCK
+			|| brq.cmd.opcode == MMC_READ_SINGLE_BLOCK)
+			{
+				/* only mmc rw log is output */
+				if(rwlog_index == card->host->index)
+				{
+					printk("%s:cmd=%d,brq->data.blocks=%d,index=%d,arg=%x\n",__func__,
+					(int)brq.cmd.opcode,brq.data.blocks,card->host->index,brq.cmd.arg);
+				}
+			}
+		}
+#endif
 
 		mmc_set_data_timeout(&brq.data, card);
 
@@ -1196,9 +1268,15 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *req)
 		 * kind.  If it was a write, we may have transitioned to
 		 * program mode, which we have to wait for it to complete.
 		 */
-#if 0
+#if 1
 		if (!mmc_host_is_spi(card->host) && rq_data_dir(req) != READ) {
 			u32 status;
+			/* Check stop command(CMD12)response */
+			if (brq.mrq.stop && (brq.mrq.stop->resp[0]&R1_ERROR)){
+					if(data_err_retry++ < 5)
+						continue;
+					goto cmd_abort;
+			}
 			do {
 				int err = get_card_status(card, &status, 5);
 				if (err) {
@@ -1206,6 +1284,16 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *req)
 					       req->rq_disk->disk_name, err);
 					goto cmd_err;
 				}
+
+				if(EMMC_TOSHIBA_MANFID == card->cid.manfid)
+				{
+					if(status & R1_ERROR)
+					{
+						printk(KERN_ERR "CMD13 return bit19 error for TOSHIBA emmc,need retry.\n");
+						gen_err = 1;
+					}
+				}
+
 				/*
 				 * Some cards mishandle the status bits,
 				 * so make sure to check both the busy
@@ -1213,6 +1301,13 @@ static int mmc_blk_issue_rw_rq(struct mmc_queue *mq, struct request *req)
 				 */
 			} while (!(status & R1_READY_FOR_DATA) ||
 				 (R1_CURRENT_STATE(status) == R1_STATE_PRG));
+			/* if error occur,retry operation executes */
+			if(gen_err){
+					gen_err = 0;
+					if(data_err_retry++ < 5)
+						continue;
+					goto cmd_abort;
+			}
 		}
 #endif
 		if (brq.data.error) {
@@ -1794,6 +1889,19 @@ static int __init mmc_blk_init(void)
 	res = mmc_register_driver(&mmc_driver);
 	if (res)
 		goto out2;
+
+#ifdef CONFIG_EMMC_AGE_LOG_ENABLE
+	dentry_mmclog = debugfs_create_dir("hw_mmclog", NULL);
+	if(dentry_mmclog )
+	{
+		debugfs_create_file("rwlog_enable", S_IFREG|S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH|S_IWOTH,
+		dentry_mmclog, NULL, &rwlog_enable_fops);
+		debugfs_create_file("rwlog_index", S_IFREG|S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH|S_IWOTH,
+		dentry_mmclog, NULL, &rwlog_index_fops);
+		debugfs_create_file("debug_mask", S_IFREG|S_IRUSR|S_IWUSR|S_IRGRP|S_IWGRP|S_IROTH|S_IWOTH,
+		dentry_mmclog, NULL, &debug_mask_fops);
+	}
+#endif
 
 	return 0;
  out2:

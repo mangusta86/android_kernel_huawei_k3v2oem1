@@ -84,7 +84,6 @@
 #define K3_FB_FRC_BENCHMARK_FPS	60
 #define K3_FB_FRC_GAME_FPS		45
 #define K3_FB_FRC_SPECIAL_GAME_FPS	60
-#define K3_FB_FRC_GAME_30_FPS           30
 
 /* SBL */
 #define SBL_BKL_STEP	5
@@ -114,9 +113,6 @@
 #define K3_FB_FRC_GAME_FPS	45
 #define K3_FB_FRC_SPECIAL_GAME_FPS  60
 
-/* EternityProject: Add to fix build */
-#define K3_FB_FRC_GAME_30_FPS	30
-
 /* SBL */
 #define SBL_BKL_STEP	5
 #define SBL_REDUCE_VALUE(x)	((x) * 70 / 100)
@@ -144,8 +140,6 @@
 #define K3_FB_FRC_BENCHMARK_FPS	67
 #define K3_FB_FRC_GAME_FPS		45
 #define K3_FB_FRC_SPECIAL_GAME_FPS  60
-#define K3_FB_FRC_GAME_30_FPS           30
-
 
 /* SBL */
 #define SBL_BKL_STEP	5
@@ -242,7 +236,6 @@ enum {
 	K3_FB_FRC_WEBKIT_PLAYING =0x10,
 	K3_FB_FRC_SPECIAL_GAME_PLAYING = 0x20,
 	K3_FB_FRC_IDLE_PLAYING = 0x40,
-    K3_FB_FRC_GAME_30_PLAYING = 0x80,
 };
 
 
@@ -367,6 +360,13 @@ struct k3_fb_data_type {
 	struct workqueue_struct *ovc_ddr_wq;
 	u32 ovcIdleCount;
 #  endif
+#if defined(CONFIG_PARTIAL_UPDATES)
+         volatile bool dirty_update;
+         volatile int xoffset;
+         volatile int yoffset;
+         volatile int xwidth;
+         volatile int yheight;
+#endif
 #endif
 
 };

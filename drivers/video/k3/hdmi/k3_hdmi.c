@@ -688,8 +688,10 @@ static int hdmi_pw_power_on_full(void)
 
         if (!hdmi.edid_set) {
 #if USE_HDCP
+#if HDCP_FOR_CERTIFICATION
             logi("disable hdcp befor read edid.\n");
             hdcp_wait_anth_stop();
+#endif
 #endif
             ret = hdmi_read_edid();
             if (ret) {                
@@ -826,9 +828,12 @@ static void hdmi_pw_power_on_min(void)
 {
     IN_FUNCTION;
 #if USE_HDCP
+#if HDCP_FOR_CERTIFICATION
     logi("disable hdcp when power min.\n");
     hdcp_wait_anth_stop();
 #endif
+#endif
+
 #ifdef CONFIG_CPU_FREQ_GOV_K3HOTPLUG
     if (hdmi.has_request_ddr) {
         hdmi.has_request_ddr = false;
@@ -2129,7 +2134,6 @@ static ssize_t hdmi_control_reset(struct device *dev,
 static ssize_t hdmi_control_reg_show(struct device *dev,
                                      struct device_attribute *attr, char *buf)
 {
-    dump_reg();
 
     return snprintf(buf, PAGE_SIZE, "reg_dump\n");
 }

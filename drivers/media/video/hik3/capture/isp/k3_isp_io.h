@@ -63,8 +63,6 @@ void k3_ispio_update_flip(u8 flip_changed, u16 width, u16 height, pixel_order ch
 int k3_ispldo_power_sensor(camera_power_state power_state,  char *ldo_name);
 int k3_ispgpio_power_sensor(struct _camera_sensor *sensor,
 			    camera_power_state power_state);
-int k3_ispio_i2c_ioconfig(struct _camera_sensor *sensor,
-			  camera_power_state power_state);
 int k3_ispio_ioconfig(struct _camera_sensor *sensor,
 			  camera_power_state power_state);
 int k3_ispgpio_reset_sensor(sensor_index_t sensor_index, camera_power_state power_state, electrical_valid_t reset_valid);
@@ -84,7 +82,6 @@ typedef struct _ispio_controller {
 	int (*init_csi) (csi_index_t csi_index, csi_lane_t mipi_lane_count, u8 lane_clk);
 	void (*deinit_csi) (csi_index_t index);
 	int (*ioconfig) (camera_power_state power_state, data_interface_t);
-	int (*i2c_ioconfig) (camera_power_state power_state, data_interface_t);
 } ispio_controller;
 
 typedef struct _isp_sensor_reg_controller {

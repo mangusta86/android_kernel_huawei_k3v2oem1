@@ -26,7 +26,6 @@
  * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#define DEBUG
 
 #include <linux/kernel.h>
 #include <linux/delay.h>
@@ -39,7 +38,7 @@
 #include <linux/rmi.h>
 #include "rmi_driver.h"
 #include "rmi_f01.h"
-
+#include <linux/atomic.h>
 #ifdef CONFIG_RMI4_DEBUG
 #include <linux/debugfs.h>
 #include <linux/fs.h>
@@ -59,6 +58,9 @@
 static void rmi_driver_early_suspend(struct early_suspend *h);
 static void rmi_driver_late_resume(struct early_suspend *h);
 #endif
+
+struct rmi_device * g_rmi_dev = NULL;
+extern atomic_t touch_is_pressed;
 
 /* sysfs files for attributes for driver values. */
 static ssize_t rmi_driver_bsr_show(struct device *dev,
@@ -658,7 +660,7 @@ static int rmi_driver_irq_handler(struct rmi_device *rmi_dev, int irq)
 	 * interrupts.
 	 */
 	if (!data || !data->f01_container || !data->f01_container->fh) {
-		dev_warn(&rmi_dev->dev,
+		dev_dbg(&rmi_dev->dev,
 			 "Not ready to handle interrupts yet!\n");
 		return 0;
 	}
@@ -1077,6 +1079,8 @@ static int rmi_driver_probe(struct rmi_device *rmi_dev)
 
 	pdata = to_rmi_platform_data(rmi_dev);
 
+	atomic_set(&touch_is_pressed, 0);  
+
 	data = kzalloc(sizeof(struct rmi_driver_data), GFP_KERNEL);
 	if (!data) {
 		dev_err(dev, "%s: Failed to allocate driver data.\n", __func__);
@@ -1202,6 +1206,9 @@ static int rmi_driver_probe(struct rmi_device *rmi_dev)
 			 retval);
 #endif
 	dev_dbg(dev, "%s:end.", __func__);
+
+	g_rmi_dev = rmi_dev;
+
 	return 0;
 
  err_free_data:
@@ -1223,7 +1230,9 @@ static void disable_sensor(struct rmi_device *rmi_dev)
 {
 	struct rmi_driver_data *data = rmi_get_driverdata(rmi_dev);
 
+#ifndef CONFIG_P2_TP_TK_CMD_FEATURE
 	rmi_dev->phys->disable_device(rmi_dev->phys);
+#endif
 
 	data->enabled = false;
 }
@@ -1233,9 +1242,11 @@ static int enable_sensor(struct rmi_device *rmi_dev)
 	struct rmi_driver_data *data = rmi_get_driverdata(rmi_dev);
 	int retval = 0;
 
+#ifndef CONFIG_P2_TP_TK_CMD_FEATURE
 	retval = rmi_dev->phys->enable_device(rmi_dev->phys);
 	if (retval)
 		return retval;
+#endif
 
 	data->enabled = true;
 
@@ -1535,6 +1546,69 @@ static struct rmi_driver sensor_driver = {
 	.restore_irq_mask = rmi_driver_irq_restore,
 	.remove = __devexit_p(rmi_driver_remove)
 };
+
+int rmi_set_glove_switch(u8 status)
+{
+	int retval;
+	struct rmi_device * rmi_dev = g_rmi_dev;
+
+	if (rmi_dev == NULL) {
+		dev_err(&rmi_dev->dev, "%s:g_rmi_dev == NULL\n", __func__);
+		return -EINVAL;
+	}
+	if (status == 0) {//close the glove function
+		retval = rmi_write(rmi_dev, GLOVE_SWITCH_ADDR, 2);
+		if (retval < 0) {
+			dev_err(&rmi_dev->dev, "status==0,rmi_write failed\n");
+			return retval;
+		}
+	} else if (status == 1) {//open the glove function
+		retval = rmi_write(rmi_dev, GLOVE_SWITCH_ADDR, 0);
+		if (retval < 0) {
+			dev_err(&rmi_dev->dev, "status==1,rmi_write failed\n");
+			return retval;
+		}
+	} else  {
+		dev_err(&rmi_dev->dev, "%s status illegal[status=%d]\n", __func__, status);
+		return -EFAULT;
+	}
+
+	return 0;
+}
+int rmi_get_glove_switch(u8 *status)
+{
+	int retval;
+	char buf;
+	struct rmi_device * rmi_dev = g_rmi_dev;
+
+	if (rmi_dev == NULL) {
+		dev_err(&rmi_dev->dev, "%s:g_rmi_dev == NULL\n", __func__);
+		return -EINVAL;
+	}
+	if (status==NULL) {
+		dev_err(&rmi_dev->dev, "%s:status == NULL\n", __func__);
+		return -EINVAL;
+	}
+	retval = rmi_read_block(rmi_dev, GLOVE_SWITCH_ADDR,
+			(u8 *)&buf, sizeof(buf));
+	if (retval < 0) {
+		dev_err(&rmi_dev->dev, "%s:read GLOVE_SWITCH_ADDR err\n", __func__);
+		return retval;
+	}
+
+	buf = buf & 0x03;
+
+	if (buf == 0) {
+		*status = 1;
+	} else if (buf == 2) {
+		*status = 0;
+	} else {
+		dev_err(&rmi_dev->dev, "%s:buf=%d\n", __func__, buf);
+		return -EFAULT;
+	}
+
+	return 0;
+}
 
 /* sysfs show and store fns for driver attributes */
 

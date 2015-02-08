@@ -1,11 +1,11 @@
 /*
- * sonyimx134 sensor driver 
+ * sonyimx134 sensor driver
  *
  *  Author: 	Zhoujie (zhou.jie1981@163.com)
  *  Date:  	2013/01/05
  *  Version:	1.0
- *  History:	2013/01/05      Frist add driver for sonyimx134 
- *  
+ *  History:	2013/01/05      Frist add driver for sonyimx134
+ *
  * ----------------------------------------------------------------------------
  *
  * This program is free software; you can redistribute it and/or modify
@@ -56,7 +56,7 @@
 #include <linux/device.h>
 
 #define LOG_TAG "SONYIMX134"
-//#define DEBUG_DEBUG 1 
+//#define DEBUG_DEBUG 1
 #include "../isp/cam_log.h"
 #include <../isp/cam_util.h>
 #include <hsad/config_interface.h>
@@ -162,7 +162,7 @@
 #define SONYIMX134_VTS_REG_L		0x0341
 
 #define SONYIMX134_APERTURE_FACTOR  200 //F2.0
-#define SONYIMX134_EQUIVALENT_FOCUS	0
+#define SONYIMX134_EQUIVALENT_FOCUS	27	//27mm
 
 #define SONYIMX134_ISP_ZOOM_LIMIT		0
 #define SONYIMX134_DPC_THRESHOLD_ISO			(0x800)
@@ -181,7 +181,7 @@
 #define SONYIMX134_MIDDLE_FRAMERATE		15
 #define SONYIMX134_MIN_FRAMERATE		10
 
-enum sensor_module_type 
+enum sensor_module_type
 {
 	MODULE_LITEON,
 	MODULE_SUNNY,
@@ -198,7 +198,7 @@ static u8 sensor_module;
 #define OTP_LSC_1  		0xa4
 #define OTP_LSC_2  		0xa6
 #define OTP_LSC_1_REG 	0x0b
-#define OTP_LSC_2_REG	0x00	
+#define OTP_LSC_2_REG	0x00
 #define OTP_CHECKSUM    0xa6
 #define OTP_CHECKSUM_REG 0x44
 #define OTP_CHECKSUM_FLAG_REG 0x45
@@ -242,7 +242,16 @@ extern void _sonyimx134_otp_get_vcm(u16 *vcm_start, u16 *vcm_end,vcm_info_s *vcm
 extern void sonyimx134_get_flash_awb(flash_platform_t type, awb_gain_t *flash_awb);
 extern int sonyimx134_get_af_param(camera_af_param_t type);
 
+#define  SONYIMX134_ISO		(\
+					(1 << CAMERA_ISO_AUTO) | \
+					(1 << CAMERA_ISO_100) | \
+					(1 << CAMERA_ISO_200) | \
+					(1 << CAMERA_ISO_400) | \
+					(1 << CAMERA_ISO_800)  \
+				)
+
 static camera_capability sonyimx134_cap[] = {
+	{V4L2_CID_ISO, SONYIMX134_ISO},
 	{V4L2_CID_FLASH_MODE, THIS_FLASH},
 	{V4L2_CID_FOCUS_MODE, THIS_FOCUS_MODE},
 	{V4L2_CID_FOCAL_LENGTH, 296},//2.96mm
@@ -264,10 +273,10 @@ char sonyimx134_awb_param[] = {
 static framesize_s sonyimx134_framesizes[] = {
 	{0, 2, 1280, 720, 3600, 2518, 30, 10, 0x2F3, 0x275,0x100, VIEW_HDR_MOVIE, RESOLUTION_16_9,false,{sonyimx134_rgb_framesize_1280x720_HDR, ARRAY_SIZE(sonyimx134_rgb_framesize_1280x720_HDR)} },
 	{0, 2, 1632, 1232, 3600, 2518, 30, 10, 0x2F3, 0x275,0x100, VIEW_HDR_MOVIE, RESOLUTION_4_3,false,{sonyimx134_rgb_framesize_1632x1232_HDR, ARRAY_SIZE(sonyimx134_rgb_framesize_1632x1232_HDR)} },
-		
+
 	/* 1600x1200, just close with quarter size */
-	{0, 2, 1600, 1200, 3600, 1480, 30, 30, 0x1BC, 0x172, 0x100, VIEW_FULL, RESOLUTION_4_3, false, {sonyimx134_framesize_1600x1200, ARRAY_SIZE(sonyimx134_framesize_1600x1200)} }, 
-	//{0, 2, 1632, 1232, 3600, 2518, 30, 30, 0x1BC, 0x172, 0x100, VIEW_FULL, RESOLUTION_4_3, true, {sonyimx134_framesize_1600x1200, ARRAY_SIZE(sonyimx134_framesize_1600x1200)} }, 
+	{0, 2, 1600, 1200, 3600, 1480, 30, 30, 0x1BC, 0x172, 0x100, VIEW_FULL, RESOLUTION_4_3, false, {sonyimx134_framesize_1600x1200, ARRAY_SIZE(sonyimx134_framesize_1600x1200)} },
+	//{0, 2, 1632, 1232, 3600, 2518, 30, 30, 0x1BC, 0x172, 0x100, VIEW_FULL, RESOLUTION_4_3, true, {sonyimx134_framesize_1600x1200, ARRAY_SIZE(sonyimx134_framesize_1600x1200)} },
 	//1920x1088,30fps for 1080P video
 	//{0, 2, 1920, 1088, 3600, 2486, 30, 10, 0x2e4, 0x269,0x100, VIEW_FULL, RESOLUTION_16_9,false,{sonyimx134_framesize_1920x1088, ARRAY_SIZE(sonyimx134_framesize_1920x1088)} },
 
@@ -404,7 +413,7 @@ static u32 sonyimx134_read_isp_reg(u32 reg_addr, u32 size)
 	int i = 0;
 	u32 reg_value = 0x00;
 	print_debug("Enter %s, size=%d", __func__, size);
-	
+
 	/*initialize buffer */
 	for (i = 0; i < size; i++) {
 		reg_seq[i].subaddr = reg_addr;
@@ -412,7 +421,7 @@ static u32 sonyimx134_read_isp_reg(u32 reg_addr, u32 size)
 		reg_seq[i].mask = 0x00;
 		reg_addr++;
 	}
-	
+
 	/*read register of isp for imx135 */
 	sonyimx134_read_isp_seq(reg_seq, size);
 	/*construct return value */
@@ -568,7 +577,7 @@ static int sonyimx134_set_framesizes(camera_state state,
 	bool match = false;
 	int size = 0;
 	assert(fs);
-	
+
 	print_info("Enter Function:%s State(%d), flag=%d, width=%d, height=%d",
 		   __func__, state, flag, fs->width, fs->height);
 	size = ARRAY_SIZE(sonyimx134_framesizes);
@@ -906,13 +915,13 @@ static int sonyimx134_get_vflip(void)
 static int sonyimx134_update_flip(u16 width, u16 height)
 {
 	u8 new_flip = ((sonyimx134_sensor.vflip << 1) | sonyimx134_sensor.hflip);
-	
+
 	print_debug("Enter %s  ", __func__);
-	
+
 	k3_ispio_update_flip(( sonyimx134_sensor.old_flip^new_flip) & 0x03, width, height, PIXEL_ORDER_CHANGED);
 
 	sonyimx134_sensor.old_flip = new_flip;
-	
+
 	if(E_CAMERA_SENSOR_FLIP_TYPE_H_V == get_primary_sensor_flip_type()){
 		sonyimx134_write_reg(SONYIMX134_FLIP, sonyimx134_sensor.vflip ? 0x00 : 0x02, ~0x02);
 		sonyimx134_write_reg(SONYIMX134_FLIP, sonyimx134_sensor.hflip ? 0x00 : 0x01, ~0x01);
@@ -920,7 +929,7 @@ static int sonyimx134_update_flip(u16 width, u16 height)
 		sonyimx134_write_reg(SONYIMX134_FLIP, sonyimx134_sensor.vflip ? 0x02 : 0x00, ~0x02);
 		sonyimx134_write_reg(SONYIMX134_FLIP, sonyimx134_sensor.hflip ? 0x01 : 0x00, ~0x01);
 	}
-	
+
 	return 0;
 }
 /*
@@ -1006,7 +1015,7 @@ static int sonyimx134_check_sensor(void)
 		print_error("sonyimx134_check_sensor fail to get gpio value!!! set pin_id to 0 by default MODULE_LITEON !\n");
 	}
 	sensor_module = pin_id>0 ? MODULE_SUNNY:MODULE_LITEON;
-	
+
 	if(sensor_module ==  MODULE_SUNNY){
 		sonyimx134_sensor.vcm = &vcm_dw9714_Sunny;
 		snprintf(sonyimx134_sensor.info.name, sizeof(sonyimx134_sensor.info.name),"sonyimx134_sunny");
@@ -1014,7 +1023,7 @@ static int sonyimx134_check_sensor(void)
 		sonyimx134_sensor.vcm = &vcm_dw9714_Liteon;
 		snprintf(sonyimx134_sensor.info.name, sizeof(sonyimx134_sensor.info.name),"sonyimx134_liteon");
 	}
-	
+
 #ifdef IMX134_OTP
 	sonyimx134_sensor.vcm->get_vcm_otp = sonyimx134_otp_get_vcm;
 	sonyimx134_get_otp_from_sensor();
@@ -1314,10 +1323,10 @@ static int sonyimx134_fill_uvsaturation_buf( camera_state state)
 	   uv_satu_buf[1] = 0x68;
 
 	#if 0
-	
+
         awb_A_R_shift[0] = 0x87;
         awb_A_R_shift[1] = 0x90;
-		
+
         uv_curve_buf[0] = 0x81;
         uv_curve_buf[1] = 0x88;
         uv_curve_buf[2] = 0x8b;
@@ -1345,7 +1354,7 @@ static int sonyimx134_fill_uvsaturation_buf( camera_state state)
 	SETREG8(REG_ISP_UV_CURVE_4, uv_curve_buf[3]);
 	SETREG8(REG_ISP_UV_CURVE_5, uv_curve_buf[4]);
 	SETREG8(REG_ISP_UV_CURVE_6, uv_curve_buf[5]);
-	SETREG8(REG_ISP_UV_CURVE_7, uv_curve_buf[6]);	
+	SETREG8(REG_ISP_UV_CURVE_7, uv_curve_buf[6]);
 	SETREG8(REG_ISP_UV_CURVE_8, uv_curve_buf[7]);
 	SETREG8(REG_ISP_UV_CURVE_9, uv_curve_buf[8]);
 	SETREG8(REG_ISP_UV_CURVE_10, uv_curve_buf[9]);
@@ -1355,7 +1364,7 @@ static int sonyimx134_fill_uvsaturation_buf( camera_state state)
 	SETREG8(REG_ISP_UV_CURVE_14, uv_curve_buf[13]);
 	SETREG8(REG_ISP_UV_CURVE_15, uv_curve_buf[14]);
 #endif
-
+	return 0;
 }
 
 
@@ -1854,14 +1863,6 @@ void sonyimx134_get_digital_gain(digital_gain_st * digital_gain)
   */
  int sonyimx134_check_zoom_limit(u32 *zoom)
  {
-	if(zoom == NULL)
-	{
-		return -1;
-	}
-	if(*zoom < SONYIMX134_ISP_ZOOM_LIMIT && *zoom  > 0)
-	{
-	       *zoom = SONYIMX134_ISP_ZOOM_LIMIT;
-	}
 	return 0;
  }
 /*
@@ -1923,7 +1924,7 @@ static int sonyimx134_init(void)
 	else
 		sonyimx134_sensor.sensor_rgb_type = SENSOR_RGGB;
 	sonyimx134_sensor.old_flip = 0;
-		
+
 	k3_ispio_power_init("pri-cameralog-vcc", LDO_VOLTAGE_28V, LDO_VOLTAGE_28V);	/*analog 2.85V */
 	k3_ispio_power_init("camera-vcc", LDO_VOLTAGE_18V, LDO_VOLTAGE_18V);	/*IO 1.8V */
 	k3_ispio_power_init("cameravcm-vcc", LDO_VOLTAGE_28V, LDO_VOLTAGE_28V);	/*AF 2.85V */
@@ -1981,7 +1982,7 @@ int sonyimx134_read_otp(u8 i2c_addr,u16 reg,u8 *buf,u16 count)
 		ret =ispv1_read_sensor_byte_addr8(sonyimx134_sensor.i2c_config.index,i2c_addr,reg+i,&val,sonyimx134_sensor.i2c_config.val_bits);
 		if(ret !=0)
 			print_error("sonyimx134_read_otp  %d\n",ret);
-		buf[i] = (val&0xff);		
+		buf[i] = (val&0xff);
 		OTPSUMVAL +=buf[i];
 	}
 	return 0;
@@ -1989,10 +1990,10 @@ int sonyimx134_read_otp(u8 i2c_addr,u16 reg,u8 *buf,u16 count)
 
 static bool sonyimx134_otp_read_id(void)
 {
-	u8 buf[5];	
+	u8 buf[5]={0};
 	u8 vendor_id =0;
 	u8 module_type = MODULE_UNSUPPORT;
-	
+
 	print_debug("enter %s", __func__);
 
 	if((sonyimx134_otp_flag & SONYIMX134_OTP_ID_READ) ==SONYIMX134_OTP_ID_READ)//we think OTP data is not correct at all
@@ -2025,14 +2026,14 @@ static bool sonyimx134_otp_read_id(void)
 	{
 		print_error("%s OTP data is worng!!!\n",__func__);
 		return false;
-	}	
-	return true;	
+	}
+	return true;
 }
 
 
 static bool sonyimx134_otp_read_awb(void)
 {
-	u8 buf[6];
+	u8 buf[6]={0};
 	//u16 i;
 
 	print_debug("enter %s", __func__);
@@ -2096,7 +2097,7 @@ static bool sonyimx134_otp_set_lsc(void)
 {
 	u8 *pval = NULL;
 	int i = 0;
-	
+
 	print_debug("enter %s\n", __func__);
 
 	/* Lens shading parameters are burned OK. */
@@ -2131,7 +2132,7 @@ static bool sonyimx134_otp_enable_lsc(bool enable)
 	u8 lscMode = 0x00;
 	u8 selToggle = 0x00;
 	u8 lscEnable = 0x00;
-	
+
 	print_debug("enter %s", __func__);
 	if((sonyimx134_otp_flag & SONYIMX134_OTP_LSC_READ) ==0)
 	{
@@ -2165,7 +2166,7 @@ static bool sonyimx134_otp_enable_lsc(bool enable)
 ***************************************************************************/
 static bool sonyimx134_otp_read_vcm(void)
 {
-	u8 buf[4];
+	u8 buf[4]={0};
     u16 start_code,end_code;
 
 	print_debug("enter %s", __func__);
@@ -2197,7 +2198,7 @@ static bool sonyimx134_otp_read_vcm(void)
 		/* VCM param is read  */
 		sonyimx134_otp_flag |= SONYIMX134_OTP_VCM_READ;
 		sonyimx134_vcm_start = start_code;
-		sonyimx134_vcm_end = end_code;	
+		sonyimx134_vcm_end = end_code;
 		print_debug("sonyimx134_vcm_start= %x, sonyimx134_vcm_end = %x \n",sonyimx134_vcm_start,sonyimx134_vcm_end);
 		return true;
 	}
@@ -2216,12 +2217,12 @@ static bool sonyimx134_otp_read_vcm(void)
 * Other       : NA;
 ***************************************************************************/
 static void sonyimx134_otp_get_vcm(u16 *vcm_start, u16 *vcm_end)
-{	
+{
 	_sonyimx134_otp_get_vcm(vcm_start, vcm_end,sonyimx134_sensor.vcm,sonyimx134_vcm_start,sonyimx134_vcm_end);
 	print_info("%s, start: %#x, end: %#x", __func__, *vcm_start, *vcm_end);
 }
 //this function time cost is about 0.0475s on sunny module
-static void sonyimx134_get_otp_from_sensor(void) 
+static void sonyimx134_get_otp_from_sensor(void)
 {
 	u8 sum;
 	if((sonyimx134_otp_flag & SONYIMX134_OTP_CHECKSUM_ERR) ==SONYIMX134_OTP_CHECKSUM_ERR)
@@ -2233,7 +2234,7 @@ static void sonyimx134_get_otp_from_sensor(void)
 	sonyimx134_otp_read_awb();
 	sonyimx134_otp_read_vcm();
 	sonyimx134_otp_read_lsc();//cost 0.042996s on sunny module
-	
+
 	if((sonyimx134_otp_flag & SONYIMX134_OTP_CHECKSUM_READ) ==SONYIMX134_OTP_CHECKSUM_READ)
 	{
 		print_debug("%s OTP checksum data is read allread!!!\n",__func__);
@@ -2242,9 +2243,9 @@ static void sonyimx134_get_otp_from_sensor(void)
 
 	sonyimx134_read_otp(OTP_CHECKSUM,OTP_CHECKSUM_REG,&OTPCHECKSUMVAL,1);
 	sonyimx134_read_otp(OTP_CHECKSUM,OTP_CHECKSUM_FLAG_REG,&OTPCHECKSUMFLAG,1);
-	   
+
 	sum = (OTPSUMVAL - OTPCHECKSUMVAL-OTPCHECKSUMFLAG)%0xff;
-	
+
 	print_debug("%s, OTPSUMVAL: %d, OTPCHECKSUMVAL: %d ,sum:%d, OTPCHECKSUMFLAG =%x \n", __func__, OTPSUMVAL, OTPCHECKSUMVAL,sum,OTPCHECKSUMFLAG);
 
 	/*
@@ -2256,14 +2257,14 @@ static void sonyimx134_get_otp_from_sensor(void)
 	if(((OTPCHECKSUMVAL==sum)&&(OTPCHECKSUMFLAG ==OTPCHECKSUM_FLAG))
 		||(OTPCHECKSUMFLAG ==0xff))
 	{
-		sonyimx134_otp_flag |= SONYIMX134_OTP_CHECKSUM_READ;		
+		sonyimx134_otp_flag |= SONYIMX134_OTP_CHECKSUM_READ;
 	}
 	else
 	{
 		sonyimx134_otp_flag = SONYIMX134_OTP_CHECKSUM_ERR;
 		sonyimx134_vcm_start = 0;
 		sonyimx134_vcm_end = 0;
-		print_error("OTP checksum is worng!\n");	
+		print_error("OTP checksum is worng!\n");
 	}
 }
 #endif
@@ -2401,7 +2402,7 @@ static void sonyimx134_set_default(void)
 	sonyimx134_sensor.get_vflip = sonyimx134_get_vflip;
 	sonyimx134_sensor.update_flip = sonyimx134_update_flip;
 
-	strcpy(sonyimx134_sensor.info.name,"sonyimx134");
+	strncpy(sonyimx134_sensor.info.name,"sonyimx134",sizeof(sonyimx134_sensor.info.name));
 	sonyimx134_sensor.interface_type = MIPI1;
 	sonyimx134_sensor.mipi_lane_count = CSI_LINES_4;
 	sonyimx134_sensor.mipi_index = CSI_INDEX_0;
@@ -2453,7 +2454,7 @@ static void sonyimx134_set_default(void)
 	sonyimx134_sensor.sensor_iso_to_gain = NULL;
 
 	sonyimx134_sensor.get_sensor_aperture = sonyimx134_get_sensor_aperture;
-	sonyimx134_sensor.get_equivalent_focus = NULL;
+	sonyimx134_sensor.get_equivalent_focus = sonyimx134_get_equivalent_focus;
 
 	sonyimx134_sensor.set_effect = NULL;
 

@@ -361,6 +361,9 @@ static ssize_t modem_boot_set(struct device *dev,
         msleep(20);
         modem_boot_change_state(state);
         modem_boot_power_off();
+    } else if (state == POWER_SET_RESET) {
+        dev_info(dev, "set modem reset.\n");
+        modem_monitor_uevent_notify(MODEM_STATE_OFF);
     } else {
         dev_err(dev, "Power PHY error state. %s\n", buf);
     }

@@ -930,7 +930,7 @@ static ssize_t attr_watermark_show(struct device *dev,
 {
 	struct lsm330_gyr_status *stat = dev_get_drvdata(dev);
 	int val = stat->watermark;
-	return sprintf(buf, "0x%02x\n", val);
+	return snprintf(buf, PAGE_SIZE, "0x%02x\n", val);
 }
 
 static ssize_t attr_fifomode_store(struct device *dev,
@@ -962,7 +962,7 @@ static ssize_t attr_fifomode_show(struct device *dev,
 {
 	struct lsm330_gyr_status *stat = dev_get_drvdata(dev);
 	u8 val = stat->fifomode;
-	return sprintf(buf, "0x%02x\n", val);
+	return snprintf(buf, PAGE_SIZE, "0x%02x\n", val);
 }
 
 static ssize_t attr_reg_set(struct device *dev, struct device_attribute *attr,

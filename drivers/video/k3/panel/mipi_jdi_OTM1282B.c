@@ -43,10 +43,11 @@
 #include "mipi_reg.h"
 #include <linux/lcd_tuning.h>
 #include <linux/rmi.h>
+#include <hsad/config_interface.h>
 
 /**********************open or close the glove function**********************/
-//extern struct rmi_function_container *rmi_fc;
-//extern int rmi_f01_glove_switch_read(struct rmi_function_container *fc);
+extern struct rmi_function_container *rmi_fc;
+extern int rmi_f01_glove_switch_read(struct rmi_function_container *fc);
 /**********************open or close the glove function**********************/
 
 
@@ -691,6 +692,41 @@ static struct gpio_desc jdi_lcd_gpio_lowpower_cmds[] = {
 };
 
 /*******************************************************************************
+** TK VCC
+*/
+extern void touchkey_early_suspend_extern(void);
+extern void touchkey_later_resume_extern(void);
+
+bool g_touchkey_enable = false;
+
+#define VCC_TKVCI_NAME	"so340010"
+
+static struct regulator *vcc_tkvci;
+
+static struct vcc_desc jdi_tk_vcc_init_cmds[] = {
+	/* vcc get */
+	{DTYPE_VCC_GET, VCC_TKVCI_NAME, &vcc_tkvci, 0, 0},
+
+	/* vcc set voltage */
+	{DTYPE_VCC_SET_VOLTAGE, VCC_TKVCI_NAME, &vcc_tkvci, 2850000, 2850000},
+};
+
+static struct vcc_desc jdi_tk_vcc_finit_cmds[] = {
+	/* vcc put */
+	{DTYPE_VCC_PUT, VCC_TKVCI_NAME, &vcc_tkvci, 0, 0},
+};
+
+static struct vcc_desc jdi_tk_vcc_enable_cmds[] = {
+	/* vcc enable */
+	{DTYPE_VCC_ENABLE, VCC_TKVCI_NAME, &vcc_tkvci, 0, 0},
+};
+
+static struct vcc_desc jdi_tk_vcc_disable_cmds[] = {
+	/* vcc disable */
+	{DTYPE_VCC_DISABLE, VCC_TKVCI_NAME, &vcc_tkvci, 0, 0},
+};
+
+/*******************************************************************************
 ** TP VCC
 */
 #define VCC_TPVCI_NAME		"ts-vdd"
@@ -702,27 +738,20 @@ static struct regulator *vcc_tpvddio;
 static struct vcc_desc jdi_tp_vcc_init_cmds[] = {
 	/* vcc get */
 	{DTYPE_VCC_GET, VCC_TPVCI_NAME, &vcc_tpvci, 0, 0},
-	{DTYPE_VCC_GET, VCC_TPVDDIO_NAME, &vcc_tpvddio, 0, 0},
-
-	/* vcc set voltage */
-	{DTYPE_VCC_SET_VOLTAGE, VCC_TPVCI_NAME, &vcc_tpvddio, 1800000, 1800000},
 };
 
 static struct vcc_desc jdi_tp_vcc_finit_cmds[] = {
 	/* vcc put */
 	{DTYPE_VCC_PUT, VCC_TPVCI_NAME, &vcc_tpvci, 0, 0},
-	{DTYPE_VCC_PUT, VCC_TPVDDIO_NAME, &vcc_tpvddio, 0, 0},
 };
 
 static struct vcc_desc jdi_tp_vcc_enable_cmds[] = {
 	/* vcc enable */
 	{DTYPE_VCC_ENABLE, VCC_TPVCI_NAME, &vcc_tpvci, 0, 0},
-	{DTYPE_VCC_ENABLE, VCC_TPVDDIO_NAME, &vcc_tpvddio, 0, 0},
 };
 
 static struct vcc_desc jdi_tp_vcc_disable_cmds[] = {
 	/* vcc disable */
-	{DTYPE_VCC_DISABLE, VCC_TPVDDIO_NAME, &vcc_tpvddio, 0, 0},
 	{DTYPE_VCC_DISABLE, VCC_TPVCI_NAME, &vcc_tpvci, 0, 0},
 };
 
@@ -1073,7 +1102,12 @@ static void jdi_disp_on(struct k3_fb_data_type *k3fd)
 	mipi_dsi_cmds_tx(jdi_vdd_cmds, \
 		ARRAY_SIZE(jdi_vdd_cmds), edc_base);
 */
-    printk("---display on\n");
+	/*tk suspend should be here, becuase this function is called before suspend*/
+	if (g_touchkey_enable == true) {
+		touchkey_later_resume_extern();
+	}
+
+	printk("---display on\n");
 }
 
 static void jdi_disp_off(struct k3_fb_data_type *k3fd)
@@ -1089,7 +1123,7 @@ static void jdi_disp_off(struct k3_fb_data_type *k3fd)
 	/* lcd display off sequence */
 	mipi_dsi_cmds_tx(jdi_display_off_cmds,
 		ARRAY_SIZE(jdi_display_off_cmds), edc_base);
-/*
+
 	if(rmi_fc != NULL){
 
 		retval = rmi_f01_glove_switch_read(rmi_fc);
@@ -1098,7 +1132,12 @@ static void jdi_disp_off(struct k3_fb_data_type *k3fd)
 				"Failed to switch mode between finger and glove. Code: %d.\n",
 				retval);
 	}
-*/
+
+	/*tk suspend should be here, becuase this function is called before suspend*/
+	if (g_touchkey_enable == true) {
+		touchkey_early_suspend_extern();
+	}
+    
 	/*
 	GPIO_19_5 is TP's interrupt GPIO, It is upload by ldo14 which will be closed here,
 	so this irq should be disabled at first and then enable it in mipi_jdi_panel_on.
@@ -1135,6 +1174,12 @@ static void jdi_disp_off(struct k3_fb_data_type *k3fd)
 	vcc_cmds_tx(NULL, jdi_lcd_vcc_disable_cmds, \
 		ARRAY_SIZE(jdi_lcd_vcc_disable_cmds));
 
+	/* tk vcc disable */
+	if (g_touchkey_enable == true) {
+		vcc_cmds_tx(NULL, jdi_tk_vcc_disable_cmds, \
+			ARRAY_SIZE(jdi_tk_vcc_disable_cmds));
+	}
+
 	/* tp vcc disable */
 	vcc_cmds_tx(NULL, jdi_tp_vcc_disable_cmds, \
 		ARRAY_SIZE(jdi_tp_vcc_disable_cmds));
@@ -1158,6 +1203,11 @@ static int mipi_jdi_panel_on(struct platform_device *pdev)
 		vcc_cmds_tx(NULL, jdi_tp_vcc_enable_cmds, \
 			ARRAY_SIZE(jdi_tp_vcc_enable_cmds));
 
+		/* tk vcc enable */
+		if (g_touchkey_enable == true) {
+			vcc_cmds_tx(pdev, jdi_tk_vcc_enable_cmds, \
+				ARRAY_SIZE(jdi_tk_vcc_enable_cmds));
+		}
 		/* lcd vcc enable */
 		vcc_cmds_tx(NULL, jdi_lcd_vcc_enable_cmds, \
 			ARRAY_SIZE(jdi_lcd_vcc_enable_cmds));
@@ -1211,6 +1261,13 @@ static int mipi_jdi_panel_remove(struct platform_device *pdev)
 	if (!k3fd) {
 		return 0;
 	}
+
+	/* tk vcc finit */
+	if (g_touchkey_enable == true) {
+		vcc_cmds_tx(pdev, jdi_tk_vcc_finit_cmds, \
+			ARRAY_SIZE(jdi_tk_vcc_finit_cmds));
+	}
+
 
 	/* lcd vcc finit */
 	vcc_cmds_tx(pdev, jdi_lcd_vcc_finit_cmds, \
@@ -1299,6 +1356,12 @@ static int mipi_jdi_panel_set_fastboot(struct platform_device *pdev)
 	gpio_cmds_tx(jdi_tp_gpio_request_cmds, \
 		ARRAY_SIZE(jdi_tp_gpio_request_cmds));
 
+	/* tk vcc enable */
+	if (g_touchkey_enable == true) {
+		vcc_cmds_tx(pdev, jdi_tk_vcc_enable_cmds, \
+			ARRAY_SIZE(jdi_tk_vcc_enable_cmds));
+	}
+
 	/* lcd vcc enable */
 	vcc_cmds_tx(pdev, jdi_lcd_vcc_enable_cmds, \
 		ARRAY_SIZE(jdi_lcd_vcc_enable_cmds));
@@ -1376,6 +1439,7 @@ static int __devinit jdi_probe(struct platform_device *pdev)
 	struct platform_device *reg_pdev = NULL;
 	struct lcd_properities lcd_props;
     struct k3_fb_data_type *k3fd = NULL;
+	int i;
 
 	g_display_on = false;
 
@@ -1433,6 +1497,13 @@ static int __devinit jdi_probe(struct platform_device *pdev)
 	vcc_cmds_tx(pdev, jdi_lcd_vcc_init_cmds, \
 		ARRAY_SIZE(jdi_lcd_vcc_init_cmds));
 
+        /*tk vcc init*/
+	g_touchkey_enable = get_touchkey_enable();
+	if (g_touchkey_enable == true) {
+		vcc_cmds_tx(pdev, jdi_tk_vcc_init_cmds, \
+			ARRAY_SIZE(jdi_tk_vcc_init_cmds));
+	}
+        
 	/* tp iomux init */
 	iomux_cmds_tx(jdi_tp_iomux_init_cmds, \
 		ARRAY_SIZE(jdi_tp_iomux_init_cmds));
@@ -1454,10 +1525,15 @@ static int __devinit jdi_probe(struct platform_device *pdev)
     BUG_ON(k3fd == NULL);
 
     /* read product id */
-    outp32(k3fd->edc_base + MIPIDSI_GEN_HDR_OFFSET, 0xDA << 8 | 0x06);
-    udelay(150);
-    lcd_product_id = inp32(k3fd->edc_base + MIPIDSI_GEN_PLD_DATA_OFFSET);
-    printk("lcd product id is 0x%x\n", lcd_product_id);
+	msleep(16); //TE masked in k3_fb_register(), wait 16ms for on-going refreshing
+	for(i = 0; i < 150; i++){
+	    outp32(k3fd->edc_base + MIPIDSI_GEN_HDR_OFFSET, 0xDA << 8 | 0x06);
+	    udelay(120);
+	    lcd_product_id = inp32(k3fd->edc_base + MIPIDSI_GEN_PLD_DATA_OFFSET);
+		if(lcd_product_id && (lcd_product_id != 0xff))
+			break;
+	}
+	printk("lcd product id is 0x%x, read times is %d\n", lcd_product_id, i);
 
 	sema_init(&ct_sem, 1);
 	g_csc_value[0] = 0;

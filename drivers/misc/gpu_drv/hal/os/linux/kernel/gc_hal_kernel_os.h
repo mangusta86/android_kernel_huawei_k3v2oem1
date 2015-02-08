@@ -1,16 +1,22 @@
 /****************************************************************************
 *
-*    Copyright (c) 2005 - 2012 by Vivante Corp.  All rights reserved.
+*    Copyright (C) 2005 - 2013 by Vivante Corp.
 *
-*    The material in this file is confidential and contains trade secrets
-*    of Vivante Corporation. This is proprietary information owned by
-*    Vivante Corporation. No part of this work may be disclosed,
-*    reproduced, copied, transmitted, or used in any way for any purpose,
-*    without the express written permission of Vivante Corporation.
+*    This program is free software; you can redistribute it and/or modify
+*    it under the terms of the GNU General Public License as published by
+*    the Free Software Foundation; either version 2 of the license, or
+*    (at your option) any later version.
+*
+*    This program is distributed in the hope that it will be useful,
+*    but WITHOUT ANY WARRANTY; without even the implied warranty of
+*    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+*    GNU General Public License for more details.
+*
+*    You should have received a copy of the GNU General Public License
+*    along with this program; if not write to the Free Software
+*    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 *
 *****************************************************************************/
-
-
 
 
 #ifndef __gc_hal_kernel_os_h_
@@ -20,6 +26,7 @@ typedef struct _LINUX_MDL_MAP
 {
     gctINT                  pid;
     gctPOINTER              vmaAddr;
+    gctUINT32               count;
     struct vm_area_struct * vma;
     struct _LINUX_MDL_MAP * next;
 }
@@ -48,6 +55,9 @@ typedef struct _LINUX_MDL
     gctINT                  numPages;
     gctINT                  pagedMem;
     gctBOOL                 contiguous;
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 27)
+    gctBOOL                 exact;
+#endif
     dma_addr_t              dmaHandle;
     PLINUX_MDL_MAP          maps;
     struct _LINUX_MDL *     prev;
@@ -63,18 +73,11 @@ FindMdlMap(
 
 typedef struct _DRIVER_ARGS
 {
-    gctPOINTER              InputBuffer;
-    gctUINT32               InputBufferSize;
-    gctPOINTER              OutputBuffer;
-    gctUINT32               OutputBufferSize;
+    gctUINT64               InputBuffer;
+    gctUINT64               InputBufferSize;
+    gctUINT64               OutputBuffer;
+    gctUINT64               OutputBufferSize;
 }
 DRIVER_ARGS;
-
-/* Cleanup the signal table. */
-gceSTATUS
-gckOS_CleanProcessSignal(
-    gckOS Os,
-    gctHANDLE Process
-    );
 
 #endif /* __gc_hal_kernel_os_h_ */

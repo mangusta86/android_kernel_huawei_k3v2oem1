@@ -22,6 +22,8 @@
    SOFTWARE IS DISCLAIMED.
 */
 
+
+
 /* Bluetooth HCI event handling. */
 
 #include <linux/module.h>
@@ -1496,6 +1498,11 @@ static inline void hci_conn_request_evt(struct hci_dev *hdev, struct sk_buff *sk
 		}
 
 		memcpy(conn->dev_class, ev->dev_class, 3);
+		/*soldel start ---barbara */
+        /* For incoming connection */
+		mgmt_incomming_remote_class(hdev, &ev->bdaddr, ev->dev_class);
+		BT_DBG("[mydebug]: calling mgmt_incomming_remote_class ev->dev_class = %x",ev->dev_class);
+		/*soldel stop ---barbara */
 		conn->state = BT_CONNECT;
 
 		hci_dev_unlock(hdev);

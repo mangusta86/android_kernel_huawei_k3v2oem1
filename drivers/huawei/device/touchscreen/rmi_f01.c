@@ -22,6 +22,7 @@
 #include <linux/slab.h>
 #include "rmi_driver.h"
 #include "rmi_f01.h"
+#include <linux/atomic.h>
 
 /* control register bits */
 #define RMI_SLEEP_MODE_NORMAL (0x00)
@@ -31,6 +32,15 @@
 
 #define RMI_IS_VALID_SLEEPMODE(mode) \
 	(mode >= RMI_SLEEP_MODE_NORMAL && mode <= RMI_SLEEP_MODE_RESERVED1)
+
+extern atomic_t touch_is_pressed;
+extern void send_UP_MSG_in_resume(void);
+
+struct rmi_function_container *rmi_fc;
+EXPORT_SYMBOL(rmi_fc);
+
+int rmi_f01_glove_switch_read(struct rmi_function_container *fc);
+EXPORT_SYMBOL(rmi_f01_glove_switch_read);
 
 union f01_device_commands {
 	struct {
@@ -115,6 +125,7 @@ struct f01_data {
 	bool suspended;
 	bool old_nosleep;
 #endif
+	u8 glove_switch;
 };
 
 
@@ -969,6 +980,8 @@ static int rmi_f01_initialize(struct rmi_function_container *fc)
 	struct f01_data *data = fc->data;
 	struct rmi_device_platform_data *pdata = to_rmi_platform_data(rmi_dev);
 
+	rmi_fc = fc;
+
 	/* Set the configured bit and (optionally) other important stuff
 	 * in the device control register. */
 	ctrl_base_addr = fc->fd.control_base_addr;
@@ -1243,6 +1256,39 @@ static int rmi_f01_reset(struct rmi_function_container *fc)
 	return 0;
 }
 
+int rmi_f01_glove_switch_read(struct rmi_function_container *fc)
+{
+	struct rmi_device *rmi_dev = fc->rmi_dev;
+	struct rmi_driver_data *driver_data = rmi_get_driverdata(rmi_dev);
+	struct f01_data *data = driver_data->f01_container->data;
+	int retval = 0;
+	/*add exchage status between glove and finger only begin*/
+	retval = rmi_read_block(rmi_dev, GLOVE_SWITCH_ADDR, (u8*)&data->glove_switch, sizeof(data->glove_switch));
+	if (retval < 0) {
+	    dev_err(&fc->dev, "Failed to read from 0x0400!\n");
+	}
+	printk("read data->glove_switch =%d from 0x0400\n",data->glove_switch);
+	/*add exchage status between glove and finger only end*/
+	return retval;
+}
+
+static int rmi_f01_glove_switch_write(struct rmi_function_container *fc)
+{
+	struct rmi_device *rmi_dev = fc->rmi_dev;
+	struct rmi_driver_data *driver_data = rmi_get_driverdata(rmi_dev);
+	struct f01_data *data = driver_data->f01_container->data;
+	int retval = 0;
+	printk("data->glove_switch=%d, if 0 open glove, if 2 close glove\n",data->glove_switch);
+	/*add exchage status between glove and finger only begin*/
+	if (0 != data->glove_switch) { 	/*the glove funcion is defualtly opened in resume*/
+	    retval = rmi_write(rmi_dev, GLOVE_SWITCH_ADDR, data->glove_switch);
+	    if(retval < 0) {
+	        dev_err(&fc->dev, "failed to write to 0x0400!\n");
+	    }
+	}
+	/*add exchage status between glove and finger only end*/
+	return retval;
+}
 
 #ifdef CONFIG_PM
 static int rmi_f01_suspend(struct rmi_function_container *fc)
@@ -1251,6 +1297,10 @@ static int rmi_f01_suspend(struct rmi_function_container *fc)
 	struct rmi_driver_data *driver_data = rmi_get_driverdata(rmi_dev);
 	struct f01_data *data = driver_data->f01_container->data;
 	int retval = 0;
+	printk("%s:	enter\n",__func__);
+/*it should not do I2C write and read opreation when power down (TP power down happens before LCD suspend)*/
+
+	data->suspended = true;
 
 	if (data->suspended)
 		return 0;
@@ -1258,7 +1308,6 @@ static int rmi_f01_suspend(struct rmi_function_container *fc)
 	data->old_nosleep = data->device_control.ctrl0.nosleep;
 	data->device_control.ctrl0.nosleep = 0;
 	data->device_control.ctrl0.sleep_mode = RMI_SLEEP_MODE_SENSOR_SLEEP;
-
 	retval = rmi_write_block(rmi_dev,
 			driver_data->f01_container->fd.control_base_addr,
 			(u8 *)&data->device_control.ctrl0,
@@ -1272,16 +1321,30 @@ static int rmi_f01_suspend(struct rmi_function_container *fc)
 		data->suspended = true;
 		retval = 0;
 	}
-
 	return retval;
 }
-
+extern atomic_t tp_last_status;
+extern u8 tp_charger_set;
 static int rmi_f01_resume(struct rmi_function_container *fc)
 {
 	struct rmi_device *rmi_dev = fc->rmi_dev;
 	struct rmi_driver_data *driver_data = rmi_get_driverdata(rmi_dev);
 	struct f01_data *data = driver_data->f01_container->data;
 	int retval = 0;
+	atomic_set(&tp_last_status, TP_FINGER);             //add by huangpei 
+	atomic_set(&touch_is_pressed, 0);
+	tp_charger_set |= 1;
+	printk("%s:	enter\n",__func__);
+
+	data->suspended = false;
+	send_UP_MSG_in_resume();
+	retval = rmi_f01_glove_switch_write(fc);
+	if (retval < 0) {
+		dev_err(&fc->dev,
+			"Failed to switch mode between finger and glove. Code: %d.\n",
+			retval);
+		return retval;
+	}
 
 	if (!data->suspended)
 		return 0;
@@ -1301,7 +1364,6 @@ static int rmi_f01_resume(struct rmi_function_container *fc)
 		data->suspended = false;
 		retval = 0;
 	}
-
 	return retval;
 }
 #endif /* CONFIG_PM */

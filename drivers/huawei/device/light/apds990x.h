@@ -65,6 +65,7 @@
 struct apds990x_data {
 	struct i2c_client *client;
 	struct mutex update_lock;
+       struct workqueue_struct *ps_wq;
 	struct delayed_work	dwork;    /* for PS interrupt */
 	struct delayed_work	als_dwork; /* for ALS polling */
 	struct input_dev *input_dev_als;
@@ -101,6 +102,7 @@ struct apds990x_data {
 	unsigned int als_gain;            /* needed for Lux calculation */
 	unsigned int als_poll_delay;    /* needed for light sensor polling : micro-second (us) */
 	unsigned int als_atime;            /* storage for als integratiion time */
+	struct early_suspend early_suspend;
 };
 struct apds990x_platform_data {
 	int (*gpio_config_interrupt)(void);

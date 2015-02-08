@@ -1566,7 +1566,7 @@ static void bq2419x_charger_work(struct work_struct *work)
 
     bq2419x_charger_update_status(di);
 
-    bq2419x_charger_done_release_wakelock(di);
+    //bq2419x_charger_done_release_wakelock(di);
 
     schedule_delayed_work(&di->bq2419x_charger_work,
                  msecs_to_jiffies(BQ2419x_WATCHDOG_TIMEOUT));
@@ -2721,7 +2721,7 @@ static int bq2419x_charger_suspend(struct i2c_client *client,
 {
     struct bq2419x_device_info *di = i2c_get_clientdata(client);
 
-    if(di->charger_source == POWER_SUPPLY_TYPE_MAINS){
+    /*if(di->charger_source == POWER_SUPPLY_TYPE_MAINS){
         if(di->battery_full){
             if (!wake_lock_active(&chrg_lock)){
                 cancel_delayed_work(&di->bq2419x_charger_work);
@@ -2729,7 +2729,7 @@ static int bq2419x_charger_suspend(struct i2c_client *client,
                     wakeup_timer_seconds = 300;
             }
         }
-    }
+    }*/
 
     bq2419x_config_power_on_reg(di);
     return 0;

@@ -36,7 +36,14 @@
 #define CAMERA_AUTO_FPS_MAX_GAIN	0x60
 #define CAMERA_AUTO_FPS_MIN_GAIN	0x28
 
+#define CAMERA_AUTOFPS_GAIN_HIGH2MID		0x60
+#define CAMERA_AUTOFPS_GAIN_MID2LOW		0x60
+#define CAMERA_AUTOFPS_GAIN_LOW2MID		0x28
+#define CAMERA_AUTOFPS_GAIN_MID2HIGH		0x28
+
+/* support 3 level framerate now, if mid fps same as min, set to 2 level framerate */
 #define CAMERA_MAX_FRAMERATE		30
+#define CAMERA_MIDDLE_FRAMERATE			10
 #define CAMERA_MIN_FRAMERATE		10
 #define CAMERA_MIN_CAP_FRAMERATE	8
 
@@ -53,16 +60,6 @@
 
 #define CAMERA_EXPOSURE_MAX		2
 #define CAMERA_EXPOSURE_STEP	100
-
-#define CAMERA_AUTOFPS_GAIN_LOW2MID		0x28
-#define CAMERA_AUTOFPS_GAIN_MID2HIGH		0x28
-
-#define CAMERA_AUTOFPS_GAIN_HIGH2MID		0x60
-#define CAMERA_AUTOFPS_GAIN_MID2LOW		0x60
-
-#define CAMERA_MAX_FRAMERATE				30
-#define CAMERA_MIDDLE_FRAMERATE			10
-#define CAMERA_MIN_FRAMERATE				10
 
 typedef enum {
 	CAMERA_CONTRAST_L2 = 0,
@@ -138,6 +135,7 @@ typedef enum {
 	CAMERA_ISO_200,
 	CAMERA_ISO_400,
 	CAMERA_ISO_800,
+	CAMERA_ISO_1600,
 } camera_iso;
 
 typedef enum {
@@ -424,7 +422,10 @@ typedef struct _stats_hdr_frm
 	u16		frm_max_h;
 	u16		frm_max_l;
 }stats_hdr_frm;
-
+typedef struct _lum_stat_st
+{
+	u32		lum_stat[48];
+}lum_stat_st;
 typedef struct _preview_size
 {
     int width;
@@ -737,7 +738,7 @@ typedef struct {
 	/*
 	 * param: focus_area_s *area, rects definition;
 	 */
-	int (*isp_set_focus_area) (focus_area_s *area, u32 zoom);	
+	int (*isp_set_focus_area) (focus_area_s *area, u32 zoom);
 	int (*isp_get_focus_result) (focus_result_s *result);
 	int (*isp_set_focus_zoom) (u32 zoom);
 	int (*isp_set_sharpness_zoom) (u32 zoom);
@@ -789,6 +790,7 @@ typedef struct {
 	int (*set_brightness) (camera_brightness brightness);
 	int (*set_effect) (camera_effects effect);
 	int (*isp_get_actual_iso) (void);
+	int (*isp_get_algorithm_iso) (void);
 	int (*isp_get_hdr_iso_exp)(hdr_para_reserved *iso_exp);
 	int (*isp_get_exposure_time) (void);
 
@@ -908,8 +910,7 @@ typedef enum {
 	FLASH_PLATFORM_U9510 = 0,
 	FLASH_PLATFORM_9510E,
 	FLASH_PLATFORM_S10,
-//	FLASH_PLATFORM_D2,
-	FLASH_PLATFORM_U9508,
+	FLASH_PLATFORM_D2,
 	FLASH_PLATFORM_MAX,
 } flash_platform_t;
 
@@ -947,13 +948,13 @@ typedef enum {
 	OVERRIDE_ISO_HIGH = 0,
 	OVERRIDE_ISO_LOW,
 
-	/* increase frame rate gain threshold */
-	OVERRIDE_AUTOFPS_GAIN_LOW2MID,
-	OVERRIDE_AUTOFPS_GAIN_MID2HIGH,
-
 	/* reduce frame rate gain threshold */
 	OVERRIDE_AUTOFPS_GAIN_HIGH2MID,
 	OVERRIDE_AUTOFPS_GAIN_MID2LOW,
+
+	/* increase frame rate gain threshold */
+	OVERRIDE_AUTOFPS_GAIN_LOW2MID,
+	OVERRIDE_AUTOFPS_GAIN_MID2HIGH,
 
 	OVERRIDE_FPS_MAX,
 	OVERRIDE_FPS_MIDDLE,

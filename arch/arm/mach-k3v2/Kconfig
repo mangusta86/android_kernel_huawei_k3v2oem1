@@ -38,12 +38,6 @@ config MACH_K3V2OEM2
 	help
 	  Support for  Hisilicon K3V2 SOC OEM 2 platform
 
-config MACH_EPRJ_U9508
-	bool "EternityProject U9508 Board"
-	select REGULATOR_HI6421
-	help
-	  Support for Huawei U9508 machine - EPRJ Implementation.
-
 comment "K3V200 features"
 config K3_EDB_LEVEL
 	int "Kernel Early-Debug Level( 0~254, 255 => Disable Early-Debug)"
@@ -252,5 +246,3 @@ config K3V2_RAMDUMP
 	ram dump for k3v2 platform
 
 endmenu
-
-source "arch/arm/mach-k3v2/eprj_generic/Kconfig"

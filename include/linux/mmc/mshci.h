@@ -206,7 +206,7 @@ struct mshci_host {
 #define MSHCI_QUIRK_EXTERNAL_CARD_DETECTION		(1 << 4)
 #define MSHCI_QUIRK_WLAN_DETECTION		(1 << 5)
 #define MSHCI_QUIRK_TUNING_ENABLE		(1 << 6)
-#define MSHCI_QUIRK_TI_WL18XX   (1 << 7 )       //z00186406 add to give ti wl18xx a quirk
+//#define MSHCI_QUIRK_TI_WL18XX   (1 << 7 )       //z00186406 add to give ti wl18xx a quirk
 
 	int			irq;		/* Device IRQ */
 	void __iomem		*ioaddr;	/* Mapped address */

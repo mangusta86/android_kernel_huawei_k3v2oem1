@@ -50,6 +50,8 @@
 #define K3FB_SBL_SET_VALUE	_IOW(K3FB_IOCTL_MAGIC, 141, int)
 
 #define K3FB_OVC_CHECK_DDR_FREQ _IOW(K3FB_IOCTL_MAGIC, 142, char *) /* CONFIG_OVERLAY_COMPOSE */
+#define K3FB_OVC_SET_UPDATE_RECT _IOW(K3FB_IOCTL_MAGIC, 143, struct fb_var_screeninfo) /* CONFIG_OVERLAY_COMPOSE */
+#define K3FB_OVC_CHECK_UPDATE  _IOR(K3FB_IOCTL_MAGIC, 144, int) /* CONFIG_OVERLAY_COMPOSE */
 
 enum {
 	K3_DISABLE = 0,
@@ -220,6 +222,7 @@ struct overlay_info {
 	uint32_t cfg_disable;
 	uint32_t is_overlay_compose;
 	uint32_t need_unset;
+	uint32_t updt_ch_disable;
 	/* CONFIG_OVERLAY_COMPOSE end */
 };
 

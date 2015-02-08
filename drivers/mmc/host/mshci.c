@@ -31,13 +31,26 @@
 #include <linux/mmc/mshci.h>
 
 #include <linux/clk.h>
+#include <linux/workqueue.h>
 
 #include "k3v2_mmc_raw.h"
+
+#ifdef CONFIG_MMC_SD_HUB
+#include <linux/mmc/mn66831hub_api.h>
+#endif /*	CONFIG_MMC_SD_HUB	*/
 
 #define DRIVER_NAME "mshci"
 
 #define DBG(f, x...) \
 	pr_debug(DRIVER_NAME " [%s()]: " f, __func__, ## x)
+	
+#ifdef CONFIG_MMC_SD_HUB
+#define		SDHUB_DEVICE_ID		(SDHUB_DEVID0)
+
+#define MMC_CMD_SDIO		(1 << 14)
+
+static int flag_connection = 0 ;
+#endif	/*	CONFIG_MMC_SD_HUB	*/
 
 #define SDHC_CLK_ON 1
 #define SDHC_CLK_OFF 0
@@ -46,6 +59,11 @@
 #define DMA_SG_NUM 256
 
 #define DELAY_TIME     2000
+
+#ifdef CONFIG_MMC_SD_HUB
+void SDHUB_clock_enable( void );
+void SDHUB_clock_disable( void );
+#endif
 
 static unsigned int debug_quirks;
 
@@ -216,6 +234,7 @@ static void mshci_reset_fifo(struct mshci_host *host)
 		if (timeout == 0) {
 			printk(KERN_ERR "%s: Reset FIFO never completed.\n",
 				mmc_hostname(host->mmc));
+			dump_stack();
 			mshci_dumpregs(host);
 			return;
 		}
@@ -755,6 +774,11 @@ static void mshci_send_command(struct mshci_host *host, struct mmc_command *cmd)
 	if (host->mmc->caps & MMC_CAP_CLOCK_GATING) {
 		del_timer(&host->clock_timer);
 		if ((host->pclk != NULL) && (host->clk_ref_counter == CLK_DISABLED)) {
+#ifdef CONFIG_MMC_SD_HUB
+			if (host->quirks & MSHCI_QUIRK_EXTERNAL_CARD_DETECTION) {
+		        SDHUB_clock_enable();
+		        }
+#endif            
 			if (clk_enable(host->pclk))
 				printk(KERN_ERR "%s:%s:clk_enable pclk failed\n",
 					mmc_hostname(host->mmc), __func__);
@@ -1228,6 +1252,7 @@ out:
 	return ret;
 }
 
+
 /* MMC callbacks */
 static void mshci_request(struct mmc_host *mmc, struct mmc_request *mrq)
 {
@@ -1257,6 +1282,11 @@ static void mshci_request(struct mmc_host *mmc, struct mmc_request *mrq)
 
 	if (host->mmc->caps & MMC_CAP_CLOCK_GATING) {
 		if ((host->pclk != NULL) && (host->clk_ref_counter == CLK_DISABLED)) {
+#ifdef CONFIG_MMC_SD_HUB
+		    if (host->quirks & MSHCI_QUIRK_EXTERNAL_CARD_DETECTION) {
+		        SDHUB_clock_enable();
+		    }
+#endif
 			if (clk_enable(host->pclk))
 				printk(KERN_ERR "%s:%s:clk_enable pclk failed\n",
 					mmc_hostname(host->mmc), __func__);
@@ -1381,6 +1411,11 @@ static void mshci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 
 	if (host->mmc->caps & MMC_CAP_CLOCK_GATING) {
 		if ((host->pclk != NULL) && (host->clk_ref_counter == CLK_DISABLED)) {
+#ifdef CONFIG_MMC_SD_HUB
+			if (host->quirks & MSHCI_QUIRK_EXTERNAL_CARD_DETECTION) {
+		        SDHUB_clock_enable();
+		        }
+#endif                     
 			if (clk_enable(host->pclk))
 				printk(KERN_ERR "%s:%s:clk_enable pclk failed\n",
 					mmc_hostname(host->mmc), __func__);
@@ -1480,6 +1515,12 @@ static int mshci_get_ro(struct mmc_host *mmc)
 	else {
 		if (host->mmc->caps & MMC_CAP_CLOCK_GATING) {
 			if ((host->pclk != NULL) && (host->clk_ref_counter == CLK_DISABLED)) {
+#ifdef CONFIG_MMC_SD_HUB
+			if (host->quirks & MSHCI_QUIRK_EXTERNAL_CARD_DETECTION) {
+		        SDHUB_clock_enable();
+		        }
+#endif         
+                
 				if (clk_enable(host->pclk))
 					printk(KERN_ERR "%s:%s:clk_enable pclk failed\n",
 						mmc_hostname(host->mmc), __func__);
@@ -1501,6 +1542,15 @@ static int mshci_get_ro(struct mmc_host *mmc)
 	return wrtprt & WRTPRT_ON;
 }
 
+static void mshci_delete_timer(struct work_struct *work)
+{
+	struct mshci_host *host =
+                container_of(work, struct mshci_host, mshci_delete_timer_work);
+
+	if (host && &host->clock_timer)
+		del_timer_sync(&host->clock_timer);
+}
+
 static void mshci_enable_sdio_irq(struct mmc_host *mmc, int enable)
 {
 	struct mshci_host *host;
@@ -1510,7 +1560,7 @@ static void mshci_enable_sdio_irq(struct mmc_host *mmc, int enable)
 
 	if (host->mmc->caps & MMC_CAP_CLOCK_GATING) {
 		if (&host->clock_timer != NULL) {
-			del_timer_sync(&host->clock_timer);
+			schedule_work(&host->mshci_delete_timer_work);
 		}
 	}
 	spin_lock_irqsave(&host->lock, flags);
@@ -1521,6 +1571,11 @@ static void mshci_enable_sdio_irq(struct mmc_host *mmc, int enable)
 
 	if (host->mmc->caps & MMC_CAP_CLOCK_GATING) {
 		if ((host->pclk != NULL) && (host->clk_ref_counter == CLK_DISABLED)) {
+#ifdef CONFIG_MMC_SD_HUB
+			if (host->quirks & MSHCI_QUIRK_EXTERNAL_CARD_DETECTION) {
+		        SDHUB_clock_enable();
+		        }
+#endif                     
 			if (clk_enable(host->pclk))
 				printk(KERN_ERR "%s:%s:clk_enable pclk failed\n",
 					mmc_hostname(host->mmc), __func__);
@@ -1551,7 +1606,28 @@ out:
 static int mshci_get_cd(struct mmc_host *mmc)
 {
 	struct mshci_host *host;
+    int ret;
 	host = mmc_priv(mmc);
+#ifdef CONFIG_MMC_SD_HUB
+    if(host->quirks & MSHCI_QUIRK_EXTERNAL_CARD_DETECTION) {
+        printk("CPRM : %s : In %s flag_connection = %d\n", mmc_hostname(host->mmc), __func__, flag_connection);
+    	if( flag_connection == 0 ) {
+            if (host->ops->get_present_status) {
+                ret = host->ops->get_present_status(host);  // ret=1 卡不在位；ret=0卡在位
+             	if (!ret) {
+            		SDHUB_Connect( mmc, SDHUB_DEVICE_ID );
+                } else {
+                    if (SDHUB_Set_LowPower_Mode()) {
+        				printk(KERN_ERR "%s:SDHUB_Set_LowPower_Mode Failed\n", __func__);
+                    }                        
+                }                
+            }
+    		flag_connection = 1 ;
+    	}
+        return !ret;
+    }
+#endif /* CONFIG_MMC_SD_HUB */	
+
 	if ((host->quirks & MSHCI_QUIRK_WLAN_DETECTION)
 		&& (host->flags & MSHCI_DEVICE_DEAD))
 		return 0;
@@ -1576,6 +1652,11 @@ static int mshci_start_signal_voltage_switch(struct mmc_host *mmc, struct mmc_io
 			del_timer_sync(&host->clock_timer);
 		}
 		if ((host->pclk != NULL) && (host->clk_ref_counter == CLK_DISABLED)) {
+#ifdef CONFIG_MMC_SD_HUB
+			if (host->quirks & MSHCI_QUIRK_EXTERNAL_CARD_DETECTION) {
+		        SDHUB_clock_enable();
+		        }
+#endif                     
 			if (clk_enable(host->pclk))
 				printk(KERN_ERR "%s:%s:clk_enable pclk failed\n",
 					mmc_hostname(host->mmc), __func__);
@@ -1728,6 +1809,11 @@ static void mshci_tasklet_card(unsigned long param)
 	host->working = MMC_HOST_BUSY;
 	if (host->mmc->caps & MMC_CAP_CLOCK_GATING) {
 		if ((host->pclk != NULL) && (host->clk_ref_counter == CLK_DISABLED)) {
+#ifdef CONFIG_MMC_SD_HUB
+			if (host->quirks & MSHCI_QUIRK_EXTERNAL_CARD_DETECTION) {
+		        SDHUB_clock_enable();
+		        }
+#endif                     
 			if (clk_enable(host->pclk))
 				printk(KERN_ERR "%s:%s:clk_enable pclk failed\n",
 					mmc_hostname(host->mmc), __func__);
@@ -1810,7 +1896,11 @@ static void mshci_tasklet_finish(unsigned long param)
 		if (CLK_DISABLED == host->clk_ref_counter) {
 
 			host->working = MMC_HOST_BUSY; /* set work busy */
-
+#ifdef CONFIG_MMC_SD_HUB
+			if (host->quirks & MSHCI_QUIRK_EXTERNAL_CARD_DETECTION) {
+		        SDHUB_clock_enable();
+		        }
+#endif         
 			if (clk_enable(host->pclk))
 				printk(KERN_ERR "%s:%s:clk_enable pclk failed\n",
 					mmc_hostname(host->mmc), __func__);
@@ -1964,6 +2054,13 @@ static void mshci_timeout_timer(unsigned long data)
 	if (host->mrq) {
 		printk(KERN_ERR "%s: Timeout waiting for hardware "
 			"interrupt.\n", mmc_hostname(host->mmc));
+		printk(KERN_ERR "GIC DUMP:\n");
+		printk(KERN_ERR "0xFC001100	0x%x\n", readl(IO_ADDRESS(0xFC001100)));
+		printk(KERN_ERR "0xFC001104     0x%x\n", readl(IO_ADDRESS(0xFC001104)));
+		printk(KERN_ERR "0xFC001200     0x%x\n", readl(IO_ADDRESS(0xFC001200)));
+		printk(KERN_ERR "0xFC001204     0x%x\n", readl(IO_ADDRESS(0xFC001204)));
+		printk(KERN_ERR "0xFC001300     0x%x\n", readl(IO_ADDRESS(0xFC001300)));
+		printk(KERN_ERR "0xFC001304     0x%x\n", readl(IO_ADDRESS(0xFC001304)));
 		mshci_dumpregs(host);
 
 		if (host->data) {
@@ -2008,6 +2105,11 @@ static void mshci_clock_gate_timer(unsigned long data)
 					MSHCI_CTRL);
 			clk_disable(host->pclk);
 			host->clk_ref_counter = CLK_DISABLED;
+#ifdef CONFIG_MMC_SD_HUB
+			if (host->quirks & MSHCI_QUIRK_EXTERNAL_CARD_DETECTION) {
+		        SDHUB_clock_disable();
+		    }
+#endif
 		}
 	}
 
@@ -2272,8 +2374,13 @@ out:
 	spin_unlock(&host->lock);
 
 	/* We have to delay this as it calls back into the driver */
-	if (cardint)
-		mmc_signal_sdio_irq(host->mmc);
+	if (cardint) {
+		if ((host->mmc) && (host->mmc->sdio_irq_thread)) {
+			mmc_signal_sdio_irq(host->mmc);
+		} else {
+			printk(KERN_ERR "[%s] NULL pointer sdio_irq_thread (irq.no: %d)\n", __FUNCTION__, irq);
+		}
+	}
 
 	return result;
 }
@@ -2287,8 +2394,10 @@ int mshci_suspend_host(struct mshci_host *host, pm_message_t state)
 	int ret;
 
 	mshci_disable_card_detection(host);
-
-	if ((host->quirks & MSHCI_QUIRK_WLAN_DETECTION) == 0) {
+	
+	//z00186406 add, to enable TI wifi suspend/resume functionality,  begin
+	if ((host->quirks & (MSHCI_QUIRK_WLAN_DETECTION )) == 0) {
+	//z00186406 add, to enable TI wifi suspend/resume functionality,  end
 		ret = mmc_suspend_host(host->mmc);
 		if (ret)
 			return ret;
@@ -2314,6 +2423,12 @@ int mshci_resume_host(struct mshci_host *host)
 
 	spin_lock_irqsave(&host->lock, flags);
 	if (host->clk_ref_counter == CLK_DISABLED) {
+#ifdef CONFIG_MMC_SD_HUB
+			if (host->quirks & MSHCI_QUIRK_EXTERNAL_CARD_DETECTION) {
+		        SDHUB_clock_enable();
+		        }
+#endif         
+        
 		ret = clk_enable(host->pclk);
 		host->clk_ref_counter = CLK_ENABLED;
 		if (ret) {
@@ -2336,8 +2451,10 @@ int mshci_resume_host(struct mshci_host *host)
 	if (ret)
 		goto out;
 	mmiowb();
-
-	if ((host->quirks & MSHCI_QUIRK_WLAN_DETECTION) == 0) {
+	
+	//z00186406 add, to enable TI wifi suspend/resume functionality,  begin
+	if ((host->quirks & (MSHCI_QUIRK_WLAN_DETECTION )) == 0) {
+	//z00186406 add, to enable TI wifi suspend/resume functionality,  end
 		ret = mmc_resume_host(host->mmc);
 		if (ret)
 			goto out;
@@ -2623,6 +2740,8 @@ int mshci_add_host(struct mshci_host *host)
 	mshci_enable_card_detection(host);
 	host->working = MMC_HOST_FREE;
 
+	INIT_WORK(&host->mshci_delete_timer_work, mshci_delete_timer);
+
 	return 0;
 
 untasklet:
@@ -2684,6 +2803,18 @@ void mshci_free_host(struct mshci_host *host)
 	mmc_free_host(host->mmc);
 }
 EXPORT_SYMBOL_GPL(mshci_free_host);
+
+void mshci_disconnect(struct mshci_host *host)
+{
+#ifdef CONFIG_MMC_SD_HUB
+	if( flag_connection == 1 ) {
+		SDHUB_Disconnect( host->mmc, SDHUB_DEVICE_ID );
+		flag_connection = 0 ;
+	}
+#endif /* CONFIG_MMC_SD_HUB */
+}
+EXPORT_SYMBOL_GPL(mshci_disconnect);
+
 
 /* Driver init and exit */
 

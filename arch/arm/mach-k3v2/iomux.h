@@ -11,6 +11,7 @@
 #define INVALID 16
 #define MAX_NAME_CHARS 30
 #define FREEMODE_CHARS 10
+#define ENDSYMBOL -1
 enum lowlayer_func {
 	FUNC0 = 0,
 	FUNC1,
@@ -79,6 +80,11 @@ struct block_table {
 	struct block_config *config_array;
 };
 
+struct block_table_boardid {
+	int boardid;
+	struct block_table *p_block_table;
+};
+
 struct iomux_ops {
 	int (*pin_setfunc)(struct  iomux_pin *pin,
 			enum lowlayer_func pin_pull_updown);
@@ -105,7 +111,7 @@ struct iomux_pin_table {
          .config_array = _configarray,\
  },
 void iomux_init_blocks(void);
-extern struct block_table *block_config_tables[];
+extern struct block_table_boardid block_config_tables[];
 extern struct iomux_pin_table pins_table[];
 extern struct iomux_pin_table pins_table_cs[];
 
@@ -121,6 +127,12 @@ struct iocfg_lp {
 	int gpio_dir;
 	int gpio_val;
 };
+
+struct iocfg_lp_boardid {
+	int boardid;
+	struct iocfg_lp *p_iocfg_lp;
+};
+
 extern void iomux_debug_set(void);
 extern void iomux_debug_show(int check);
 #endif

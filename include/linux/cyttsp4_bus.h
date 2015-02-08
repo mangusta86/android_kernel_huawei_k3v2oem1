@@ -135,6 +135,8 @@ struct cyttsp4_core_driver {
 		u8 addr, const void *buf, int size);
 	int (*read)(struct cyttsp4_device *ttsp, int mode,
 		u8 addr, void *buf, int size);
+	int (* request_get_params)(struct cyttsp4_device *ttsp, int type);
+	int (* request_set_params)(struct cyttsp4_device *ttsp, int type, int value);
 };
 #define to_cyttsp4_core_driver(d) \
 	container_of(d, struct cyttsp4_core_driver, driver)
@@ -302,5 +304,18 @@ static inline int cyttsp4_request_write_config(struct cyttsp4_device *ttsp,
 	struct cyttsp4_core *cd = ttsp->core;
 	struct cyttsp4_core_driver *d = to_cyttsp4_core_driver(cd->dev.driver);
 	return d->request_write_config(ttsp, ebid, offset, data, length);
+}
+static inline int cyttsp4_request_get_params(struct cyttsp4_device *ttsp, int type)
+{
+	struct cyttsp4_core *cd = ttsp->core;
+	struct cyttsp4_core_driver *d = to_cyttsp4_core_driver(cd->dev.driver);
+	return d->request_get_params(ttsp, type);
+}
+
+static inline int cyttsp4_request_set_params(struct cyttsp4_device *ttsp, int type, int value)
+{
+	struct cyttsp4_core *cd = ttsp->core;
+	struct cyttsp4_core_driver *d = to_cyttsp4_core_driver(cd->dev.driver);
+	return d->request_set_params(ttsp, type, value);
 }
 #endif /* _LINUX_CYTTSP4_BUS_H */

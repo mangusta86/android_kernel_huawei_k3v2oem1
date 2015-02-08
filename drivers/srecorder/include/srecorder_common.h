@@ -51,6 +51,23 @@ extern "C" {
 
 
 /*==================================================================*/
+/*                       SRecorder控制开关 begin                    */
+/*==================================================================*/
+/* SRecorder Control Command */
+#define SRECORDER_IOCTL_BASE 'S'
+#define SRIOC_SET_DUMP_ENABLE_BIT _IOWR(SRECORDER_IOCTL_BASE, 0, unsigned long)
+#define SRIOC_CLR_DUMP_ENABLE_BIT _IOWR(SRECORDER_IOCTL_BASE, 1, unsigned long)
+#define SRIOC_SET_DUMP_ENABLE_BITS _IOWR(SRECORDER_IOCTL_BASE, 2, unsigned long)
+#define SRIOC_GET_DUMP_ENABLE_BITS _IOWR(SRECORDER_IOCTL_BASE, 3, unsigned long)
+#define SRIOC_ENABLE _IOWR(SRECORDER_IOCTL_BASE,  2012, unsigned long)
+#define SRIOC_DISABLE _IOWR(SRECORDER_IOCTL_BASE,  2013, unsigned long)
+#define SRIOC_CLEAN _IOWR(SRECORDER_IOCTL_BASE,  2014, unsigned long)
+/*==================================================================*/
+/*                       SRecorder控制开关 end                      */
+/*==================================================================*/
+
+
+/*==================================================================*/
 /*                      日志导出高级功能开关 begin                  */
 /*==================================================================*/
 #ifdef CONFIG_POWERCOLLAPSE
@@ -67,26 +84,18 @@ extern "C" {
 /*                     与平台相关日志导出开关 begin                 */
 /*==================================================================*/
 #ifdef CONFIG_ARCH_MSM
-#ifdef CONFIG_DUMP_MODEM_LOG_BY_FIQ
-#define DUMP_MODEM_LOG_BY_FIQ (1)
-#else
-#define DUMP_MODEM_LOG_BY_FIQ (0)
+#ifndef CONFIG_DUMP_MODEM_LOG_BY_FIQ
+//#define CONFIG_DUMP_MODEM_LOG_BY_FIQ
 #endif
 
-#ifdef CONFIG_DUMP_MODEM_LOG_DELAY_MAX_MS
-#define DUMP_MODEM_LOG_DELAY_MAX_MS (CONFIG_DUMP_MODEM_LOG_DELAY_MAX_MS)
-#else
-#define DUMP_MODEM_LOG_DELAY_MAX_MS (10) /* 在FIQ中延时10ms，针对高通平台 */
+#ifndef CONFIG_DUMP_MODEM_LOG_DELAY_MAX_MS
+#define CONFIG_DUMP_MODEM_LOG_DELAY_MAX_MS (10) /* 在FIQ中延时10ms，针对高通平台 */
 #endif
 
 /* 用以从cpufreq模块获取cpu时钟频率失败时使用，默认值请根据实际平台更改 */
-#ifdef CONFIG_CPU_FREQ_DEFAULT_VALUE
-#define CPU_FREQ_DEFAULT_VALUE (unsigned long)(CONFIG_CPU_FREQ_DEFAULT_VALUE)
-#else
-#define CPU_FREQ_DEFAULT_VALUE (1150000000UL) /* 1.15GHz */
+#ifndef CONFIG_CPU_FREQ_DEFAULT_VALUE
+#define CONFIG_CPU_FREQ_DEFAULT_VALUE (1150000000UL) /* 1.15GHz */
 #endif
-#else /* 针对除高通以外的平台,暂不导出Modem死机堆栈信息 */
-#define DUMP_MODEM_LOG_BY_FIQ (0)
 #endif
 /*==================================================================*/
 /*                     与平台相关日志导出开关 end                   */
@@ -96,12 +105,6 @@ extern "C" {
 /*==================================================================*/
 /*                       系统控制开关 begin                         */
 /*==================================================================*/
-#ifdef CONFIG_KALLSYMS
-#define USE_KERNEL_SYMBOL_KALLSYMS_LOOKUP_NAME (1)
-#else
-#define USE_KERNEL_SYMBOL_KALLSYMS_LOOKUP_NAME (0)
-#endif
-
 #if defined(CONFIG_ARCH_MSM) || defined(CONFIG_ARCH_K3V2)
 #define LET_MODEM_OR_WATCHDOG_RESET_SYSTEM (1) /* 为了不改变系统原有的错误处理流程，建议使用该配置 */
 #else
@@ -115,10 +118,8 @@ extern "C" {
 /*==================================================================*/
 /*                         模块全局常量定义 begin                   */
 /*==================================================================*/
-#ifdef CONFIG_SRECORDER_VERSION
-#define SRECORDER_VERSION (CONFIG_SRECORDER_VERSION)
-#else
-#define SRECORDER_VERSION ("0.0.0.1") /* 采用IPV4的模式 */
+#ifndef CONFIG_SRECORDER_VERSION
+#define CONFIG_SRECORDER_VERSION ("0.0.0.1") /* 采用IPV4的模式 */
 #endif
 
 #define INVALID_KSYM_ADDR (0UL) /* 定义符号的错误地址为0 */
@@ -181,6 +182,8 @@ do\
 #define MAX(a, b) ((a) > (b)) ? (a) : (b)
 #define MIN(a, b) ((a) > (b)) ? (b) : (a)
 #define LOG_BUF_MASK(log_buf_len) ((log_buf_len) - 1)
+
+/* log_buf_len must equal 2 ^ n ((n >= 0) && (n <= 32)) or the result may be wrong*/
 #define LOG_OFFSET(len, log_buf_len) ((len) & LOG_BUF_MASK(log_buf_len))
 /*==================================================================*/
 /*                         全局宏函数定义 end                       */
@@ -262,7 +265,85 @@ typedef struct __srecorder_virt_zone_info_t
 /*----export function prototypes--------------------------------------------------------*/
 
 /**
-    @function: void srecorder_set_bit(unsigned long bit)
+    @function: void srecorder_enable(unsigned long bit)
+    @brief: enable SRecorder
+
+    @param: none 
+    
+    @return: none
+
+    @note: 
+*/
+void srecorder_enable(void);
+
+
+/**
+    @function: void srecorder_disable(unsigned long bit)
+    @brief: disable SRecorder
+
+    @param: bit 
+    
+    @return: none
+
+    @note: 
+*/
+void srecorder_disable(void);
+
+
+/**
+    @function: bool srecorder_has_been_enabled(unsigned long bit)
+    @brief: check if SRecorder has been enabled
+
+    @param: bit 
+    
+    @return: none
+
+    @note: 
+*/
+bool srecorder_has_been_enabled(void);
+
+
+/**
+    @function: void srecorder_set_log_dumped_bit(unsigned long bit)
+    @brief: set bit to indicate that log with some type has been dumped completely
+
+    @param: bit 
+    
+    @return: none
+
+    @note: 
+*/
+void srecorder_set_log_dumped_bit(unsigned long bit);
+
+
+/**
+    @function: void srecorder_clear_log_dumped_bit(unsigned long bit)
+    @brief: clear some bit to indicate that log with some type has not been dumped
+
+    @param: bit 
+    
+    @return: none
+
+    @note: 
+*/
+void srecorder_clear_log_dumped_bit(unsigned long bit);
+
+
+/**
+    @function: bool srecorder_log_has_been_dumped(unsigned long bit)
+    @brief: check if log with some type has been dumped or not
+
+    @param: bit 
+    
+    @return: a unsigned long long num
+
+    @note: 
+*/
+bool srecorder_log_has_been_dumped(unsigned long bit);
+
+
+/**
+    @function: void srecorder_set_dump_enable_bit(unsigned long bit)
     @brief: 设置位
 
     @param: bit 
@@ -271,11 +352,11 @@ typedef struct __srecorder_virt_zone_info_t
 
     @note: 
 */
-void srecorder_set_bit(unsigned long bit);
+void srecorder_set_dump_enable_bit(unsigned long bit);
 
 
 /**
-    @function: void srecorder_set_bit(unsigned long bit)
+    @function: void srecorder_clear_dump_enable_bit(unsigned long bit)
     @brief: 清除位
 
     @param: bit 
@@ -284,11 +365,11 @@ void srecorder_set_bit(unsigned long bit);
 
     @note: 
 */
-void srecorder_clear_bit(unsigned long bit);
+void srecorder_clear_dump_enable_bit(unsigned long bit);
 
 
 /**
-    @function: unsigned long srecorder_get_bit(unsigned long bit)
+    @function: bool srecorder_dump_enable_bit_has_been_set(unsigned long bit)
     @brief: 获取某一位的值
 
     @param: bit 
@@ -297,7 +378,7 @@ void srecorder_clear_bit(unsigned long bit);
 
     @note: 
 */
-unsigned long srecorder_get_bit(unsigned long bit);
+bool srecorder_dump_enable_bit_has_been_set(unsigned long bit);
 
 
 /**
@@ -311,6 +392,19 @@ unsigned long srecorder_get_bit(unsigned long bit);
     @note: 
 */
 srecorder_reserved_mem_info_t* srecorder_get_reserved_mem_info(void);
+
+
+/**
+    @function: unsigned long srecorder_get_reserved_mem_addr(void)
+    @brief: 获取SRecorder保留内存起始地址
+
+    @param: none
+    
+    @return: SRecorder保留内存起始地址
+
+    @note: 
+*/
+unsigned long srecorder_get_reserved_mem_addr(void);
 
 
 /**

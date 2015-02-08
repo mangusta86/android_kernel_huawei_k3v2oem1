@@ -1,18 +1,22 @@
 /****************************************************************************
 *
-*    Copyright (c) 2005 - 2012 by Vivante Corp.  All rights reserved.
+*    Copyright (C) 2005 - 2013 by Vivante Corp.
 *
-*    The material in this file is confidential and contains trade secrets
-*    of Vivante Corporation. This is proprietary information owned by
-*    Vivante Corporation. No part of this work may be disclosed,
-*    reproduced, copied, transmitted, or used in any way for any purpose,
-*    without the express written permission of Vivante Corporation.
+*    This program is free software; you can redistribute it and/or modify
+*    it under the terms of the GNU General Public License as published by
+*    the Free Software Foundation; either version 2 of the license, or
+*    (at your option) any later version.
+*
+*    This program is distributed in the hope that it will be useful,
+*    but WITHOUT ANY WARRANTY; without even the implied warranty of
+*    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+*    GNU General Public License for more details.
+*
+*    You should have received a copy of the GNU General Public License
+*    along with this program; if not write to the Free Software
+*    Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
 *
 *****************************************************************************/
-
-
-
-
 
 
 #ifndef __gc_hal_vg_h_
@@ -241,32 +245,6 @@ typedef gctTHREADFUNCRESULT (gctTHREADFUNCTYPE * gctTHREADFUNC) (
 )
 
 /* some platforms need to fix the physical address for HW to access*/
-#ifdef __QNXNTO__
-
-gcmINLINE static gctUINT32 _qnxFixAddress(gctUINT32 Address)
-{
-    gctUINT32 baseAddress = 0;
-
-    if (gcmIS_ERROR(gcoOS_GetBaseAddress(gcvNULL, &baseAddress)))
-    {
-        baseAddress = 0;
-    }
-
-    return Address + baseAddress;
-}
-
-#define gcmFIXADDRESS       _qnxFixAddress
-
-gcmINLINE static gctUINT32 _qnxkFixAddress(gctUINT32 Address)
-{
-    extern unsigned long baseAddress;
-    return Address + baseAddress;
-}
-
-#define gcmkFIXADDRESS      _qnxkFixAddress
-
-#else
-
 #define gcmFIXADDRESS(address) \
 (\
     (address)\
@@ -276,8 +254,6 @@ gcmINLINE static gctUINT32 _qnxkFixAddress(gctUINT32 Address)
 (\
     (address)\
 )
-
-#endif
 
 /******************************************************************************\
 ****************************** Kernel Debug Macro ******************************
@@ -576,6 +552,12 @@ gckVGHARDWARE_QueryPowerManagementState(
     );
 
 gceSTATUS
+gckVGHARDWARE_SetPowerManagement(
+    IN gckVGHARDWARE Hardware,
+    IN gctBOOL PowerManagement
+    );
+
+gceSTATUS
 gckVGHARDWARE_SetPowerOffTimeout(
     IN gckVGHARDWARE  Hardware,
     IN gctUINT32    Timeout
@@ -609,7 +591,7 @@ typedef struct _gcsCMDBUFFER
     /* The user sets this to the node of the container buffer whitin which
        this particular command buffer resides. The kernel sets this to the
        node of the internally allocated buffer. */
-    gcuVIDMEM_NODE_PTR          node;
+    gctUINT64                   node;
 
     /* Command buffer hardware address. */
     gctUINT32                   address;
@@ -914,6 +896,12 @@ gckVGMMU_SetPage(
    IN gckVGMMU Mmu,
    IN gctUINT32 PageAddress,
    IN gctUINT32 *PageEntry
+   );
+
+/* Flush MMU */
+gceSTATUS
+gckVGMMU_Flush(
+   IN gckVGMMU Mmu
    );
 
 #endif /* gcdENABLE_VG */

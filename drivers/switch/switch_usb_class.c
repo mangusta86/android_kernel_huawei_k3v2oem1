@@ -26,241 +26,708 @@
 #include <linux/delay.h>
 #include <linux/io.h>
 #include <linux/interrupt.h>
-
+#include <linux/mutex.h>
 #include <linux/delay.h>
 #include <linux/wait.h>
 #include <linux/time.h>
-#include <linux/wakelock.h>
 #include <linux/usb/hiusb_android.h>
+#include <linux/mhl/mhl.h>
+#include <linux/syscalls.h>
+#include <linux/uaccess.h>
+#include <linux/notifier.h>
+#include <linux/switch_usb.h>
 #include <hsad/config_interface.h>
+#include <hsad/config_mgr.h>
+#include "smart_gpio.h"
+
+#define USB_SWITCH_SYSFS	"/sys/devices/virtual/usbswitch/usbsw/swstate"
+
+struct switch_usb_info {
+    struct atomic_notifier_head charger_type_notifier_head;
+    spinlock_t reg_flag_lock;
+};
+
+static struct switch_usb_info *p_switch_usb_info = NULL;
+
 struct class *switch_usb_class;
-static struct wake_lock usbsw_wakelock;
+static DEFINE_MUTEX(usb_switch_lock);
+
+enum USB_IRQ_STATUS_E
+{
+    USB_IRQ_ENABLED = 0,
+    USB_IRQ_DISABLED = 1,
+};
+static int usb_irq1_status = USB_IRQ_DISABLED;
+static int usb_irq2_status = USB_IRQ_DISABLED;
 
 static ssize_t usb_state_show(struct device *dev, struct device_attribute *attr,
-        char *buf)
+		char *buf)
 {
-    struct switch_usb_dev *sdev = (struct switch_usb_dev *)
-        dev_get_drvdata(dev);
+	struct switch_usb_dev *sdev = (struct switch_usb_dev *)
+		dev_get_drvdata(dev);
 
-    return sprintf(buf, "%d\n", sdev->state);
+	return sprintf(buf, "%d\n", sdev->state);
+}
+
+#define COMPOSITE_USB_SWITCH_MIN 900000
+#define COMPOSITE_USB_SWITCH_MAX (COMPOSITE_USB_SWITCH_MIN + 99999)
+#define USB_LOAD_SWITCH_1_ON (USB_OFF + 1)
+#define USB_LOAD_SWITCH_1_OFF (USB_OFF + 2)
+#define USB_LOAD_SWITCH_2_ON (USB_OFF + 3)
+#define USB_LOAD_SWITCH_2_OFF (USB_OFF + 4)
+
+static void usb_debug_switch(struct device *dev, int state)
+{
+	struct switch_usb_dev *sdev = (struct switch_usb_dev *)
+				dev_get_drvdata(dev);
+
+	if ((state >= COMPOSITE_USB_SWITCH_MIN)
+		&& (state <= COMPOSITE_USB_SWITCH_MAX)
+		)
+	{
+		switch_usb_set_state(sdev, (state / 10000) % 10);
+		msleep((state % 1000) * 1000);
+		switch_usb_set_state(sdev, (state / 1000) % 10);
+	}
+
+	switch (state)
+	{
+	case USB_LOAD_SWITCH_1_ON:
+		smart_gpio_set_value(sdev->pdata->modem_loadswitch1, GPIO_HI);
+		break;
+	case USB_LOAD_SWITCH_1_OFF:
+		smart_gpio_set_value(sdev->pdata->modem_loadswitch1, GPIO_LOW);
+		break;
+	case USB_LOAD_SWITCH_2_ON:
+		smart_gpio_set_value(sdev->pdata->modem_loadswitch2, GPIO_HI);
+		break;
+	case USB_LOAD_SWITCH_2_OFF:
+		smart_gpio_set_value(sdev->pdata->modem_loadswitch2, GPIO_LOW);
+		break;
+	}
 }
 
 static ssize_t usb_state_store(struct device *dev,
-        struct device_attribute *attr, const char *buf, size_t size)
+		struct device_attribute *attr, const char *buf, size_t size)
 {
-    struct switch_usb_dev *sdev = (struct switch_usb_dev *)
-                dev_get_drvdata(dev);
-    int state;
+	struct switch_usb_dev *sdev = (struct switch_usb_dev *)
+				dev_get_drvdata(dev);
+	int state;
 
-    sscanf(buf, "%d", &state);
-    if (switch_usb_set_state(sdev, state) < 0) {
-        dev_err(sdev->dev, "%s: switch_usb_set_state err\n", __func__);
-        return -1;
-    }
+	sscanf(buf, "%d", &state);
 
-    return size;
+	usb_debug_switch(dev, state);
+
+	if (switch_usb_set_state(sdev, state) < 0) {
+		dev_err(sdev->dev, "%s: switch_usb_set_state err\n", __func__);
+		return -EINVAL;
+	}
+
+	return size;
 }
 
-/*
-* usw_en_gpio          usw_ctrl_gpio
-*   0                   0               USB OFF
-*   0                   1               USB TO AP
-*   1                   0               SB TO MODEM
-*   1                   1               USB TO MHL
-*/
+static void notify_switch_state(int state)
+{
+	atomic_notifier_call_chain(&p_switch_usb_info->charger_type_notifier_head,
+				state, NULL);
+	pr_info("[%s]Notify usb switch state: %d\n", __func__, state);
+}
+
+static void set_gpio_to_target_state(int state, struct switch_usb_dev *sdev)
+{
+	struct usb_switch_platform_data *pdata = sdev->pdata;
+	BUG_ON(pdata == NULL);
+
+	switch (state) {
+	case USB_TO_AP:
+		pr_info("%s: USB_TO_AP\n", __func__);
+
+		smart_gpio_set_value(pdata->control_gpio1, pdata->control_gpio1_boot_ap_value);
+		smart_gpio_set_value(pdata->control_gpio2, pdata->control_gpio2_boot_ap_value);
+		smart_gpio_set_value(pdata->control_gpio3, pdata->control_gpio3_boot_ap_value);
+		smart_gpio_set_value(pdata->control_gpio4, pdata->control_gpio4_boot_ap_value);
+		break;
+	case USB_TO_MODEM1:
+		pr_info("%s: USB_TO_MODEM1\n", __func__);
+
+		smart_gpio_set_value(pdata->control_gpio1, pdata->control_gpio1_modem1_value);
+		smart_gpio_set_value(pdata->control_gpio2, pdata->control_gpio2_modem1_value);
+		smart_gpio_set_value(pdata->control_gpio3, pdata->control_gpio3_modem1_value);
+		smart_gpio_set_value(pdata->control_gpio4, pdata->control_gpio4_modem1_value);
+		smart_gpio_set_value(pdata->modem_loadswitch1, GPIO_HI);
+
+		enable_irq(sdev->irq1);
+		usb_irq1_status = USB_IRQ_ENABLED;
+		break;
+	case USB_TO_MODEM1_DOWNLOAD:
+		pr_info("%s: USB_TO_MODEM1_DOWNLOAD\n", __func__);
+
+		smart_gpio_set_value(pdata->control_gpio1, pdata->control_gpio1_modem1_value);
+		smart_gpio_set_value(pdata->control_gpio2, pdata->control_gpio2_modem1_value);
+		smart_gpio_set_value(pdata->control_gpio3, pdata->control_gpio3_modem1_value);
+		smart_gpio_set_value(pdata->control_gpio4, pdata->control_gpio4_modem1_value);
+		smart_gpio_set_value(pdata->modem_loadswitch1, GPIO_HI);
+
+		enable_irq(sdev->irq1);
+		usb_irq1_status = USB_IRQ_ENABLED;
+		// Call Modem1 download mode here
+		break;
+	case USB_TO_MODEM2:
+		pr_info("%s: USB_TO_MODEM2\n", __func__);
+
+		smart_gpio_set_value(pdata->control_gpio1, pdata->control_gpio1_modem2_value);
+		smart_gpio_set_value(pdata->control_gpio2, pdata->control_gpio2_modem2_value);
+		smart_gpio_set_value(pdata->control_gpio3, pdata->control_gpio3_modem2_value);
+		smart_gpio_set_value(pdata->control_gpio4, pdata->control_gpio4_modem2_value);
+		smart_gpio_set_value(pdata->modem_loadswitch2, GPIO_HI);
+
+		enable_irq(sdev->irq2);
+		usb_irq2_status = USB_IRQ_ENABLED;
+		break;
+	case USB_TO_MODEM2_DOWNLOAD:
+		pr_info("%s: USB_TO_MODEM2_DOWNLOAD\n", __func__);
+
+		smart_gpio_set_value(pdata->control_gpio1, pdata->control_gpio1_modem2_value);
+		smart_gpio_set_value(pdata->control_gpio2, pdata->control_gpio2_modem2_value);
+		smart_gpio_set_value(pdata->control_gpio3, pdata->control_gpio3_modem2_value);
+		smart_gpio_set_value(pdata->control_gpio4, pdata->control_gpio4_modem2_value);
+		smart_gpio_set_value(pdata->modem_loadswitch2, GPIO_HI);
+
+		enable_irq(sdev->irq2);
+		usb_irq2_status = USB_IRQ_ENABLED;
+		// Call Modem2 download mode here
+		break;
+	case USB_TO_MHL:
+		pr_info("%s: USB_TO_MHL\n", __func__);
+
+		smart_gpio_set_value(pdata->control_gpio1, pdata->control_gpio1_mhl_value);
+		smart_gpio_set_value(pdata->control_gpio2, pdata->control_gpio2_mhl_value);
+		smart_gpio_set_value(pdata->control_gpio3, pdata->control_gpio3_mhl_value);
+		smart_gpio_set_value(pdata->control_gpio4, pdata->control_gpio4_mhl_value);
+
+		break;
+	case USB_OFF:
+		pr_info("%s: USB_OFF\n", __func__);
+
+		if ( pdata->modem1_supported
+		   && (usb_irq1_status == USB_IRQ_ENABLED)
+		   )
+		{
+			disable_irq(sdev->irq1);
+			usb_irq1_status = USB_IRQ_DISABLED;
+		}
+
+		if ( pdata->modem2_supported
+		   && (usb_irq2_status == USB_IRQ_ENABLED)
+		   )
+		{
+			disable_irq(sdev->irq2);
+			usb_irq2_status = USB_IRQ_DISABLED;
+		}
+
+		smart_gpio_set_value(pdata->modem_loadswitch1, GPIO_LOW);
+		smart_gpio_set_value(pdata->modem_loadswitch2, GPIO_LOW);
+		smart_gpio_set_value(pdata->control_gpio1, pdata->control_gpio1_off_value);
+		smart_gpio_set_value(pdata->control_gpio2, pdata->control_gpio2_off_value);
+		smart_gpio_set_value(pdata->control_gpio3, pdata->control_gpio3_off_value);
+		smart_gpio_set_value(pdata->control_gpio4, pdata->control_gpio4_off_value);
+		break;
+	default:
+		// Parameter already checked, impossible to reach
+		BUG_ON(1);
+		break;
+	}
+}
+
 int switch_usb_set_state(struct switch_usb_dev *sdev, int state)
 {
-    int ret = 0;
-    struct usb_switch_platform_data *pdata = sdev->pdata;
-    unsigned int  board_type;
-    struct usb_switch_data *switch_data = (struct usb_switch_data *)sdev;
-    BUG_ON(pdata == NULL);
-    BUG_ON(switch_data == NULL);
+	int ret = 0;
+	struct usb_switch_platform_data *pdata = sdev->pdata;
+	BUG_ON(pdata == NULL);
+	mutex_lock(&usb_switch_lock);
 
-    ret = gpio_request(pdata->usw_ctrl_gpio, "usb_sw_ctrl");
-    if (ret < 0) {
-        dev_err(sdev->dev, "%s: gpio_request %d return"
-            "err: %d.\n", __func__, pdata->usw_ctrl_gpio, ret);
-        goto err_request_usw_ctrl_gpio;
-    }
+	if ((state < USB_TO_AP) || (state > USB_OFF))
+	{
+		dev_info(sdev->dev, "%s: swstate[%d] is invalid\n",
+			__func__, state);
+		ret = -EINVAL;
+		mutex_unlock(&usb_switch_lock);
+		return ret;
+	}
 
-    ret = gpio_request(pdata->usw_en_gpio, "usb_sw_en");
-    if (ret < 0) {
-        dev_err(sdev->dev, "%s: gpio_request %d return"
-            "err: %d.\n", __func__, pdata->usw_en_gpio, ret);
-        goto err_request_en_gpio;
-    }
+	if (sdev->state == state)
+	{
+		dev_info(sdev->dev, "%s: swstate[%d] is not changed, new "
+			"swstate[%d]\n", __func__, sdev->state, state);
+		ret = -EINVAL;
+		mutex_unlock(&usb_switch_lock);
+		return ret;
+	}
 
-    board_type = get_board_type();
+	// check if target state is not supported on this board
+	if (	((pdata->modem1_supported == false)
+			&& ((state == USB_TO_MODEM1)
+				|| (state == USB_TO_MODEM1_DOWNLOAD)
+				)
+			)
+		|| ((pdata->modem2_supported == false)
+			&& ((state == USB_TO_MODEM2)
+				|| (state == USB_TO_MODEM2_DOWNLOAD)
+				)
+			)
+		|| ((pdata->mhl_supported == false)
+			&& (state == USB_TO_MHL)
+			)
+		)
+	{
+		dev_info(sdev->dev, "target state %d is not supported", state);
+		ret = -EINVAL;
+		mutex_unlock(&usb_switch_lock);
+		return ret;
+	}
 
-    if (sdev->state != state) {
-        sdev->state = state;
-        if (state == USB_TO_MODEM) {
-            wake_lock(&usbsw_wakelock);
-            /*if (hiusb_do_usb_disconnect() < 0) {
-                dev_err(sdev->dev, "%s: hiusb_do_usb_disconnect"
-                " return err\n", __func__);
-            }*/
-            msleep(20);
-        }
+	// if MHL is plugged in, only MHL state is allowed
+	// if MHL is not plugged in, MHL state is not allowed
+#if defined(MHL_SII9244) || defined(MHL_SII8240)
+	if ( ((true == GetMhlCableConnect()) && (state != USB_TO_MHL))
+	   ||((false == GetMhlCableConnect()) && (state == USB_TO_MHL))
+		)
+	{
+		dev_info(sdev->dev, "%s: swstate[%d] is unavailable because MHL state is [%d]\n",
+			__func__, state, GetMhlCableConnect());
+		ret = -EINVAL;
+		mutex_unlock(&usb_switch_lock);
+		return ret;
+	}
+#endif
 
-        if (state == USB_TO_AP) {
-            wake_unlock(&usbsw_wakelock);
-            msleep(100);
-        }
-//        if (E_BOARD_TYPE_U9508 == board_type){
-        ret = gpio_direction_output(pdata->usw_ctrl_gpio, GPIO_HI);
-        if (ret < 0) {
-            dev_err(sdev->dev, "%s: gpio_direction_output %d return"
-                "err: %d.\n", __func__, pdata->usw_ctrl_gpio, ret);
-            goto err_request_usw_ctrl_gpio_input;
-//        }
+	// Switch to Hi-Impedence anyway before any switch
+	set_gpio_to_target_state(USB_OFF, sdev);
 
-        ret = gpio_direction_output(pdata->usw_en_gpio, GPIO_HI);
-        if (ret < 0) {
-            dev_err(sdev->dev, "%s: gpio_direction_output %d return"
-                "err: %d.\n", __func__, pdata->usw_en_gpio, ret);
-            goto err_request_usw_en_gpio_input;
-        }
-        }else{
-        ret = gpio_direction_output(pdata->usw_ctrl_gpio, GPIO_LOW);
-        if (ret < 0) {
-            dev_err(sdev->dev, "%s: gpio_direction_output %d return"
-                "err: %d.\n", __func__, pdata->usw_ctrl_gpio, ret);
-            goto err_request_usw_ctrl_gpio_input;
-        }
+	if (state != USB_TO_MHL)
+	{
+		msleep(1000);
+	}
 
-        ret = gpio_direction_output(pdata->usw_en_gpio, GPIO_LOW);
-        if (ret < 0) {
-            dev_err(sdev->dev, "%s: gpio_direction_output %d return"
-                "err: %d.\n", __func__, pdata->usw_en_gpio, ret);
-            goto err_request_usw_en_gpio_input;
-        }
-        }
+	if (state != USB_OFF)
+	{
+		set_gpio_to_target_state(state, sdev);
+	}
 
-        switch (state) {
-        case USB_TO_AP:
-            dev_info(sdev->dev, "%s: USB_TO_AP\n", __func__);
-            msleep(1000);
-//            if (E_BOARD_TYPE_U9508 == board_type){
-                gpio_set_value(pdata->usw_ctrl_gpio, GPIO_LOW);
-                gpio_set_value(pdata->usw_en_gpio, GPIO_LOW);
-//            }else{
-//                gpio_set_value(pdata->usw_ctrl_gpio, GPIO_HI);
-//                gpio_set_value(pdata->usw_en_gpio, GPIO_LOW);
-//            }
+	// update the state
+	sdev->state = state;
 
-            break;
-        case USB_TO_MODEM:
-            dev_info(sdev->dev, "%s: USB_TO_MODEM\n", __func__);
-            msleep(1000);
+	notify_switch_state(state);
 
-//            if (E_BOARD_TYPE_U9508 == board_type){
-                gpio_set_value(pdata->usw_ctrl_gpio, GPIO_HI);
-                gpio_set_value(pdata->usw_en_gpio, GPIO_LOW);
-//            }else{
-//                gpio_set_value(pdata->usw_ctrl_gpio, GPIO_LOW);
-//                gpio_set_value(pdata->usw_en_gpio, GPIO_HI);
-//            }
-            enable_irq(switch_data->irq);
-            break;
-        case USB_OFF:
-            dev_info(sdev->dev, "%s: USB_OFF\n", __func__);
-//            if (E_BOARD_TYPE_U9508 == board_type){
-                gpio_set_value(pdata->usw_en_gpio, GPIO_HI);
-                gpio_set_value(pdata->usw_ctrl_gpio, GPIO_LOW);
-//            }else{
-//                gpio_set_value(pdata->usw_en_gpio, GPIO_LOW);
-//                gpio_set_value(pdata->usw_ctrl_gpio, GPIO_LOW);
-//            }
-            break;
-        default:
-            dev_info(sdev->dev, "%s: state[%d] is overrun",
-                __func__, sdev->state);
-            ret = -1;
-            break;
-        }
-    } else {
-        dev_info(sdev->dev, "%s: swstate[%d] is not changed, new "
-            "swstate[%d]\n", __func__, sdev->state, state);
-        ret = -1;
-    }
-exit_func:
-err_request_usw_en_gpio_input:
-err_request_usw_ctrl_gpio_input:
-    gpio_free(pdata->usw_en_gpio);
-err_request_en_gpio:
-    gpio_free(pdata->usw_ctrl_gpio);
-err_request_usw_ctrl_gpio:
-    return ret;
+	mutex_unlock(&usb_switch_lock);
+	return ret;
 }
 EXPORT_SYMBOL_GPL(switch_usb_set_state);
 
-static DEVICE_ATTR(swstate, S_IRUGO | S_IWUSR, usb_state_show, usb_state_store);
+void switch_usb_set_state_through_fs(int state)
+{
+	mm_segment_t oldfs;
+	struct file *filp;
 
+	oldfs = get_fs();
+	set_fs(KERNEL_DS);
+
+	// this will not work for soft-irq and irq context
+	filp = filp_open(USB_SWITCH_SYSFS, O_RDWR, 0);
+
+	if (!filp || IS_ERR(filp))
+	{
+		/* Fs node not exist */
+		pr_err("MHL: Failed to access usb switch\n");
+		set_fs(oldfs);
+		return;
+	}
+
+	switch (state)
+	{
+		case USB_TO_AP:
+			filp->f_op->write(filp, "0", 1, &filp->f_pos);
+			break;
+		case USB_TO_MHL:
+			filp->f_op->write(filp, "5", 1, &filp->f_pos);
+			break;
+		default:
+			printk("Other state is not available through this API");
+	}
+
+	filp_close(filp, NULL);
+	set_fs(oldfs);
+}
+EXPORT_SYMBOL_GPL(switch_usb_set_state_through_fs);
+
+static DEVICE_ATTR(swstate, S_IRUGO | S_IWUSR, usb_state_show, usb_state_store);
 
 static int create_switch_usb_class(void)
 {
-    if (!switch_usb_class) {
-        switch_usb_class = class_create(THIS_MODULE, "usbswitch");
-        if (IS_ERR(switch_usb_class))
-            return PTR_ERR(switch_usb_class);
-    }
+	if (!switch_usb_class) {
+		switch_usb_class = class_create(THIS_MODULE, "usbswitch");
+		if (IS_ERR(switch_usb_class))
+			return PTR_ERR(switch_usb_class);
+	}
 
-    /* This wakelock will be used to arrest system sleeping when USB is in L0 state */
-    wake_lock_init(&usbsw_wakelock, WAKE_LOCK_SUSPEND, "usb_switch");
-    return 0;
+	return 0;
+}
+
+static void dump_and_check_usb_switch_configuration(struct usb_switch_platform_data *pdata, int *ret)
+{
+	bool config_ret;
+
+	config_ret = get_hw_config_bool("usb_switch/enable", &pdata->enable, NULL);
+	if (config_ret == false) {
+		pdata->enable = false;
+	}
+
+	config_ret = get_hw_config_bool("usb_switch/modem1_supported", &pdata->modem1_supported, NULL);
+	if (config_ret == false) {
+		pdata->modem1_supported = false;
+	}
+
+	config_ret = get_hw_config_bool("usb_switch/modem2_supported", &pdata->modem2_supported, NULL);
+	if (config_ret == false) {
+		pdata->modem2_supported = false;
+	}
+
+	config_ret = get_hw_config_bool("usb_switch/mhl_supported", &pdata->mhl_supported, NULL);
+	if (config_ret == false) {
+		pdata->mhl_supported = false;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/control_gpio1", &pdata->control_gpio1, NULL);
+	if (config_ret == false) {
+		pdata->control_gpio1 = UNAVAILABLE_PIN;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/control_gpio2", &pdata->control_gpio2, NULL);
+	if (config_ret == false) {
+		pdata->control_gpio2 = UNAVAILABLE_PIN;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/control_gpio3", &pdata->control_gpio3, NULL);
+	if (config_ret == false) {
+		pdata->control_gpio3 = UNAVAILABLE_PIN;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/control_gpio4", &pdata->control_gpio4, NULL);
+	if (config_ret == false) {
+		pdata->control_gpio4 = UNAVAILABLE_PIN;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/modem_loadswitch1", &pdata->modem_loadswitch1, NULL);
+	if (config_ret == false) {
+		pdata->modem_loadswitch1 = UNAVAILABLE_PIN;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/modem_loadswitch2", &pdata->modem_loadswitch2, NULL);
+	if (config_ret == false) {
+		pdata->modem_loadswitch2 = UNAVAILABLE_PIN;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/modem_int_gpio1", &pdata->modem_int_gpio1, NULL);
+	if (config_ret == false) {
+		pdata->modem_int_gpio1 = UNAVAILABLE_PIN;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/modem_int_gpio2", &pdata->modem_int_gpio2, NULL);
+	if (config_ret == false) {
+		pdata->modem_int_gpio2 = UNAVAILABLE_PIN;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/control_gpio1_suspend_value", &pdata->control_gpio1_suspend_value, NULL);
+	if (config_ret == false) {
+		pdata->control_gpio1_suspend_value = SMART_GPIO_NO_TOUCH;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/control_gpio2_suspend_value", &pdata->control_gpio2_suspend_value, NULL);
+	if (config_ret == false) {
+		pdata->control_gpio2_suspend_value = SMART_GPIO_NO_TOUCH;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/control_gpio3_suspend_value", &pdata->control_gpio3_suspend_value, NULL);
+	if (config_ret == false) {
+		pdata->control_gpio3_suspend_value = SMART_GPIO_NO_TOUCH;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/control_gpio4_suspend_value", &pdata->control_gpio4_suspend_value, NULL);
+	if (config_ret == false) {
+		pdata->control_gpio4_suspend_value = SMART_GPIO_NO_TOUCH;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/control_gpio1_boot_ap_value", &pdata->control_gpio1_boot_ap_value, NULL);
+	if (config_ret == false) {
+		pdata->control_gpio1_boot_ap_value = SMART_GPIO_NO_TOUCH;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/control_gpio2_boot_ap_value", &pdata->control_gpio2_boot_ap_value, NULL);
+	if (config_ret == false) {
+		pdata->control_gpio2_boot_ap_value = SMART_GPIO_NO_TOUCH;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/control_gpio3_boot_ap_value", &pdata->control_gpio3_boot_ap_value, NULL);
+	if (config_ret == false) {
+		pdata->control_gpio3_boot_ap_value = SMART_GPIO_NO_TOUCH;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/control_gpio4_boot_ap_value", &pdata->control_gpio4_boot_ap_value, NULL);
+	if (config_ret == false) {
+		pdata->control_gpio4_boot_ap_value = SMART_GPIO_NO_TOUCH;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/control_gpio1_off_value", &pdata->control_gpio1_off_value, NULL);
+	if (config_ret == false) {
+		pdata->control_gpio1_off_value = SMART_GPIO_NO_TOUCH;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/control_gpio2_off_value", &pdata->control_gpio2_off_value, NULL);
+	if (config_ret == false) {
+		pdata->control_gpio2_off_value = SMART_GPIO_NO_TOUCH;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/control_gpio3_off_value", &pdata->control_gpio3_off_value, NULL);
+	if (config_ret == false) {
+		pdata->control_gpio3_off_value = SMART_GPIO_NO_TOUCH;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/control_gpio4_off_value", &pdata->control_gpio4_off_value, NULL);
+	if (config_ret == false) {
+		pdata->control_gpio4_off_value = SMART_GPIO_NO_TOUCH;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/control_gpio1_modem1_value", &pdata->control_gpio1_modem1_value, NULL);
+	if (config_ret == false) {
+		pdata->control_gpio1_modem1_value = SMART_GPIO_NO_TOUCH;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/control_gpio2_modem1_value", &pdata->control_gpio2_modem1_value, NULL);
+	if (config_ret == false) {
+		pdata->control_gpio2_modem1_value = SMART_GPIO_NO_TOUCH;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/control_gpio3_modem1_value", &pdata->control_gpio3_modem1_value, NULL);
+	if (config_ret == false) {
+		pdata->control_gpio3_modem1_value = SMART_GPIO_NO_TOUCH;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/control_gpio4_modem1_value", &pdata->control_gpio4_modem1_value, NULL);
+	if (config_ret == false) {
+		pdata->control_gpio4_modem1_value = SMART_GPIO_NO_TOUCH;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/control_gpio1_modem2_value", &pdata->control_gpio1_modem2_value, NULL);
+	if (config_ret == false) {
+		pdata->control_gpio1_modem2_value = SMART_GPIO_NO_TOUCH;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/control_gpio2_modem2_value", &pdata->control_gpio2_modem2_value, NULL);
+	if (config_ret == false) {
+		pdata->control_gpio2_modem2_value = SMART_GPIO_NO_TOUCH;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/control_gpio3_modem2_value", &pdata->control_gpio3_modem2_value, NULL);
+	if (config_ret == false) {
+		pdata->control_gpio3_modem2_value = SMART_GPIO_NO_TOUCH;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/control_gpio4_modem2_value", &pdata->control_gpio4_modem2_value, NULL);
+	if (config_ret == false) {
+		pdata->control_gpio4_modem2_value = SMART_GPIO_NO_TOUCH;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/control_gpio1_mhl_value", &pdata->control_gpio1_mhl_value, NULL);
+	if (config_ret == false) {
+		pdata->control_gpio1_mhl_value = SMART_GPIO_NO_TOUCH;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/control_gpio2_mhl_value", &pdata->control_gpio2_mhl_value, NULL);
+	if (config_ret == false) {
+		pdata->control_gpio2_mhl_value = SMART_GPIO_NO_TOUCH;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/control_gpio3_mhl_value", &pdata->control_gpio3_mhl_value, NULL);
+	if (config_ret == false) {
+		pdata->control_gpio3_mhl_value = SMART_GPIO_NO_TOUCH;
+	}
+
+	config_ret = get_hw_config_int("usb_switch/control_gpio4_mhl_value", &pdata->control_gpio4_mhl_value, NULL);
+	if (config_ret == false) {
+		pdata->control_gpio4_mhl_value = SMART_GPIO_NO_TOUCH;
+	}
+
+	if (pdata->modem1_supported)
+	{
+		if ( ((pdata->modem_loadswitch1) == UNAVAILABLE_PIN)
+			|| ((pdata->modem_int_gpio1) == UNAVAILABLE_PIN)
+			)
+		{
+			pr_err("%s: invalid loadswitch %d or interrupt %d\n",
+				__func__, pdata->modem_loadswitch1, pdata->modem_int_gpio1);
+			*ret = -EINVAL;
+			return;
+		}
+	}
+
+	if (pdata->modem2_supported)
+	{
+		if ( ((pdata->modem_loadswitch2) == UNAVAILABLE_PIN)
+			|| ((pdata->modem_int_gpio2) == UNAVAILABLE_PIN)
+			)
+		{
+			pr_err("%s: invalid loadswitch %d or interrupt %d\n",
+				__func__, pdata->modem_loadswitch2, pdata->modem_int_gpio2);
+			*ret = -EINVAL;
+			return;
+		}
+	}
 }
 
 int switch_usb_dev_register(struct switch_usb_dev *sdev)
 {
-    int ret;
+	int ret = 0;
+	struct usb_switch_platform_data *pdata = sdev->pdata;
+	BUG_ON(pdata == NULL);
 
-    if (!switch_usb_class) {
-        ret = create_switch_usb_class();
-        if (ret < 0)
-            return ret;
-    }
+	dump_and_check_usb_switch_configuration(pdata, &ret);
 
-    sdev->dev = device_create(switch_usb_class, NULL,
-        MKDEV(0, 0), NULL, sdev->name);
-    if (IS_ERR(sdev->dev))
-        return PTR_ERR(sdev->dev);
+	smart_gpio_request(pdata->control_gpio1, "control_gpio1", &ret);
+	smart_gpio_request(pdata->control_gpio2, "control_gpio2", &ret);
+	smart_gpio_request(pdata->control_gpio3, "control_gpio3", &ret);
+	smart_gpio_request(pdata->control_gpio4, "control_gpio4", &ret);
+	smart_gpio_request(pdata->modem_loadswitch1, "modem_loadswitch1", &ret);
+	smart_gpio_request(pdata->modem_loadswitch2, "modem_loadswitch2", &ret);
 
-    ret = device_create_file(sdev->dev, &dev_attr_swstate);
-    if (ret < 0)
-        goto err_create_file;
+	// switch to AP and turn off loadswitch by default
+	smart_gpio_direction_output(pdata->control_gpio1, pdata->control_gpio1_boot_ap_value, &ret);
+	smart_gpio_direction_output(pdata->control_gpio2, pdata->control_gpio2_boot_ap_value, &ret);
+	smart_gpio_direction_output(pdata->control_gpio3, pdata->control_gpio3_boot_ap_value, &ret);
+	smart_gpio_direction_output(pdata->control_gpio4, pdata->control_gpio4_boot_ap_value, &ret);
+	smart_gpio_direction_output(pdata->modem_loadswitch1, GPIO_LOW, &ret);
+	smart_gpio_direction_output(pdata->modem_loadswitch2, GPIO_LOW, &ret);
 
-    dev_set_drvdata(sdev->dev, sdev);
-    sdev->state = USB_TO_AP;
-    return 0;
+	if (ret != 0)
+	{
+		goto err_gpio_request;
+	}
+
+	if (!switch_usb_class) {
+		ret = create_switch_usb_class();
+		if (ret < 0)
+		{
+			goto err_gpio_request;
+		}
+	}
+
+	sdev->dev = device_create(switch_usb_class, NULL,
+		MKDEV(0, 0), NULL, sdev->name);
+	if (IS_ERR(sdev->dev))
+	{
+		ret = PTR_ERR(sdev->dev);
+		goto err_gpio_request;
+	}
+
+	ret = device_create_file(sdev->dev, &dev_attr_swstate);
+	if (ret < 0)
+		goto err_create_file;
+
+	dev_set_drvdata(sdev->dev, sdev);
+	sdev->state = USB_TO_AP;
+	return 0;
 
 err_create_file:
-    device_destroy(switch_usb_class, MKDEV(0, 0));
-    dev_err(sdev->dev, "switch_usb: Failed to register driver %s\n",
-        sdev->name);
+	device_destroy(switch_usb_class, MKDEV(0, 0));
+	dev_err(sdev->dev, "switch_usb: Failed to register driver %s\n",
+		sdev->name);
+err_gpio_request:
+	smart_gpio_free(pdata->modem_loadswitch2);
+	smart_gpio_free(pdata->modem_loadswitch1);
+	smart_gpio_free(pdata->control_gpio4);
+	smart_gpio_free(pdata->control_gpio3);
+	smart_gpio_free(pdata->control_gpio2);
+	smart_gpio_free(pdata->control_gpio1);
 
-    return ret;
+	return ret;
 }
 EXPORT_SYMBOL_GPL(switch_usb_dev_register);
 
 void switch_usb_dev_unregister(struct switch_usb_dev *sdev)
 {
-    device_remove_file(sdev->dev, &dev_attr_swstate);
-    device_destroy(switch_usb_class, MKDEV(0, 0));
-    dev_set_drvdata(sdev->dev, NULL);
+	struct usb_switch_platform_data *pdata = sdev->pdata;
+	BUG_ON(pdata == NULL);
+
+	device_remove_file(sdev->dev, &dev_attr_swstate);
+	device_destroy(switch_usb_class, MKDEV(0, 0));
+	dev_set_drvdata(sdev->dev, NULL);
+	smart_gpio_free(pdata->modem_loadswitch2);
+	smart_gpio_free(pdata->modem_loadswitch1);
+	smart_gpio_free(pdata->control_gpio4);
+	smart_gpio_free(pdata->control_gpio3);
+	smart_gpio_free(pdata->control_gpio2);
+	smart_gpio_free(pdata->control_gpio1);
 }
 EXPORT_SYMBOL_GPL(switch_usb_dev_unregister);
 
+
+int switch_usb_register_notifier(struct notifier_block *nb)
+{
+	unsigned long flags;
+	int ret = -1;
+	if(p_switch_usb_info != NULL) {
+		spin_lock_irqsave(&p_switch_usb_info->reg_flag_lock, flags);
+		ret = atomic_notifier_chain_register(
+				&p_switch_usb_info->charger_type_notifier_head, nb);
+		spin_unlock_irqrestore(&p_switch_usb_info->reg_flag_lock, flags);
+	}
+	return ret;
+}
+EXPORT_SYMBOL_GPL(switch_usb_register_notifier);
+
+int switch_usb_unregister_notifier(struct notifier_block *nb)
+{
+	unsigned long flags;
+	int ret = -1;
+	if(p_switch_usb_info != NULL) {
+		spin_lock_irqsave(&p_switch_usb_info->reg_flag_lock, flags);
+		ret = atomic_notifier_chain_unregister(
+				&p_switch_usb_info->charger_type_notifier_head, nb);
+		spin_unlock_irqrestore(&p_switch_usb_info->reg_flag_lock, flags);
+	}
+	return ret;
+}
+EXPORT_SYMBOL_GPL(switch_usb_unregister_notifier);
+
 static int __init switch_usb_class_init(void)
 {
-    return create_switch_usb_class();
+	struct switch_usb_info *sui;
+
+	if(NULL == p_switch_usb_info)
+	{
+		sui = kzalloc(sizeof(struct switch_usb_info), GFP_KERNEL);
+		if(NULL == sui) {
+			pr_err("kzalloc failed!\n");
+			return -ENOMEM;
+		}
+		p_switch_usb_info = sui;
+		ATOMIC_INIT_NOTIFIER_HEAD(&sui->charger_type_notifier_head);
+		spin_lock_init(&sui->reg_flag_lock);
+	}
+
+	return create_switch_usb_class();
 }
 
 static void __exit switch_usb_class_exit(void)
 {
-    wake_lock_destroy(&usbsw_wakelock);
-    class_destroy(switch_usb_class);
+	struct switch_usb_info *sui = p_switch_usb_info;
+
+	class_destroy(switch_usb_class);
+
+	if(NULL != sui)
+	{
+		kfree(sui);
+		p_switch_usb_info = NULL;
+	}
 }
 
 module_init(switch_usb_class_init);

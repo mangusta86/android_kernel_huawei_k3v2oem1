@@ -7,9 +7,9 @@
 #ifndef BOARD_ID_H_
 #define BOARD_ID_H_
 
-#define CS_PHONE_ID	(0x67)
-#define PHONE_ID	(0x77)
-#define	PAD_ID		(0x80)
+#define CS_PHONE_ID	(0x48)
+#define PHONE_ID	(0x47)
+#define	PAD_ID		(0x47)
 #define PLATFORM_ID	(0x0)
 #define CS_PLATFORM_ID	(0x01)
 

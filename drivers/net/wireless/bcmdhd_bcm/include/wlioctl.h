@@ -24,7 +24,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: wlioctl.h 331292 2012-05-04 09:04:23Z $
+ * $Id: wlioctl.h 353331 2012-08-27 06:04:47Z $
  */
 
 
@@ -174,6 +174,12 @@ typedef struct wl_bss_config {
 	uint32  chanspec;
 } wl_bss_config_t;
 
+#define WL_BSS_FLAGS_FROM_BEACON	0x01
+#define WL_BSS_FLAGS_FROM_CACHE		0x02
+#define WL_BSS_FLAGS_RSSI_ONCHANNEL	0x04
+
+
+#define VHT_BI_SGI_80MHZ			0x00000100
 
 typedef struct wlc_ssid {
 	uint32      SSID_len;

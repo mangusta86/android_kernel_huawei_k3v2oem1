@@ -71,6 +71,7 @@ static struct usb_serial_driver hi_gs_device = {
 	.attach		     = usb_wwan_startup,
 	.disconnect	     = usb_wwan_disconnect,
 	.release	            = usb_wwan_release,
+	.ioctl               = usb_wwan_ioctl,
 	.bulk_out_size = USB_BULK_OUT_SIZE,
 #ifdef CONFIG_PM
 	.suspend	            = usb_wwan_suspend,

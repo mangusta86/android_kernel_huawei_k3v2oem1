@@ -23,15 +23,20 @@
 #include <linux/delay.h>
 #include <linux/init.h>
 #include <linux/workqueue.h>
+#include <linux/regulator/consumer.h>
 
 #include "timed_output.h"
 #include <linux/vibrator/k3_vibrator.h>
 #include <linux/io.h>
 #include <linux/ioport.h>
 #include <linux/clk.h>
+#include <hsad/config_interface.h>
 #ifdef CONFIG_ANDROID_K3_VIBRATOR_AUTO_CONTROL
 #include <linux/hkadc/hiadc_hal.h>
 #endif
+#define PMU_LDO12_CTRL	                (0xfe2d4000 + (0x02C<<2))
+#define HI6421_LDO_ENA					0x10		/* LDO_ENA */
+#define HI6421_LDO_ENA_MASK				0x10		/* LDO_MASK */
 
 struct k3_vibrator_data {
 	struct timed_output_dev dev;
@@ -49,9 +54,15 @@ struct k3_vibrator_data {
 #endif
 };
 
+static int motor_type=MOTOR_DEFAULT;
+
 struct k3_vibrator_data *k3_vibrator_pdata;
 static void k3_vibrator_onoff_handler(struct work_struct *data);
 static struct workqueue_struct *done_queue;
+
+static bool vib_reg_enabled=false;
+static int k3_vibrator_vout_number;
+static struct regulator *k3_vibrator_vout_reg=NULL;
 
 #ifdef CONFIG_ANDROID_K3_VIBRATOR_AUTO_CONTROL
 static unsigned long g_pre_set_time;
@@ -125,6 +136,9 @@ struct k3_vph_pwr_vol_vib_iset k3_vibrator_table_vbat[] = {
 	{4100, 0xf2},
 	{4150, 0xf1},
 	{4200, 0xef},
+	{4250, 0xed},// for 4.35V new battery
+	{4300, 0xec},
+	{4350, 0xeb},
 };
 
 /* Get the register of DR2_ISET */
@@ -167,11 +181,50 @@ static int k3_vibrator_get_iset_value(int test_voltage)
 }
 #endif
 
+void k3_vibrator_regulator_enable(void)
+{
+	int error;
+
+	if (true == vib_reg_enabled)
+		return ;
+
+	BUG_ON(IS_ERR(k3_vibrator_vout_reg));
+
+	error = regulator_enable(k3_vibrator_vout_reg);
+	if (error < 0) {
+		pr_err( "%s: failed to enable edge vibrator vdd\n", __func__);
+		return ;
+	}
+
+	vib_reg_enabled = true;
+	return ;
+}
+
+void k3_vibrator_regulator_disable(void)
+{
+	int error;
+
+	if (false == vib_reg_enabled)
+		return ;
+
+	BUG_ON(IS_ERR(k3_vibrator_vout_reg));
+
+	error = regulator_disable(k3_vibrator_vout_reg);
+	if (error < 0) {
+		pr_err( "%s: failed to disable edge vibrator vdd\n", __func__);
+		return ;
+	}
+
+	vib_reg_enabled = false;
+	return ;
+}
+
 static void k3_vibrator_onoff_handler(struct work_struct *data)
 {
 	struct k3_vibrator_data *pdata = k3_vibrator_pdata;
 	int on = pdata->value;
 	int ret = 0;
+	u32 tmp;
 	mutex_lock(&pdata->lock);
 	ret = clk_enable(pdata->clk);
 	if (ret) {
@@ -186,9 +239,25 @@ static void k3_vibrator_onoff_handler(struct work_struct *data)
 #else
 		k3_vibrator_reg_write(pdata->power, DR2_ISET);
 #endif
-		k3_vibrator_reg_write(pdata->freq | pdata->mode, DR2_CTRL);
+		switch(motor_type)
+		{
+			case MOTOR_LDO:
+				k3_vibrator_regulator_enable();
+				break;
+			default:
+				k3_vibrator_reg_write(pdata->freq | pdata->mode, DR2_CTRL);
+				break;
+		}
 	} else {
-		k3_vibrator_reg_write(DR2_DISABLE, DR2_CTRL);
+		switch(motor_type)
+		{
+			case MOTOR_LDO:
+				k3_vibrator_regulator_disable();
+				break;
+			default:
+				k3_vibrator_reg_write(DR2_DISABLE, DR2_CTRL);
+				break;
+		}
 	}
 	clk_disable(pdata->clk);
 	mutex_unlock(&pdata->lock);
@@ -253,11 +322,54 @@ static void k3_vibrator_enable(struct timed_output_dev *dev, int value)
 	}
 }
 
+int k3_vibrator_get_vout(struct platform_device *pdev){
+	char req_reg_name[32]={0};
+	int min_voltage=0;
+	int max_voltage=0;
+
+	k3_vibrator_vout_number = get_vibrator_vout_number();
+
+	if (-1 == k3_vibrator_vout_number){
+		pr_err( "%s: ldo motor get vibrator vout fail\n", __func__);
+		return -EPERM;
+	}
+
+	snprintf(req_reg_name, sizeof(req_reg_name),
+		"vdd-vib-ldo%d", k3_vibrator_vout_number);
+	k3_vibrator_vout_reg =
+	regulator_get(&pdev->dev, req_reg_name);
+
+	if (IS_ERR(k3_vibrator_vout_reg)){
+	pr_err( "%s: k3_vibrator_vout_reg error\n", __func__);
+		return -EPERM;
+	}
+
+	min_voltage = get_vibrator_vout_min_voltage();
+	max_voltage = get_vibrator_vout_max_voltage();
+
+	if (-1 == min_voltage || -1 == max_voltage) return 0;
+
+	if (regulator_set_voltage(k3_vibrator_vout_reg, min_voltage, max_voltage)){
+		pr_err( "%s: vibrator set voltage error\n", __func__);
+		return -EPERM;
+	}
+
+	return 0;
+}
+
 static int k3_vibrator_probe(struct platform_device *pdev)
 {
 	struct k3_vibrator_data *p_data;
 	struct resource *res;
 	int ret = 0;
+
+	if (MOTOR_LDO == motor_type){
+		ret = k3_vibrator_get_vout(pdev);
+		if (ret) {
+			dev_err(&pdev->dev, "failed to get vib vout\n");
+			return ret;
+		}
+	}
 
 	p_data = kzalloc(sizeof(struct k3_vibrator_data), GFP_KERNEL);
 	if (p_data == NULL) {
@@ -466,12 +578,34 @@ static struct platform_driver k3_vibrator_driver = {
 
 static int __init k3_vibrator_init(void)
 {
-	return platform_driver_register(&k3_vibrator_driver);
+    motor_type = get_motor_board_type();
+    switch(motor_type)
+    {
+        case MOTOR_DEFAULT:
+        case MOTOR_LDO:
+            return platform_driver_register(&k3_vibrator_driver);
+        default:
+            return -EPERM;
+    }
 }
 
 static void __exit k3_vibrator_exit(void)
 {
-	platform_driver_unregister(&k3_vibrator_driver);
+    switch(motor_type)
+    {
+        case MOTOR_DEFAULT:
+            platform_driver_unregister(&k3_vibrator_driver);
+            break;
+        case MOTOR_LDO:
+            k3_vibrator_vout_number = -1;
+            if (!IS_ERR(k3_vibrator_vout_reg))
+                regulator_put(k3_vibrator_vout_reg);
+
+            platform_driver_unregister(&k3_vibrator_driver);
+            break;
+        default:
+            break;
+    }
 }
 
 module_init(k3_vibrator_init);

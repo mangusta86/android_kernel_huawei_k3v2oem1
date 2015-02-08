@@ -646,7 +646,7 @@ static int mt9m114_update_flip(u16 width, u16 height)
 			reg |= 0x02;
 		mt9m114_sensor.old_flip = new_flip;
 		if(E_CAMERA_SENSOR_FLIP_TYPE_NONE == get_secondary_sensor_flip_type())
-		{ 
+		{
 			reg = reg & 0x03;
 		}
 		else
@@ -911,7 +911,7 @@ static int mt9m114_init(void)
 		}
 		mt9m114_check = true;
 	}
-	
+
 	if (mt9m114_sensor.owner && !try_module_get(mt9m114_sensor.owner)) {
 		print_error("%s: try_module_get fail", __func__);
 		return -ENOENT;

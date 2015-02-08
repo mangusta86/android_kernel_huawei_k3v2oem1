@@ -1,11 +1,11 @@
 /*
- * sonyimx134 sensor driver 
+ * sonyimx134 sensor driver
  *
  *  Author: 	Zhoujie (zhou.jie1981@163.com)
  *  Date:  	2013/02/21
  *  Version:	1.0
- *  History:	2013/02/21      Frist add driver for sonyimx134 
- *  
+ *  History:	2013/02/21      Frist add driver for sonyimx134
+ *
  * ----------------------------------------------------------------------------
  *
  * This program is free software; you can redistribute it and/or modify
@@ -54,7 +54,7 @@
 #include <linux/device.h>
 
 #define LOG_TAG "SONYIMX134_TUNE"
-//#define DEBUG_DEBUG 1 
+//#define DEBUG_DEBUG 1
 #include "../isp/cam_log.h"
 #include <../isp/cam_util.h>
 
@@ -80,7 +80,7 @@ void _sonyimx134_otp_get_vcm(u16 *vcm_start, u16 *vcm_end,vcm_info_s *vcm,u16 ot
 {
 	if (0 == otp_vcm_start) {
 		*vcm_start = vcm->infiniteDistance;
-	} else {	
+	} else {
 			//*vcm_start = sonyimx134_vcm_start;
 			 if (otp_vcm_start > vcm->startCurrentOffset)
 				*vcm_start = otp_vcm_start - vcm->startCurrentOffset;
@@ -94,7 +94,7 @@ void _sonyimx134_otp_get_vcm(u16 *vcm_start, u16 *vcm_end,vcm_info_s *vcm,u16 ot
 		*vcm_end = otp_vcm_end;
 	}
 
-	print_debug("%s, start: %#x, end: %#x", __func__, otp_vcm_start, otp_vcm_end);	
+	print_debug("%s, start: %#x, end: %#x", __func__, otp_vcm_start, otp_vcm_end);
 }
 //#endif
 

@@ -36,7 +36,7 @@ Problem NO.         Name        Time         Reason
 #define	LIS3DH_I2C_ADDR			0x18
 #define APDS990x_I2C_ADDR		0x39
 #define MMA8452_I2C_ADDR		0x1C
-#define L3G4200D_I2C_ADDR		0x6a//0x68//
+#define L3G4200D_I2C_ADDR		0x68
 #define TAOS_DEVICE_ADDR1		0x29
 #define TAOS_DEVICE_ADDR2		0x39
 #define TAOS_DEVICE_ADDR3		0x49
@@ -75,7 +75,7 @@ int set_sensor_chip_info(enum input_name name, const char *chip_info);
 int set_compass_selfTest_result(enum input_name name, const char *result);
 int set_gyro_selfTest_result(enum input_name name, const char *result);
 int set_selftest(int value);
-int set_selftest_lm330(int value);
+//int set_selftest_lm330(int value);
 
 
 #endif

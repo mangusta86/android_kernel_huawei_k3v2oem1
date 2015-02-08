@@ -309,9 +309,6 @@ static int mmc_read_switch(struct mmc_card *card)
 	if (status[13] & 0x02)
 		card->sw_caps.hs_max_dtr = 50000000;
 
-	if (status[13] & UHS_SDR50_BUS_SPEED)
-		card->sw_caps.hs_max_dtr = 50000000;
-
 	if (card->scr.sda_spec3) {
 		card->sw_caps.sd3_bus_mode = status[13];
 
@@ -1089,7 +1086,6 @@ static void mmc_sd_detect(struct mmc_host *host)
 
 		mmc_claim_host(host);
 		mmc_detach_bus(host);
-		mmc_power_off(host);
 		mmc_release_host(host);
 	}
 }
@@ -1188,6 +1184,11 @@ static void mmc_sd_attach_bus_ops(struct mmc_host *host)
 		bus_ops = &mmc_sd_ops;
 	mmc_attach_bus(host, bus_ops);
 }
+
+/*sdcard init status
+1 means sd card is inited success
+0 means sd card is bad or inited fail or sd-slot is not inserted on U9701L or sd card detect gpio error.*/
+int sdcard_init_status = 0;
 
 /*
  * Starting point for SD card init.
@@ -1291,6 +1292,8 @@ int mmc_attach_sd(struct mmc_host *host)
 	if (err)
 		goto remove_card;
 
+	sdcard_init_status = 1;
+
 	return 0;
 
 remove_card:
@@ -1303,6 +1306,8 @@ err:
 
 	printk(KERN_ERR "%s: error %d whilst initialising SD card\n",
 		mmc_hostname(host), err);
+
+	sdcard_init_status = 0;
 
 	return err;
 }

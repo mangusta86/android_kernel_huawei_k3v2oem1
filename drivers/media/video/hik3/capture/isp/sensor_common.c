@@ -238,11 +238,11 @@ u32 sensor_override_params[OVERRIDE_TYPE_MAX] = {
 	CAMERA_MAX_ISO,
 	CAMERA_MIN_ISO,
 
-	CAMERA_AUTOFPS_GAIN_LOW2MID,
-	CAMERA_AUTOFPS_GAIN_MID2HIGH,
-
 	CAMERA_AUTOFPS_GAIN_HIGH2MID,
 	CAMERA_AUTOFPS_GAIN_MID2LOW,
+
+	CAMERA_AUTOFPS_GAIN_LOW2MID,
+	CAMERA_AUTOFPS_GAIN_MID2HIGH,
 
 	CAMERA_MAX_FRAMERATE,
 	CAMERA_MIDDLE_FRAMERATE,
@@ -412,7 +412,7 @@ EXPORT_SYMBOL(get_camera_sensor);
 void set_camera_sensor(sensor_index_t sensor_index, camera_sensor *sensor)
 {
 	assert(sensor);
-	
+
 	if (CAMERA_SENSOR_PRIMARY == sensor_index)
 		primary_sensor = sensor;
 	else
@@ -744,7 +744,7 @@ int camera_power_core_ldo(camera_power_state power)
 			return -EINVAL;
 		}
 	}
-    
+
         if (NULL == gpio_main_core_ldo) {
 		gpio_main_core_ldo = iomux_get_pin(CAM_VCC_PIN);
 		if (!gpio_main_core_ldo) {
@@ -772,7 +772,7 @@ int camera_power_core_ldo(camera_power_state power)
 		ret = gpio_direction_output(GPIO_21_5, 1);
 		if (ret < 0)
 			print_error("fail to set GPIO_21_5 to 1");
-        
+
 		ret = pinmux_setpullupdown(gpio_slave_core_ldo, NOPULL);
 		if (ret < 0)
 			print_error("fail to set gpio_slave_core_ldo to NOPULL");

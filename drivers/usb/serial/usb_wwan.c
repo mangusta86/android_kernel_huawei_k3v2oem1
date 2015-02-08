@@ -58,6 +58,9 @@ static uint32_t usbserial_debugdirection = 0;       // define debug direction, i
 static uint32_t usbserial_debuggrade = 0;           //define debug grade, only print buffer len or buffer content
 static uint32_t usbserial_debugdepth = 0;           //define debug depth, only print AT content or all tty content
 
+#define NOTIFY_GET_INTF		0x6010
+#define NOTIFY_PUT_INTF		0x6011
+
 /*
  * Utility procedures to print a buffer in hex/ascii
  */
@@ -281,6 +284,17 @@ int usb_wwan_ioctl(struct tty_struct *tty,
 	case TIOCSSERIAL:
 		return set_serial_info(port,
 				       (struct serial_struct __user *) arg);
+
+        case NOTIFY_GET_INTF: {
+            pr_info("%s: enter usb_autopm_get_interface\n",__func__);
+            return usb_autopm_get_interface(port->serial->interface);
+        }
+
+        case NOTIFY_PUT_INTF:
+			pr_info("%s: enter usb_autopm_put_interface\n",__func__);
+            usb_autopm_put_interface(port->serial->interface);
+            return 0;
+
 	default:
 		break;
 	}
@@ -439,7 +453,7 @@ static void usb_wwan_indat_callback(struct urb *urb)
 			} else {
 				usb_mark_last_busy(port->serial->dev);
 			}
-		}else {
+		}else if (urb->actual_length) {
 			pr_info("%s: nonzero status: %d on endpoint %02x.\n",
 				__func__, status, endpoint);
 		}

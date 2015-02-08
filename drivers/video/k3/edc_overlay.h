@@ -156,4 +156,9 @@ void edc_overlay_compose_pre_unset(struct fb_info *info, int ndx);
 
 #endif //CONFIG_OVERLAY_COMPOSE
 
+#if defined(CONFIG_PARTIAL_UPDATES)
+void edc_fb_update_dirty(struct fb_var_screeninfo *var, struct fb_info *info, bool isfullscreen);
+bool edc_fb_check_region(struct k3_fb_data_type *k3fd);
+#endif
+
 #endif  /* EDC_OVERLAY_H  */

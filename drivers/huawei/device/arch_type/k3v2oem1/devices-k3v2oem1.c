@@ -299,8 +299,7 @@ void sensor_layout_init(void)
        compass_softiron_type = get_compass_softiron_type();
        g_compass_softiron_type = compass_softiron_type;
 	switch (sensor_type) {
-	//case E_SENSOR_TYPE_PHONE:
-        case E_SENSOR_TYPE_C9800D:
+	case E_SENSOR_TYPE_PHONE:
 		gs_platform_data.negate_x = 1;
 		gs_platform_data.negate_y = 1;
                 gs_platform_data.negate_z = 0;
@@ -315,56 +314,6 @@ void sensor_layout_init(void)
 		l3g4200d_gyr_platform_data.negate_x = 1;
 		l3g4200d_gyr_platform_data.negate_y = 1;
 		l3g4200d_gyr_platform_data.negate_z = 0;
-
-		break;
-	case E_SENSOR_TYPE_C9800D_V4:
-		gs_platform_data.negate_x = 0;
-		gs_platform_data.negate_y = 1;
-                gs_platform_data.negate_z = 1;
-		mma8452_platform_data.config_mxc_mma_position = 7;
-		adxl34x_default_init.config_adxl34x_position = 0;
-		#ifdef CONFIG_HUAWEI_FEATURE_SENSORS_AKM8975
-		compass_akm8975_platform_data.config_akm_position = 3;
-		#endif
-		#ifdef CONFIG_HUAWEI_FEATURE_SENSORS_AKM8963
-		compass_akm8963_platform_data.layout = 3;
-		#endif
-		l3g4200d_gyr_platform_data.negate_x = 1;
-		l3g4200d_gyr_platform_data.negate_y = 1;
-		l3g4200d_gyr_platform_data.negate_z = 0;
-
-		break;
-	case E_SENSOR_TYPE_T9800D:
-		gs_platform_data.negate_x = 0;
-		gs_platform_data.negate_y = 1;
-                gs_platform_data.negate_z = 1;
-		mma8452_platform_data.config_mxc_mma_position = 7;
-		adxl34x_default_init.config_adxl34x_position = 0;
-		#ifdef CONFIG_HUAWEI_FEATURE_SENSORS_AKM8975
-		compass_akm8975_platform_data.config_akm_position = 3;
-		#endif
-		#ifdef CONFIG_HUAWEI_FEATURE_SENSORS_AKM8963
-		compass_akm8963_platform_data.layout = 3;
-		#endif
-		l3g4200d_gyr_platform_data.negate_x = 0;
-		l3g4200d_gyr_platform_data.negate_y = 1;
-                l3g4200d_gyr_platform_data.negate_z = 1;
-		break;
-    case E_SENSOR_TYPE_U9800D:
-		gs_platform_data.negate_x = 0;
-		gs_platform_data.negate_y = 1;
-                gs_platform_data.negate_z = 1;
-		mma8452_platform_data.config_mxc_mma_position = 7;
-		adxl34x_default_init.config_adxl34x_position = 0;
-		#ifdef CONFIG_HUAWEI_FEATURE_SENSORS_AKM8975
-		compass_akm8975_platform_data.config_akm_position = 3;
-		#endif
-		#ifdef CONFIG_HUAWEI_FEATURE_SENSORS_AKM8963
-		compass_akm8963_platform_data.layout = 3;
-		#endif
-		l3g4200d_gyr_platform_data.negate_x = 1;
-		l3g4200d_gyr_platform_data.negate_y = 1;
-                l3g4200d_gyr_platform_data.negate_z = 0;
 		break;
 	case E_SENSOR_TYPE_PLATFORM:
 		gs_platform_data.negate_x = 0;
@@ -379,109 +328,6 @@ void sensor_layout_init(void)
 		#endif
 		l3g4200d_gyr_platform_data.negate_x = 0;
 		l3g4200d_gyr_platform_data.negate_y = 0;
-		break;
-        case E_SENSOR_TYPE_C9701L:
-		gs_platform_data.negate_x = 1;
-		gs_platform_data.negate_y = 1;
-                gs_platform_data.negate_z = 0;
-		mma8452_platform_data.config_mxc_mma_position = 1;
-		adxl34x_default_init.config_adxl34x_position = 0;
-		#ifdef CONFIG_HUAWEI_FEATURE_SENSORS_AKM8975
-		compass_akm8975_platform_data.config_akm_position = 3;
-		#endif
-		#ifdef CONFIG_HUAWEI_FEATURE_SENSORS_AKM8963
-		compass_akm8963_platform_data.layout = 7;
-		#endif
-              #ifdef CONFIG_HUAWEI_FEATURE_SENSORS_YAMAHA_COMPASS
-		yamaha_compass_platform_data.layout = 7;
-		#endif
-		l3g4200d_gyr_platform_data.negate_x = 1;
-		l3g4200d_gyr_platform_data.negate_y = 1;
-		l3g4200d_gyr_platform_data.negate_z = 0;
-
-		break;
-        case E_SENSOR_TYPE_U9700L:
-		gs_platform_data.negate_x = 0;
-		gs_platform_data.negate_y = 1;
-                gs_platform_data.negate_z = 1;
-		mma8452_platform_data.config_mxc_mma_position = 7;
-		adxl34x_default_init.config_adxl34x_position = 0;
-		#ifdef CONFIG_HUAWEI_FEATURE_SENSORS_AKM8975
-		compass_akm8975_platform_data.config_akm_position = 3;
-		#endif
-		#ifdef CONFIG_HUAWEI_FEATURE_SENSORS_AKM8963
-		compass_akm8963_platform_data.layout = 3;
-		#endif
-              #ifdef CONFIG_HUAWEI_FEATURE_SENSORS_YAMAHA_COMPASS
-		yamaha_compass_platform_data.layout = 3;
-		#endif
-		l3g4200d_gyr_platform_data.negate_x = 0;
-		l3g4200d_gyr_platform_data.negate_y = 1;
-                l3g4200d_gyr_platform_data.negate_z = 1;
-		break;
-	case E_SENSOR_TYPE_UEDGE:
-		#ifdef CONFIG_HUAWEI_FEATURE_SENSORS_ACC_GYRO_LSM330
-		lsm330_acc_pdata.axis_map_x = 1,
-		lsm330_acc_pdata.axis_map_y = 0,
-		lsm330_acc_pdata.axis_map_z = 2,
-		lsm330_acc_pdata.negate_x = 0,
-		lsm330_acc_pdata.negate_y = 1,
-		lsm330_acc_pdata.negate_z = 0,
-		lsm330_gyr_pdata.axis_map_x =1,
-		lsm330_gyr_pdata.axis_map_y = 0,
-		lsm330_gyr_pdata.axis_map_z = 2,
-		lsm330_gyr_pdata.negate_x = 0,
-		lsm330_gyr_pdata.negate_y = 0,
-		lsm330_gyr_pdata.negate_z = 0,
-                  #endif
-		gs_platform_data.axis_map_x = 1,
-		gs_platform_data.axis_map_y = 0,
-		gs_platform_data.axis_map_z = 2,
-		gs_platform_data.negate_x = 0;
-		gs_platform_data.negate_y = 0;
-		gs_platform_data.negate_z = 1;
-		mma8452_platform_data.config_mxc_mma_position = 6;
-		#ifdef CONFIG_HUAWEI_FEATURE_SENSORS_AKM8963
-		compass_akm8963_platform_data.layout = 4;
-		#endif
-                  #ifdef CONFIG_HUAWEI_FEATURE_SENSORS_YAMAHA_COMPASS
-		yamaha_compass_platform_data.layout = 0;
-		#endif
-		l3g4200d_gyr_platform_data.negate_x = 0;
-		l3g4200d_gyr_platform_data.negate_y = 0;
-                  l3g4200d_gyr_platform_data.negate_z = 0;
-		break;
-	case E_SENSOR_TYPE_CEDGE:
-		#ifdef CONFIG_HUAWEI_FEATURE_SENSORS_ACC_GYRO_LSM330
-                  lsm330_acc_pdata.axis_map_x = 0,
-		lsm330_acc_pdata.axis_map_y = 1,
-		lsm330_acc_pdata.axis_map_z = 2,
-		lsm330_acc_pdata.negate_x = 0,
-		lsm330_acc_pdata.negate_y = 1,
-		lsm330_acc_pdata.negate_z = 1,
-		lsm330_gyr_pdata.axis_map_x =0,
-		lsm330_gyr_pdata.axis_map_y = 1,
-		lsm330_gyr_pdata.axis_map_z = 2,
-		lsm330_gyr_pdata.negate_x = 0,
-		lsm330_gyr_pdata.negate_y = 0,
-		lsm330_gyr_pdata.negate_z = 1,
-                  #endif
-		gs_platform_data.negate_x = 0;
-		gs_platform_data.negate_y = 1;
-                  gs_platform_data.negate_z = 1;
-		mma8452_platform_data.config_mxc_mma_position = 7;
-		#ifdef CONFIG_HUAWEI_FEATURE_SENSORS_AKM8963
-		compass_akm8963_platform_data.layout = 7;
-		#endif
-                  #ifdef CONFIG_HUAWEI_FEATURE_SENSORS_YAMAHA_COMPASS
-		yamaha_compass_platform_data.layout = 7;
-		#endif
-		l3g4200d_gyr_platform_data.axis_map_x = 0;
-		l3g4200d_gyr_platform_data.axis_map_y = 1;
-                  l3g4200d_gyr_platform_data.axis_map_z = 2;
-		l3g4200d_gyr_platform_data.negate_x = 0;
-		l3g4200d_gyr_platform_data.negate_y = 0;
-                  l3g4200d_gyr_platform_data.negate_z = 1;
 		break;
 	default:
 		pr_err("sensor_type unsupported\n");

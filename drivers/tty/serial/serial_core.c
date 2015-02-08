@@ -60,6 +60,12 @@ static void uart_change_speed(struct tty_struct *tty, struct uart_state *state,
 static void __uart_wait_until_sent(struct uart_port *port, int timeout);
 static void uart_change_pm(struct uart_state *state, int pm_state);
 
+extern void bluesleep_outgoing_data(void);
+extern void bluesleep_uart_open(struct uart_port * uport);
+extern void bluesleep_uart_close(struct uart_port* uport);
+extern void bluetoothpower_uart_open(struct uart_port * uport);
+extern void bluetoothpower_uart_close(struct uart_port* uport);
+
 /*
  * This routine is used by the interrupt handler to schedule processing in
  * the software interrupt portion of the driver.
@@ -519,6 +525,12 @@ static int uart_write(struct tty_struct *tty,
 
 	if (!circ->buf)
 		return 0;
+
+	if (tty->name && !strcmp(tty->name, "ttyAMA4"))
+	{
+		//printk(KERN_INFO "outgoing data, IN tty->name is [%s]\n", tty->name);
+		bluesleep_outgoing_data();
+	}
 
 	spin_lock_irqsave(&port->lock, flags);
 	while (1) {
@@ -1269,6 +1281,12 @@ static void uart_close(struct tty_struct *tty, struct file *filp)
 
 	pr_debug("uart_close(%d) called\n", uport->line);
 
+	if (tty->name && !strcmp(tty->name, "ttyAMA4"))
+	{
+		printk(KERN_INFO "uart close, tty->name is [%s]\n", tty->name);
+		bluesleep_uart_close(uport);
+	}
+
 	mutex_lock(&port->mutex);
 	spin_lock_irqsave(&port->lock, flags);
 
@@ -1584,6 +1602,12 @@ static int uart_open(struct tty_struct *tty, struct file *filp)
 	mutex_unlock(&port->mutex);
 	if (retval == 0)
 		retval = tty_port_block_til_ready(port, tty, filp);
+
+	if (tty->name && !strcmp(tty->name, "ttyAMA4"))
+	{
+		printk(KERN_INFO "uart open, tty->name is [%s]\n", tty->name);
+		bluesleep_uart_open(state->uart_port);
+	}
 
 fail:
 	return retval;
@@ -1920,8 +1944,6 @@ int uart_suspend_port(struct uart_driver *drv, struct uart_port *uport)
 		mutex_unlock(&port->mutex);
 		return 0;
 	}
-	put_device(tty_dev);
-
 	if (console_suspend_enabled || !uart_console(uport))
 		uport->suspended = 1;
 
@@ -1987,11 +2009,9 @@ int uart_resume_port(struct uart_driver *drv, struct uart_port *uport)
 			disable_irq_wake(uport->irq);
 			uport->irq_wake = 0;
 		}
-		put_device(tty_dev);
 		mutex_unlock(&port->mutex);
 		return 0;
 	}
-	put_device(tty_dev);
 	uport->suspended = 0;
 
 	/*
@@ -2010,8 +2030,6 @@ int uart_resume_port(struct uart_driver *drv, struct uart_port *uport)
 		if (port->tty && port->tty->termios && termios.c_cflag == 0)
 			termios = *(port->tty->termios);
 
-		if (console_suspend_enabled)
-			uart_change_pm(state, 0);
 		uport->ops->set_termios(uport, &termios, NULL);
 		if (console_suspend_enabled)
 			console_start(uport->cons);
@@ -2332,7 +2350,6 @@ void uart_unregister_driver(struct uart_driver *drv)
 	tty_unregister_driver(p);
 	put_tty_driver(p);
 	kfree(drv->state);
-	drv->state = NULL;
 	drv->tty_driver = NULL;
 }
 

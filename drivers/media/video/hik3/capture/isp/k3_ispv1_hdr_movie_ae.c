@@ -802,6 +802,8 @@ int ispv1_get_hdr_movie_ae_running_param(hdr_ae_volatile_param * output_param)
 	int ae_target = 0;
 	unsigned int tmp[HDR_STATS_ARRAY_SIZE] = {0};
 	u32 stats_sum = 0;
+
+	memset(&lux_matrix, 0, sizeof(lux_stat_matrix_tbl));
 	if(this_ispdata->hdr_switch_on == false)
 	{
 		output_param->ae_mean = 1;
