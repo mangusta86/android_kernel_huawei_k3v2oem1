@@ -69,7 +69,7 @@
 #include <mach/sound/tpa2028_spk_l.h>
 #include <mach/sound/tpa2028_spk_r.h>
 #include <mach/sound/tpa6132.h>
-#include <mach/sound/spk_5vboost.h>
+
 #include <mach/sound/es305.h>
 #include <mach/sound/modemctl.h>
 #include <mach/sound/tfa9887.h>
@@ -109,9 +109,6 @@
 #include <linux/cyttsp4_core.h>
 #include <linux/cyttsp4_btn.h>
 #include <linux/cyttsp4_mt.h>
-
-#define GPIO_LOW		0
-#define GPIO_HIGH		1
 
 #ifdef CONFIG_TOUCHSCREEN_CYPRESS_CYTTSP4_INCLUDE_FW
 #include <linux/cyttsp4_img.h>
@@ -217,13 +214,18 @@ static struct cyttsp4_loader_platform_data _cyttsp4_loader_platform_data = {
 #define CY_IGNORE_VALUE 0xFFFF
 /* Cypress cyttsp4 end */
 
-#define	GPIO_BT_EN					(GPIO_21_1)
+//#define	GPIO_BT_EN					(GPIO_21_1)
 #define	GPIO_BT_RST					(GPIO_21_0)
 #define	GPIO_HOST_WAKEUP			(GPIO_20_6)
 #define	GPIO_DEV_WAKEUP				(GPIO_20_7)
 
 #define	REGULATOR_DEV_BLUETOOTH_NAME	"bt-io"
 
+//#define	GPIO_BT_EN					(GPIO_21_1)   
+//#define	GPIO_BT_RST					(GPIO_21_0)	
+//#define	GPIO_HOST_WAKEUP			(GPIO_20_6) 
+//#define	GPIO_DEV_WAKEUP				(GPIO_20_7) 
+#define	GPIO_BT_EN					(GPIO_21_1)		
 #include <linux/skbuff.h>
 #include <linux/ti_wilink_st.h>
 //#define	REGULATOR_DEV_BLUETOOTH_NAME	"bt-io"    
@@ -269,7 +271,6 @@ static struct cyttsp4_loader_platform_data _cyttsp4_loader_platform_data = {
 #define GPIO_GPS_BCM_EN_NAME    "gpio_gps_bcm_enable"
 #define GPIO_GPS_BCM_RET_NAME   "gpio_gps_bcm_rest"
 /* End: Added by d59977 for BCM GPS */
-
 /* Begin: Added for agps e911 */
 #define GPIO_GPS_BCM_REFCLK (GPIO_19_1)     /*GPIO_153*/
 #define GPIO_GPS_BCM_REFCLK_NAME   "gpio_gps_bcm_refclk"
@@ -568,12 +569,12 @@ static struct usb_switch_platform_data usw_plat_data = {
 		.control_gpio2	= USB_SWITCH_CTRL_GPIO2,
 		.control_gpio1_boot_ap_value = GPIO_LOW,
 		.control_gpio2_boot_ap_value = GPIO_LOW,
-		.control_gpio1_off_value = GPIO_HIGH,
-		.control_gpio2_off_value = GPIO_HIGH,
-		.control_gpio1_modem1_value = GPIO_HIGH,
+		.control_gpio1_off_value = GPIO_HI,
+		.control_gpio2_off_value = GPIO_HI,
+		.control_gpio1_modem1_value = GPIO_HI,
 		.control_gpio2_modem1_value = GPIO_LOW,
 		.control_gpio1_mhl_value = GPIO_LOW,
-		.control_gpio2_mhl_value = GPIO_HIGH,
+		.control_gpio2_mhl_value = GPIO_HI,
 		.irq_flags      = IRQ_TYPE_EDGE_RISING,
 };
 
@@ -876,6 +877,18 @@ static struct resource hisik3_gpio_keypad_resources[] = {
 		.end = IRQ_GPIO(GPIO_17_2),
 		.flags = IORESOURCE_IRQ,
 	},
+#ifndef CONFIG_MATE_NFC_GPIO
+	[3] = {
+		.start = IRQ_GPIO(GPIO_17_6),
+		.end = IRQ_GPIO(GPIO_17_6),
+		.flags = IORESOURCE_IRQ,
+	},
+	[4] = {
+		.start = IRQ_GPIO(GPIO_17_7),
+		.end = IRQ_GPIO(GPIO_17_7),
+		.flags = IORESOURCE_IRQ,
+	},
+#endif
 };
 
 static struct platform_device hisik3_gpio_keypad_device = {
@@ -1654,6 +1667,80 @@ static struct rmi_device_platform_data syna_platformdata ={
 };
 #endif
 
+/*NFC pn544 gpio setup*/
+#ifdef CONFIG_MATE_NFC_GPIO
+static int nfc_gpio_setup (void *gpio_data, bool configure) {
+        int retval = 0;
+
+	 retval = gpio_request(NFC_CLK_REQ, "nfc_clk_req");
+        if (retval) {
+            pr_err("%s: Failed to get nfc_clk_req gpio %d. Code: %d.",
+                   __func__, NFC_CLK_REQ, retval);
+            return retval;
+        }
+
+        retval = gpio_direction_input(NFC_CLK_REQ);
+        if (retval) {
+            pr_err("%s: Failed to setup nfc_clk_req gpio %d. Code: %d.",
+                   __func__, NFC_CLK_REQ, retval);
+            gpio_free(NFC_CLK_REQ);
+        }
+
+        retval = gpio_request(NFC_FIRM_DLOAD, "nfc_firm");
+        if (retval) {
+            pr_err("%s: Failed to get nfc_firm gpio %d. Code: %d.",
+                   __func__, NFC_FIRM_DLOAD, retval);
+            return retval;
+        }
+
+        retval = gpio_direction_output(NFC_FIRM_DLOAD,0);
+        if (retval) {
+            pr_err("%s: Failed to setup nfc_firm gpio %d. Code: %d.",
+                   __func__, NFC_FIRM_DLOAD, retval);
+            gpio_free(NFC_FIRM_DLOAD);
+        }
+
+
+        retval = gpio_request(NFC_1V8EN, "nfc_ven");
+        if (retval) {
+            pr_err("%s: Failed to get nfc_ven gpio %d. Code: %d.",
+                   __func__, NFC_1V8EN, retval);
+            return retval;
+        }
+
+        retval = gpio_direction_output(NFC_1V8EN,0);
+        if (retval) {
+            pr_err("%s: Failed to setup nfc_ven gpio %d. Code: %d.",
+                   __func__, NFC_1V8EN, retval);
+            gpio_free(NFC_1V8EN);
+        }
+
+        msleep (20);
+	retval = gpio_direction_output(NFC_1V8EN,1);
+        if (retval) {
+            pr_err("%s: Failed to setup nfc_ven gpio %d. Code: %d.",
+                   __func__, NFC_1V8EN, retval);
+            gpio_free(NFC_1V8EN);
+        }
+        msleep (10);
+
+      return retval;
+}
+
+
+static struct pn544_i2c_platform_data pn544_platform_data = {   
+
+	.irq_gpio = NFC_IRQ_MATE,
+	.ven_gpio = NFC_1V8EN,	
+	.firm_gpio = NFC_FIRM_DLOAD,    
+       .gpio_config = nfc_gpio_setup,
+};
+
+
+
+#endif
+
+
 /* Audience */
 
 static struct es305_platform_data audience_platform_data = {
@@ -1684,18 +1771,6 @@ static struct platform_device tpa6132_device = {
 	},
 };
 
-/* SPK_5VBOOST */
-static struct spk_5vboost_platform_data spk_5vboost_pdata = {
-	.gpio_5vboost_en    = GPIO_14_5,/* 117 */
-};
-
-static struct platform_device spk_5vboost_device = {
-	.name    = SPK_5VBOOST_NAME,
-	.id      = 0,
-	.dev     = {
-		.platform_data = &spk_5vboost_pdata,
-	},
-};
 
 static struct tps61310_platform_data tps61310_platform_data =
 {
@@ -1926,50 +2001,12 @@ static struct i2c_board_info hisik3_i2c_bus1_tpa2028_r[]= {
 };
 
 static struct i2c_board_info hisik3_i2c_tp_devs[]= {
-	/* Synaptics Touchscreen*/
-#if 0
-	[0] = {
-		.type		= SYNAPTICS_RMI4_NAME,
-		.addr		= SYNAPTICS_RMI4_I2C_ADDR,
-		/* Multi-touch support*/
-		.flags 		= true,
-		.platform_data 	= &synaptics_ts_platform_data,
-	},
-#endif
-
-#ifdef CONFIG_TOUCHSCREEN_RMI4_SYNAPTICS_GENERIC
 	/*Synaptics Touchscreen*/
 	[0]	=	{
 		.type			= SYNA_NAME,
 		.addr			= 0x70,
 		.flags 			= true,
 		.platform_data 	= &syna_platformdata,
-	},
-#endif
-#ifdef CONFIG_SYNAPTICS_TOUCH_KEY
-	[1]	=	{
-        .type			= TOUCHKEY_DEVICE_NAME,
-		.addr			= 0x2C,
-		.flags 			= true,
-		.platform_data 	= &syp_touchkey,
-	},
-#endif
-#if 0
-	/* Atmel mXT224E touchscreen*/
-	[1] = {
-		.type			= ATMEL_MXT224E_NAME,
-		.addr			= 0x4A,
-		.platform_data	= &atmel_tp_platform_data,
-	},
-
-#endif
-	/*TODO: add your device here*/
-
-//CYTTSP4_USE_I2C
-	[2] = {
-		I2C_BOARD_INFO(CYTTSP4_I2C_NAME, CYTTSP4_I2C_TCH_ADR),
-		.irq =  CYTTSP4_I2C_IRQ_GPIO,
-		.platform_data = CYTTSP4_I2C_NAME,
 	},
 };
 
@@ -1995,14 +2032,6 @@ static struct i2c_board_info hisik3_i2c_bus3_devs[]= {
 	},
 	#endif
 
-#if 0	/*TODO: add your device here*/
-	[2]	=	{
-        .type			= IRDA_NAME,
-		.addr			= 0x4D,
-		.flags 			= true,
-		.platform_data 	= NULL,
-	},
-#endif
 };
 
 #ifdef CONFIG_HUAWEI_HW_DEV_DCT
@@ -2035,7 +2064,6 @@ static struct platform_device *k3v2oem1_public_dev[] __initdata = {
 	&bcm_bluesleep_device,
 	&hisik3_power_key_device,
 	&tpa6132_device,
-	//&spk_5vboost_device,
 	&usb_switch_device,
 	&boardid_dev,
          &hisik3_watchdog_device,
@@ -2048,7 +2076,7 @@ static struct platform_device *k3v2oem1_public_dev[] __initdata = {
 static void k3v2_i2c_devices_init(void)
 {
 	const char str_tpa2028[] = "TPA2028";
-	const char str_tfa9887[] = "TFA9887";
+
 	/* Register devices on I2C Bus0 and Bus1*/
 	i2c_register_board_info(0, hisik3_i2c_bus0_devs,
 					ARRAY_SIZE(hisik3_i2c_bus0_devs));
@@ -2074,20 +2102,10 @@ static void __init k3v2oem1_init(void)
 {
 	unsigned int  index = 0;
 	unsigned int  board_type;
-	const char str_boost5v[] = "BOOST5V";
 	edb_trace(1);
 	k3v2_common_init();
-
-
-#ifdef CONFIG_LEDS_K3_6421
 		hi6421_led_device.dev.platform_data = &hi6421_leds_phone;
-#endif
-
 	platform_add_devices(k3v2oem1_public_dev, ARRAY_SIZE(k3v2oem1_public_dev));
-
-	if(get_spk_pa(str_boost5v) == true) {
-		platform_device_register(&spk_5vboost_device);
-	}
 	k3v2_i2c_devices_init();
 #ifndef CONFIG_RMI4_VIRTUAL_BUTTON
 	synaptics_virtual_keys_init();
@@ -2105,8 +2123,6 @@ static void __init k3v2_early_init(void)
 {
 	int chip_id = 0;
 	k3v2_init_clock();
-	chip_id = get_chipid();
-	if (chip_id == CS_CHIP_ID) {
 #ifdef CONFIG_SUPPORT_B3750000_BITRATE
 	    if(get_if_use_3p75M_uart_clock())
 		{
@@ -2116,7 +2132,6 @@ static void __init k3v2_early_init(void)
 		else
 #endif
 		k3v2_clk_init_from_table(common_clk_init_table_cs);
-	} 
 }
 
 static void __init k3v2_map_io(void)

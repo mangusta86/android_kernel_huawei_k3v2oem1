@@ -60,6 +60,11 @@ static struct wake_lock wake_host_lock;
 static struct modem_boot_device *modem_device = NULL;
 static volatile int modem_in_state_change = 0;
 
+#ifdef CONFIG_ENABLE_K3V2_UART_SLEEP_CONTROL_FOR_D2
+extern void amba_pl011_port_runtime_disable_by_cp(void);
+extern void amba_pl011_port_runtime_enable_by_cp(void);
+#endif
+
 /* Do CP power on */
 static void modem_boot_power_on(void)
 {
@@ -275,8 +280,12 @@ static DEVICE_ATTR(gpio, S_IRUGO | S_IWUSR, modem_gpio_get, modem_gpio_set);
 static irqreturn_t host_wakeup_isr(int irq, void *dev_id)
 {
     int val = gpio_get_value(GPIO_WAKEUP_HOST);
-    if (val)
+    if (val) {
         printk(KERN_INFO"qsc6085 Host wakeup rising[%d]\n", gpio_wake_host_state);
+#ifdef CONFIG_ENABLE_K3V2_UART_SLEEP_CONTROL_FOR_D2
+        amba_pl011_port_runtime_disable_by_cp();
+#endif
+    }
     else
     {
         printk(KERN_INFO"qsc6085 Host wakeup falling[%d]\n", gpio_wake_host_state);
@@ -287,6 +296,9 @@ static irqreturn_t host_wakeup_isr(int irq, void *dev_id)
            gpio_set_value(GPIO_WAKEUP_SLAVE, 0);
         }
         wake_lock_timeout(&wake_host_lock, 2 * HZ);
+#ifdef CONFIG_ENABLE_K3V2_UART_SLEEP_CONTROL_FOR_D2
+        amba_pl011_port_runtime_enable_by_cp();
+#endif
     }
     gpio_wake_host_state = val;
    return IRQ_HANDLED;

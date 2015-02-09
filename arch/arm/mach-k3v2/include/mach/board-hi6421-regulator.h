@@ -40,7 +40,7 @@ static struct regulator_consumer_supply ldo5_consumers[] = {
 static struct regulator_consumer_supply ldo6_consumers[] = {
 	REGULATOR_SUPPLY("io-vcc", "io"),
 	//REGULATOR_SUPPLY("ts-vdd", "synaptics-ts"),
-	REGULATOR_SUPPLY("tsanalog-Platform-vcc", "atmel-ts"),
+	REGULATOR_SUPPLY("tsanalog-Platform-vcc", "atmel-ts"),    
 };
 static struct regulator_consumer_supply ldo7_consumers[] = {
 	REGULATOR_SUPPLY("sdio-vcc", "hi_mci.0"),
@@ -53,7 +53,7 @@ static struct regulator_consumer_supply ldo9_consumers[] = {
 };
 static struct regulator_consumer_supply ldo10_consumers[] = {
 	REGULATOR_SUPPLY("btrf-vcc", "btrf"),
-	REGULATOR_SUPPLY("pa-vcc", "pa"),
+	REGULATOR_SUPPLY("pa-vcc", "pa"),  
 };
 static struct regulator_consumer_supply ldo11_consumers[] = {
 	REGULATOR_SUPPLY("gpsrf-vcc", "gpsrf"),

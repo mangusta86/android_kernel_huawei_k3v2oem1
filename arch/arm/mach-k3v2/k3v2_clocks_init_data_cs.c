@@ -14,13 +14,13 @@ struct k3v2_clk_init_table common_clk_init_table_cs[] = {
 	/* name		parent		rate		enabled */
 	{ "clk_uart4",          "clk_cfgaxi",    CFGAXI_NORMAL_RATE,       0},
 	{ "clk_uart2",          "clk_cfgaxi",    CFGAXI_NORMAL_RATE,       0},
-//	{ "clk_uart1",          "clk_cfgaxi",    CFGAXI_NORMAL_RATE,       0},
+	{ "clk_uart1",          "clk_cfgaxi",    CFGAXI_NORMAL_RATE,       0},
 	/*
 	 *the pmu registers will be visited after suspend by the irq of power key,
 	 *the pmuspi clock must be enabled all the time.
 	 */
 	{ "clk_pmuspi",	NULL,		0,		1},
-//	{ "clk_pmu32kb",	NULL,		0,		1},
+	{ "clk_pmu32kb",	NULL,		0,		1},
 	{ "clk_ldi1",		"clk_pll4",		198000000,	0},
 	{ "clk_acp",		NULL,		0,		1},
 	{ "clk_mmc3",		NULL,	0,	0},

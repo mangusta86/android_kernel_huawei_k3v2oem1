@@ -766,7 +766,7 @@ static int lsm330_gyr_enable(struct lsm330_gyr_status *stat)
 			atomic_set(&stat->enabled, 0);
 			return err;
 		}
-
+		msleep(400);
 		schedule_delayed_work(&stat->input_work,
 				msecs_to_jiffies(stat->pdata->poll_interval));
 	}

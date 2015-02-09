@@ -321,6 +321,7 @@ CONFIG_PMEM_ALTERNATIVES=y
 CONFIG_PMEM_HIGPU_BUF_SIZE=128
 CONFIG_PMEM_GRALLOC_SIZE=60
 CONFIG_PMEM_CODEC_SIZE=0
+CONFIG_PMEM_OVERLAY_SIZE=72
 CONFIG_MAX_TTY_BUFFER=2097152
 CONFIG_SUPPORT_B3750000_BITRATE=y
 # CONFIG_ENABLE_K3V2_UART_SLEEP_CONTROL_FOR_D2 is not set
@@ -444,9 +445,9 @@ CONFIG_ARM_FLUSH_CONSOLE_ON_RESTART=y
 # CONFIG_USE_OF is not set
 CONFIG_ZBOOT_ROM_TEXT=0x0
 CONFIG_ZBOOT_ROM_BSS=0x0
-CONFIG_CMDLINE="vmalloc=384M k3v2_pmem=1 mmcparts=mmcblk0:p1(xloader),p3(nvme),p4(misc),p5(splash),p6(oeminfo),p7(reserved1),p8(reserved2),p9(recovery2),p10(recovery),p11(boot),p12(modemimage),p13(modemnvm1),p14(modemnvm2),p15(system),p16(cache),p17(cust),p18(userdata);mmcblk1:p1(ext_sdcard)"
-# CONFIG_CMDLINE_FROM_BOOTLOADER is not set
-CONFIG_CMDLINE_EXTEND=y
+CONFIG_CMDLINE="console=ttyAMA4,115200 k3v2_pmem=1 root=/dev/mmcblk0p2 rootfstype=ext2 rw init=/init"
+CONFIG_CMDLINE_FROM_BOOTLOADER=y
+# CONFIG_CMDLINE_EXTEND is not set
 # CONFIG_CMDLINE_FORCE is not set
 # CONFIG_XIP_KERNEL is not set
 # CONFIG_KEXEC is not set

@@ -35,15 +35,10 @@
 #include <linux/synaptics_i2c_rmi4.h>
 #endif
 #include <linux/i2c.h>
-#if 0
-#include <linux/power/bq27510_battery.h>
-#include <linux/power/bq2419x_charger.h>
-#include <linux/power/bq_bci_battery.h>
-#endif
+
 #include <linux/power/k3_bq24161.h>
 #include <linux/power/k3_bq27510.h>
 #include <linux/power/k3_battery_monitor.h>
-//#endif
 #include <linux/mhl/mhl.h>
 
 #include <linux/hkadc/hiadc_hal.h>
@@ -99,9 +94,7 @@
 #define	GPIO_BT_RST					(GPIO_21_0)
 #define	GPIO_HOST_WAKEUP			(GPIO_20_6)
 #define	GPIO_DEV_WAKEUP				(GPIO_20_7)
-//#define	GPIO_BT_EN					(GPIO_21_1)	
 #include <linux/skbuff.h>
-//#include <linux/ti_wilink_st.h>
 #define	REGULATOR_DEV_BLUETOOTH_NAME	"bt-io"
 
 /* for framebuffer */
@@ -143,15 +136,10 @@
 #define GPIO_GPS_BCM_EN_NAME    "gpio_gps_bcm_enable"
 #define GPIO_GPS_BCM_RET_NAME   "gpio_gps_bcm_rest"
 /* End: Added by d59977 for BCM GPS */
-
-#define GPIO_LOW		0
-#define GPIO_HIGH		1
-
 /* Begin: Added for agps e911 */
 #define GPIO_GPS_BCM_REFCLK (GPIO_19_1)     /*GPIO_153*/
 #define GPIO_GPS_BCM_REFCLK_NAME   "gpio_gps_bcm_refclk"
 /* End: Added for agps e911 */
-
 
 static struct resource k3_adc_resources = {
 	.start	= REG_BASE_PMUSPI,
@@ -422,12 +410,12 @@ static struct usb_switch_platform_data usw_plat_data = {
 		.control_gpio2	= USB_SWITCH_CTRL_GPIO2,
 		.control_gpio1_boot_ap_value = GPIO_LOW,
 		.control_gpio2_boot_ap_value = GPIO_LOW,
-		.control_gpio1_off_value = GPIO_HIGH,
-		.control_gpio2_off_value = GPIO_HIGH,
-		.control_gpio1_modem1_value = GPIO_HIGH,
+		.control_gpio1_off_value = GPIO_HI,
+		.control_gpio2_off_value = GPIO_HI,
+		.control_gpio1_modem1_value = GPIO_HI,
 		.control_gpio2_modem1_value = GPIO_LOW,
 		.control_gpio1_mhl_value = GPIO_LOW,
-		.control_gpio2_mhl_value = GPIO_HIGH,
+		.control_gpio2_mhl_value = GPIO_HI,
 		.irq_flags      = IRQ_TYPE_EDGE_RISING,
 };
 
@@ -1322,7 +1310,6 @@ static struct k3_bq24161_platform_data k3_bq24161_data =
 	.max_charger_voltagemV = 4200,
 	.gpio = BQ24161_GPIO_074,
 };
-//#endif
 
 #ifdef MHL_SII9244
 static struct mhl_platform_data k3_mhl_data =
@@ -1335,21 +1322,12 @@ static struct mhl_platform_data k3_mhl_data =
 
 /* please add i2c bus 1 devices here */
 static struct i2c_board_info hisik3_i2c_bus1_devs[]= {
-#if 0
-	[0]	=	{
-		.type = "bq2419x_charger",
-		.addr = I2C_ADDR_BQ24192,
-		.platform_data = &bq2419x_data,
-		.irq = GPIO_0_5,
-	},
-#endif
 	[0]	=	{
 		.type			= "k3_bq24161_charger",
 		.addr			= I2C_ADDR_BQ24161,
 		.platform_data 	= &k3_bq24161_data,
 		.irq				= GPIO_0_5,
 	},
-
 	[1]	=	{
 		.type			= "bq27510-battery",
 		.addr			= I2C_ADDR_BQ27510,
@@ -1396,48 +1374,14 @@ static struct i2c_board_info hisik3_i2c_bus1_devs[]= {
 	},
 #else
     /*TODO: add your device here*/
-#endif
-    /* felica cen ak6921af */
-#ifdef CONFIG_HUAWEI_FEATURE_FELICA_AK6921AF    
-	{
-		.type			= AK6921AF_NAME, 
-		.addr			= AK6921AF_I2C_ADDR,		
-	},
-#endif    
-	
+#endif 
 };
 
-static struct i2c_board_info hisik3_i2c1_tp_devs[]= {
-	/* Atmel mXT224E touchscreen*/
-	[0] = 	{
-		.type			= ATMEL_MXT224E_NAME,
-		.addr			= 0x4A,
-		.platform_data	= &atmel_tp_platform_data,
-	},
-	/*TODO: add your device here*/
-#ifdef CONFIG_TOUCH_INPUT_SYNAPTICS_RMI4
-	/* Synaptics Touchscreen*/
-	[1] = {
-		.type		= SYNAPTICS_RMI4_NAME,
-		.addr		= SYNAPTICS_RMI4_I2C_ADDR,
-		/* Multi-touch support*/
-		.flags 		= true,
-		.platform_data 	= &synaptics_ts_platform_data,
-	},
-#endif
-};
 
 static struct i2c_board_info hisik3_i2c2_tp_devs[]= {
-	/* Atmel mXT224E touchscreen*/
-	[0] = 	{
-		.type			= ATMEL_MXT224E_NAME,
-		.addr			= 0x4A,
-		.platform_data	= &atmel_tp_platform_data,
-	},
-	/*TODO: add your device here*/
 #ifdef CONFIG_TOUCHSCREEN_RMI4_SYNAPTICS_GENERIC
 	/*Synaptics Touchscreen*/
-	[1] = {
+	[0] = {
 		.type			= SYNA_NAME,
 		.addr			= 0x70,
 		.flags 			= true,
@@ -1446,7 +1390,7 @@ static struct i2c_board_info hisik3_i2c2_tp_devs[]= {
 #else
 	#ifdef CONFIG_TOUCH_INPUT_SYNAPTICS_RMI4
 	/* Synaptics Touchscreen*/
-	[1] = {
+	[0] = {
 		.type		= SYNAPTICS_RMI4_NAME,
 		.addr		= SYNAPTICS_RMI4_I2C_ADDR,
 		/* Multi-touch support*/
@@ -1505,8 +1449,6 @@ static void k3v2_i2c_devices_init(void)
 					ARRAY_SIZE(hisik3_i2c_bus1_devs));
 
 	/*Some board, TP is register on I2C1,but some on I2C2,so register both*/
-	i2c_register_board_info(1, hisik3_i2c1_tp_devs,
-					ARRAY_SIZE(hisik3_i2c1_tp_devs));
 	i2c_register_board_info(2, hisik3_i2c2_tp_devs,
 					ARRAY_SIZE(hisik3_i2c2_tp_devs));
 
@@ -1524,10 +1466,8 @@ static void __init k3v2oem1_init(void)
 {
 	unsigned int  index = 0;
 
-
 	edb_trace(1);
 	k3v2_common_init();
-
 #ifdef CONFIG_LEDS_K3_6421
 		hi6421_led_device.dev.platform_data = &hi6421_leds_phone;
 #endif
